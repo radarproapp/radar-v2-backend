@@ -1,0 +1,105 @@
+﻿@page "/ask"
+@rendermode InteractiveServer
+@inherits RadarV2.Components.Base.SessionAwareBase
+@inject IAskRadarService AskService
+
+<PageTitle>Ask Radar</PageTitle>
+
+<div class="r-page">
+    <div class="r-page-head">
+        <h1 class="r-page-title">Ask Radar</h1>
+        <p class="r-page-sub">Explains, summarises, compares, recommends and finds resources — grounded in your profile.</p>
+    </div>
+
+    <!-- Tabs -->
+    <div class="ask-tabs">
+        <button class="r-chip @(_tab == "ask" ? "active" : "")" @onclick='() => _tab = "ask"'>Ask Radar</button>
+        <button class="r-chip" @onclick='() => Nav.NavigateTo("/mentor")'>Learning Mentor â†’</button>
+    </div>
+
+    <!-- Suggestions (shown when no messages yet) -->
+    @if (_messages.Count == 0)
+    {
+        <div class="ask-suggestions">
+            <div class="ask-suggestions-label">TRY ASKING</div>
+            @foreach (var suggestion in Suggestions)
+            {
+                <button class="ask-suggestion-item" @onclick="() => UseSuggestion(suggestion)">
+                    @suggestion
+                </button>
+            }
+        </div>
+    }
+
+    <!-- Chat messages -->
+    @if (_messages.Count > 0)
+    {
+        <div class="ask-messages">
+            @foreach (var msg in _messages)
+            {
+                <div class="ask-msg @(msg.Role == "user" ? "ask-msg--user" : "ask-msg--assistant")">
+                    @msg.Content
+                </div>
+            }
+            @if (_thinking)
+            {
+                <div class="ask-msg ask-msg--assistant">
+                    <div class="r-spinner r-spinner--sm"></div>
+                </div>
+            }
+        </div>
+    }
+
+    <!-- Input bar -->
+    <div class="ask-input-row">
+        <textarea class="ask-input-field" rows="1"
+                  placeholder="Ask Radar anything..."
+                  @bind="_inputText"
+                  @onkeydown="HandleKey"></textarea>
+        <button class="ask-send-btn" @onclick="SendAsync" disabled="@(_thinking || string.IsNullOrWhiteSpace(_inputText))">
+            â†’
+        </button>
+    </div>
+</div>
+
+@code {
+    private string _tab = "ask";
+    private string _inputText = "";
+    private bool _thinking;
+    private readonly List<ChatMessage> _messages = [];
+
+    private static readonly string[] Suggestions =
+    [
+        "What should I do today to get closer to my goal?",
+        "Which of my missing skills matters most right now?",
+        "Summarise the best thing in my feed this week.",
+        "Recommend a resource for Artificial Intelligence.",
+    ];
+
+
+    private async Task UseSuggestion(string text)
+    {
+        _inputText = text;
+        await SendAsync();
+    }
+
+    private async Task HandleKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey)
+            await SendAsync();
+    }
+
+    private async Task SendAsync()
+    {
+        var text = _inputText.Trim();
+        if (string.IsNullOrWhiteSpace(text)) return;
+
+        _messages.Add(new ChatMessage { Role = "user", Content = text });
+        _inputText = "";
+        _thinking = true;
+
+        var response = await AskService.SendMessageAsync(Profile!.Id, text, _messages);
+        _messages.Add(response);
+        _thinking = false;
+    }
+}

@@ -1,0 +1,160 @@
+﻿@page "/topic/{TopicId}"
+@rendermode InteractiveServer
+@inherits RadarV2.Components.Base.SessionAwareBase
+@inject ITopicService TopicService
+
+<PageTitle>Topic — Radar</PageTitle>
+
+<div class="r-page">
+    @if (_error is not null)
+    {
+        <ErrorState Title="Failed to load topic" Description="@_error" OnRetry="LoadAsync" />
+    }
+    else if (_topic is null)
+    {
+        <LoadingSkeleton Variant="stats" />
+        <div style="height:16px;"></div>
+        <LoadingSkeleton Variant="feed" Count="2" />
+    }
+    else
+    {
+        <!-- Header -->
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:18px;">
+            <div style="flex:1;">
+                <div class="r-kicker">TOPIC</div>
+                <h1 class="r-page-title">@_topic.Name</h1>
+            </div>
+            <button class="btn @(_topic.IsFollowing ? "btn--primary" : "") btn--sm"
+                    @onclick="ToggleFollow">
+                @(_topic.IsFollowing ? "Following" : "Follow")
+            </button>
+        </div>
+
+        <!-- Summary card (dark) -->
+        <div style="background:var(--navy);border-radius:16px;padding:20px 22px;color:#fff;margin-bottom:14px;">
+            <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--cyan-bright);margin-bottom:9px;">WHERE THIS TOPIC STANDS</div>
+            <div style="font-family:var(--font-display);font-weight:600;font-size:15px;line-height:1.5;margin-bottom:12px;">@_topic.Summary</div>
+            <div style="font-size:11.5px;color:rgba(255,255,255,.42);">@_topic.SummarySource</div>
+        </div>
+
+        <!-- Your edge -->
+        @if (_topic.AiEdge is not null)
+        {
+            <div style="background:var(--cyan-light);border-radius:14px;padding:17px 19px;margin-bottom:20px;">
+                <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--cyan-deep);margin-bottom:6px;">YOUR EDGE</div>
+                <div style="font-size:13px;color:#0d3d40;line-height:1.7;">@_topic.AiEdge</div>
+            </div>
+        }
+
+        <!-- Stats -->
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:20px;">
+            <div style="text-align:center;padding:15px 8px;border-radius:13px;background:#fff;border:1px solid rgba(20,24,31,.1);">
+                <div style="font-family:var(--font-display);font-weight:700;font-size:1.3rem;color:var(--cyan-deep);line-height:1;margin-bottom:5px;">@_topic.ItemsInRadar</div>
+                <div style="font-size:10.5px;font-weight:600;color:var(--text-muted);">Items in Radar</div>
+            </div>
+            <div style="text-align:center;padding:15px 8px;border-radius:13px;background:#fff;border:1px solid rgba(20,24,31,.1);">
+                <div style="font-family:var(--font-display);font-weight:700;font-size:1.3rem;color:var(--cyan-deep);line-height:1;margin-bottom:5px;">@_topic.ItemsThisWeek</div>
+                <div style="font-size:10.5px;font-weight:600;color:var(--text-muted);">This week</div>
+            </div>
+            <div style="text-align:center;padding:15px 8px;border-radius:13px;background:#fff;border:1px solid rgba(20,24,31,.1);">
+                <div style="font-family:var(--font-display);font-weight:700;font-size:1.3rem;color:var(--cyan-deep);line-height:1;margin-bottom:5px;">@_topic.SourceCount</div>
+                <div style="font-size:10.5px;font-weight:600;color:var(--text-muted);">Sources</div>
+            </div>
+        </div>
+
+        <!-- Roadmap link -->
+        @if (_topic.OnRoadmap)
+        {
+            <a href="/learn" style="display:block;background:#fff;border:1.5px solid var(--cyan);border-radius:16px;padding:19px 21px;margin-bottom:20px;text-decoration:none;color:inherit;">
+                <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--cyan);margin-bottom:7px;">ON YOUR ROADMAP</div>
+                <div style="font-family:var(--font-display);font-weight:700;font-size:15px;margin-bottom:9px;">@_topic.RoadmapModuleName</div>
+                <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                    @foreach (var content in _topic.RoadmapContents)
+                    {
+                        <span style="font-size:11px;font-weight:600;background:#f6f8f9;color:var(--text-dim);border-radius:99px;padding:5px 10px;">@content</span>
+                    }
+                </div>
+            </a>
+        }
+
+        <!-- Alerts -->
+        <div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text-faint);margin-bottom:10px;">ALERT ME WHEN</div>
+        <div style="background:#fff;border:1px solid rgba(20,24,31,.1);border-radius:14px;padding:18px 20px;margin-bottom:20px;">
+            <div style="display:flex;flex-direction:column;gap:9px;">
+                @for (int i = 0; i < _topic.Alerts.Count; i++)
+                {
+                    var alert = _topic.Alerts[i];
+                    var idx = i;
+                    <button style="display:flex;align-items:center;justify-content:space-between;gap:12px;text-align:left;width:100%;padding:13px 15px;border-radius:10px;cursor:pointer;
+                                   background:@(alert.IsEnabled ? "var(--cyan-light)" : "#fff");
+                                   border:1.5px solid @(alert.IsEnabled ? "var(--cyan)" : "rgba(20,24,31,.12)");"
+                            @onclick="() => ToggleAlert(idx)">
+                        <div>
+                            <div style="font-size:13.5px;font-weight:700;">@alert.Label</div>
+                            <div style="font-size:11.5px;color:var(--text-muted);">@alert.Note</div>
+                        </div>
+                        <span style="font-size:12px;color:@(alert.IsEnabled ? "var(--cyan)" : "transparent");font-weight:800;flex:none;">✓</span>
+                    </button>
+                }
+            </div>
+        </div>
+
+        <!-- Recent items -->
+        <div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text-faint);margin-bottom:10px;">RECENT IN THIS TOPIC</div>
+        @if (_topic.RecentItems.Count == 0)
+        {
+            <EmptyState Icon="ðŸ"°" Title="No recent items" Description="Radar hasn't found anything new in this topic this week." Compact="true" />
+        }
+        else
+        {
+            <div style="display:flex;flex-direction:column;gap:9px;">
+                @foreach (var item in _topic.RecentItems)
+                {
+                    <a href="/feed/@item.Id" style="display:block;background:#fff;border:1px solid rgba(20,24,31,.1);border-radius:14px;padding:16px 18px;text-decoration:none;color:inherit;">
+                        <div style="font-family:var(--font-display);font-weight:700;font-size:14px;line-height:1.4;margin-bottom:4px;">@item.Signal</div>
+                        <div style="font-size:11.5px;color:var(--text-muted);font-weight:600;">@item.Source Â· @DateHelper.Humanize(item.PublishedAt)</div>
+                    </a>
+                }
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public string TopicId { get; set; } = "";
+    private TopicProfile? _topic;
+    private string? _error;
+
+    protected override async Task OnAuthenticatedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _error = null;
+        try
+        {
+            _topic = await TopicService.GetTopicAsync(TopicId);
+        }
+        catch (Exception ex)
+        {
+            _error = "Could not load topic. " + ex.Message;
+        }
+    }
+
+    private async Task ToggleFollow()
+    {
+        if (Profile is not null && _topic is not null)
+        {
+            await TopicService.ToggleFollowAsync(Profile.Id, _topic.Id);
+            _topic.IsFollowing = !_topic.IsFollowing;
+        }
+    }
+
+    private async Task ToggleAlert(int index)
+    {
+        if (Profile is not null && _topic is not null)
+        {
+            await TopicService.ToggleAlertAsync(Profile.Id, _topic.Id, index);
+            _topic.Alerts[index].IsEnabled = !_topic.Alerts[index].IsEnabled;
+        }
+    }
+}

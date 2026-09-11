@@ -1,0 +1,26 @@
+@* Reusable error state component *@
+
+<div class="r-error-state">
+    <div class="r-error-state__icon">⚠</div>
+    <div class="r-error-state__title">@Title</div>
+    @if (!string.IsNullOrEmpty(Description))
+    {
+        <p class="r-error-state__desc">@Description</p>
+    }
+    @if (!string.IsNullOrEmpty(RetryLabel))
+    {
+        <button class="btn btn--accent" @onclick="OnRetry">@RetryLabel</button>
+    }
+    @if (ChildContent is not null)
+    {
+        @ChildContent
+    }
+</div>
+
+@code {
+    [Parameter] public string Title { get; set; } = "Something went wrong";
+    [Parameter] public string? Description { get; set; }
+    [Parameter] public string? RetryLabel { get; set; } = "Try again";
+    [Parameter] public EventCallback OnRetry { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

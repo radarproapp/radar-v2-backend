@@ -1,0 +1,259 @@
+@page "/feed"
+@rendermode InteractiveServer
+@inherits RadarV2.Components.Base.SessionAwareBase
+@inject IIntelligenceFeedService FeedService
+
+<PageTitle>Intelligence Feed — Radar</PageTitle>
+
+<div class="r-page">
+    <div class="r-page-head">
+        <h1 class="r-page-title">Intelligence Feed</h1>
+    </div>
+
+    <!-- Type filter tabs -->
+    <div class="feed-type-tabs">
+        @foreach (var (label, type) in Filters)
+        {
+            <button class="r-chip @(_activeFilter == type ? "active" : "")"
+                    @onclick="() => SetFilter(type)">
+                @label
+            </button>
+        }
+    </div>
+
+    <!-- Sources line -->
+    <div class="feed-sources">
+        Sources: MIT · Stanford · Harvard · OpenAI · Google · World Bank · IMF · McKinsey · Stripe · Y Combinator
+    </div>
+
+    @if (!AuthReady || _loading && _items.Count == 0)
+    {
+        <LoadingSkeleton Variant="feed" Count="4" />
+    }
+    else if (_error is not null)
+    {
+        <ErrorState Title="Failed to load feed" Description="@_error" OnRetry="LoadFeedAsync" />
+    }
+    else if (_loading)
+    {
+        <LoadingSkeleton Variant="feed" Count="4" />
+    }
+    else if (_items.Count == 0)
+    {
+        <EmptyState Icon="📰" Title="Nothing here yet" Description="Radar is still curating content for your interests. Check back soon.">
+            <button class="btn btn--primary btn--sm" @onclick="LoadFeedAsync">Refresh feed</button>
+        </EmptyState>
+    }
+    else
+    {
+        @foreach (var item in _items)
+        {
+            <div class="feed-item">
+
+                <!-- Layer + tier badge row -->
+                <div style="display:flex;align-items:center;gap:7px;margin-bottom:8px;flex-wrap:wrap;">
+                    <span style="font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:@LayerColor(item.Layer);background:@LayerBg(item.Layer);border-radius:5px;padding:3px 8px;">
+                        @LayerLabel(item.Layer)
+                    </span>
+                    @if (item.CredibilityTier is 1 or 2)
+                    {
+                        <span style="font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#535c6b;opacity:.75;">
+                            Tier @item.CredibilityTier · @item.Source
+                        </span>
+                    }
+                    else
+                    {
+                        <span style="font-size:10.5px;font-weight:600;color:var(--text-muted);">@item.Source</span>
+                    }
+                    <span style="font-size:10.5px;color:var(--text-muted);margin-left:auto;">@DateHelper.Humanize(item.PublishedAt)</span>
+                </div>
+
+                <div class="feed-item-signal">@item.Signal</div>
+
+                @if (!string.IsNullOrWhiteSpace(item.WhyItMatters))
+                {
+                    <div class="feed-section-label">WHY IT MATTERS</div>
+                    <div class="feed-why">@item.WhyItMatters</div>
+                }
+
+                @if (item.Opportunities.Count > 0)
+                {
+                    <div style="margin-top:10px;padding:10px 13px;background:#f0fafa;border-radius:9px;border-left:3px solid var(--cyan);">
+                        <div style="font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--cyan);margin-bottom:5px;">OPPORTUNITY</div>
+                        <div style="font-size:13px;color:#14181f;line-height:1.55;">@item.Opportunities[0]</div>
+                    </div>
+                }
+
+                <div class="feed-actions">
+                    <div class="feed-actions-left">
+                        <button class="btn btn--primary btn--sm" @onclick="() => OpenDetail(item.Id)">
+                            Read brief →
+                        </button>
+                        <button class="btn btn--sm" @onclick="() => ToggleSave(item)">
+                            @(item.IsSaved ? "Saved ✓" : "Save")
+                        </button>
+                    </div>
+                    <div class="feed-actions-right">
+                        @(item.EstimatedReadTime ?? item.EstimatedWatchTime ?? "")
+                    </div>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private static readonly (string Label, ContentType? Type)[] Filters =
+    [
+        ("All",      null),
+        ("Policy",   ContentType.PolicyPaper),
+        ("Articles", ContentType.Article),
+        ("Ideas",    ContentType.Essay),
+        ("Podcasts", ContentType.Podcast),
+        ("Videos",   ContentType.Video),
+        ("Papers",   ContentType.ResearchPaper),
+    ];
+
+    private ContentType? _activeFilter = null;
+    private List<ContentItem> _items = [];
+    private bool _loading = true;
+    private string? _error;
+
+    protected override async Task OnAuthenticatedAsync() => await LoadFeedAsync();
+
+    private async Task SetFilter(ContentType? type)
+    {
+        _activeFilter = type;
+        await LoadFeedAsync();
+    }
+
+    private async Task LoadFeedAsync()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            _items = await FeedService.GetFeedAsync(Profile!, _activeFilter);
+        }
+        catch (Exception ex)
+        {
+            _error = "Could not load the feed. " + ex.Message;
+        }
+        _loading = false;
+    }
+
+    private async Task ToggleSave(ContentItem item)
+    {
+        if (item.IsSaved)
+        {
+            await FeedService.UnsaveItemAsync(Profile!.Id, item.Id);
+            item.IsSaved = false;
+        }
+        else
+        {
+            await FeedService.SaveItemAsync(Profile!.Id, item.Id);
+            item.IsSaved = true;
+        }
+    }
+
+    private void OpenDetail(string id) => Nav.NavigateTo($"/feed/{id}");
+
+    private static string LayerLabel(ContentLayer layer) => layer switch
+    {
+        ContentLayer.Policy         => "Policy",
+        ContentLayer.Academic       => "Research",
+        ContentLayer.Ideas          => "Big Idea",
+        ContentLayer.Learning       => "Learning",
+        ContentLayer.Video          => "Video",
+        ContentLayer.Skills         => "Skills",
+        ContentLayer.RealEstate     => "Real Estate",
+        ContentLayer.Law            => "Law",
+        ContentLayer.Literature     => "Literature",
+        ContentLayer.Transportation => "Transport",
+        ContentLayer.Gaming         => "Gaming",
+        ContentLayer.Art            => "Art",
+        ContentLayer.History        => "History",
+        ContentLayer.Sports         => "Sports",
+        ContentLayer.Music          => "Music",
+        ContentLayer.Film           => "Film & TV",
+        ContentLayer.Science        => "Science",
+        ContentLayer.Environment    => "Environment",
+        ContentLayer.Travel         => "Travel",
+        ContentLayer.Medicine       => "Medicine",
+        ContentLayer.Fashion        => "Fashion",
+        ContentLayer.Lifestyle      => "Lifestyle",
+        ContentLayer.Faith          => "Faith",
+        ContentLayer.Philosophy     => "Philosophy",
+        ContentLayer.Education      => "Education",
+        ContentLayer.Finance        => "Finance",
+        ContentLayer.Energy         => "Energy",
+        ContentLayer.Agriculture    => "Agriculture",
+        ContentLayer.Industry       => "Industry",
+        ContentLayer.Career         => "Career",
+        _                           => "Intelligence"
+    };
+
+    private static string LayerColor(ContentLayer layer) => layer switch
+    {
+        ContentLayer.Policy         => "#0e5f6b",
+        ContentLayer.Academic       => "#1a4d8f",
+        ContentLayer.Ideas          => "#6b3fa0",
+        ContentLayer.RealEstate     => "#b45309",
+        ContentLayer.Law            => "#1e3a5f",
+        ContentLayer.Literature     => "#713f12",
+        ContentLayer.Transportation => "#44495e",
+        ContentLayer.Gaming         => "#5b21b6",
+        ContentLayer.Art            => "#9d174d",
+        ContentLayer.History        => "#92400e",
+        ContentLayer.Sports         => "#14532d",
+        ContentLayer.Music          => "#831843",
+        ContentLayer.Film           => "#7f1d1d",
+        ContentLayer.Science        => "#0f766e",
+        ContentLayer.Environment    => "#166534",
+        ContentLayer.Travel         => "#0c4a6e",
+        ContentLayer.Medicine       => "#991b1b",
+        ContentLayer.Fashion        => "#7e22ce",
+        ContentLayer.Lifestyle      => "#c2410c",
+        ContentLayer.Faith          => "#78350f",
+        ContentLayer.Philosophy     => "#3b0764",
+        ContentLayer.Education      => "#1e3a8a",
+        ContentLayer.Finance        => "#064e3b",
+        ContentLayer.Energy         => "#78350f",
+        ContentLayer.Agriculture    => "#3f6212",
+        ContentLayer.Industry       => "#374151",
+        ContentLayer.Career         => "#1e3a8a",
+        _                           => "#374151"
+    };
+
+    private static string LayerBg(ContentLayer layer) => layer switch
+    {
+        ContentLayer.Policy         => "#e0f4f6",
+        ContentLayer.Academic       => "#ddeeff",
+        ContentLayer.Ideas          => "#ede9f7",
+        ContentLayer.RealEstate     => "#fef3c7",
+        ContentLayer.Law            => "#e8f0fe",
+        ContentLayer.Literature     => "#fefce8",
+        ContentLayer.Transportation => "#f0f4f8",
+        ContentLayer.Gaming         => "#ede9fe",
+        ContentLayer.Art            => "#fce7f3",
+        ContentLayer.History        => "#fff7ed",
+        ContentLayer.Sports         => "#dcfce7",
+        ContentLayer.Music          => "#fdf2f8",
+        ContentLayer.Film           => "#fef2f2",
+        ContentLayer.Science        => "#f0fdfa",
+        ContentLayer.Environment    => "#f0fdf4",
+        ContentLayer.Travel         => "#e0f2fe",
+        ContentLayer.Medicine       => "#fee2e2",
+        ContentLayer.Fashion        => "#f3e8ff",
+        ContentLayer.Lifestyle      => "#fff7ed",
+        ContentLayer.Faith          => "#fffbeb",
+        ContentLayer.Philosophy     => "#faf5ff",
+        ContentLayer.Education      => "#eff6ff",
+        ContentLayer.Finance        => "#d1fae5",
+        ContentLayer.Energy         => "#fef3c7",
+        ContentLayer.Agriculture    => "#ecfccb",
+        ContentLayer.Industry       => "#f0f2f4",
+        ContentLayer.Career         => "#dbeafe",
+        _                           => "#f0f2f4"
+    };
+}

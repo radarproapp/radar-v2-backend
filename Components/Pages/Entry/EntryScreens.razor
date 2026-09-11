@@ -1,0 +1,164 @@
+@page "/entry"
+@layout RadarV2.Components.Layout.OnboardingLayout
+@rendermode InteractiveServer
+@inject NavigationManager Nav
+
+<PageTitle>Entry — Radar</PageTitle>
+
+<div style="min-height:100dvh;display:flex;flex-direction:column;background:var(--bg);">
+
+    <!-- Header -->
+    <div style="display:flex;align-items:center;gap:14px;padding:14px clamp(18px,4vw,40px);border-bottom:1px solid var(--border);background:#fff;flex:none;position:sticky;top:0;z-index:5;">
+        <a href="/onboarding" style="font-size:18px;color:var(--text);">←</a>
+        <span style="font-family:var(--font-display);font-weight:700;font-size:15px;flex:1;">Entry screens</span>
+        <span style="font-size:11px;font-weight:700;color:var(--cyan-deep);background:var(--cyan-light);border-radius:99px;padding:5px 11px;">Reference</span>
+    </div>
+
+    <div style="flex:1;width:100%;max-width:720px;margin:0 auto;padding:clamp(18px,3.5vw,28px) clamp(18px,4vw,40px) 60px;">
+
+        <!-- Tabs -->
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:22px;">
+            @foreach (var tab in _tabs)
+            {
+                <button class="r-chip @(_activeTab == tab.Id ? "active" : "")"
+                        @onclick="() => _activeTab = tab.Id">
+                    @tab.Label
+                </button>
+            }
+        </div>
+
+        <!-- ═══ SPLASH ═══ -->
+        @if (_activeTab == "splash")
+        {
+            <div style="background:var(--navy);border-radius:18px;overflow:hidden;min-height:460px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 26px;position:relative;">
+                <!-- Radar logo with pulse -->
+                <div style="position:relative;width:150px;height:150px;display:flex;align-items:center;justify-content:center;margin-bottom:26px;">
+                    <div style="position:absolute;width:150px;height:150px;border-radius:50%;border:1.5px solid rgba(0,194,203,.45);animation:ping 2.4s ease-out infinite;"></div>
+                    <div style="position:absolute;width:150px;height:150px;border-radius:50%;border:1.5px solid rgba(0,194,203,.45);animation:ping 2.4s ease-out .8s infinite;"></div>
+                    <svg viewBox="0 0 150 150" style="position:absolute;width:150px;height:150px;animation:sweep 2.4s linear infinite;">
+                        <defs><linearGradient id="sw" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#00c2cb" stop-opacity="0"></stop><stop offset="100%" stop-color="#00c2cb" stop-opacity=".55"></stop></linearGradient></defs>
+                        <path d="M75 75 L75 6 A69 69 0 0 1 135 41 Z" fill="url(#sw)"></path>
+                    </svg>
+                    <div style="width:44px;height:44px;border-radius:50%;background:var(--cyan);display:flex;align-items:center;justify-content:center;position:relative;">
+                        <span style="font-family:var(--font-display);font-weight:800;font-size:18px;color:#fff;">R</span>
+                    </div>
+                </div>
+                <div style="font-family:var(--font-display);font-weight:700;font-size:22px;color:#fff;letter-spacing:-.01em;margin-bottom:8px;">Radar</div>
+                <div style="font-size:13px;color:rgba(255,255,255,.55);text-align:center;max-width:26ch;line-height:1.6;">Your second brain. Understand once, remember forever.</div>
+                <div style="position:absolute;bottom:30px;font-size:11.5px;color:rgba(255,255,255,.32);">Loading your intelligence profile…</div>
+            </div>
+        }
+
+        <!-- ═══ FORGOT PASSWORD ═══ -->
+        @if (_activeTab == "forgot")
+        {
+            <div style="background:#fff;border:1px solid var(--border);border-radius:18px;padding:clamp(26px,4vw,36px);max-width:460px;">
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:24px;">
+                    <div style="width:24px;height:24px;border-radius:50%;background:var(--navy);display:flex;align-items:center;justify-content:center;">
+                        <span style="font-family:var(--font-display);font-weight:700;font-size:13px;color:var(--cyan-bright);">R</span>
+                    </div>
+                    <span style="font-family:var(--font-display);font-weight:700;font-size:16px;">Radar</span>
+                </div>
+                <div class="ob-step-label">RESET PASSWORD</div>
+                <h1 style="font-family:var(--font-display);font-weight:700;font-size:1.5rem;line-height:1.2;margin-bottom:8px;">Forgot your password?</h1>
+                <p class="ob-sub">Enter the email on your account and we'll send a reset link. It expires in 30 minutes.</p>
+                <label style="font-size:12.5px;font-weight:600;color:var(--text-dim);display:block;margin-bottom:6px;">Email address</label>
+                <input type="email" placeholder="amara@example.com" class="r-input" style="margin-bottom:18px;" />
+                <button class="btn btn--primary" style="width:100%;padding:15px;" @onclick='() => _activeTab = "sent"'>Send reset link</button>
+                <div style="text-align:center;font-size:13px;color:var(--text-muted);margin-top:14px;">Remembered it? <a href="/onboarding">Back to sign in</a></div>
+            </div>
+        }
+
+        <!-- ═══ LINK SENT ═══ -->
+        @if (_activeTab == "sent")
+        {
+            <div style="background:#fff;border:1px solid var(--border);border-radius:18px;padding:clamp(26px,4vw,36px);max-width:460px;text-align:center;">
+                <div style="width:52px;height:52px;border-radius:50%;background:var(--cyan-light);margin:0 auto 20px;display:flex;align-items:center;justify-content:center;">
+                    <div style="width:22px;height:16px;border:2px solid var(--cyan);border-radius:2px;"></div>
+                </div>
+                <h1 style="font-family:var(--font-display);font-weight:700;font-size:1.4rem;line-height:1.25;margin-bottom:10px;">Check your inbox.</h1>
+                <p style="font-size:14px;color:var(--text-dim);line-height:1.7;max-width:34ch;margin:0 auto 22px;">We sent a reset link to <strong style="color:var(--text);">amara@example.com</strong>. It works once and expires in 30 minutes.</p>
+                <div style="background:#f6f8f9;border-radius:12px;padding:15px 17px;text-align:left;margin-bottom:20px;">
+                    <div style="font-size:12.5px;font-weight:700;margin-bottom:5px;">Didn't get it?</div>
+                    <div style="font-size:12.5px;color:var(--text-dim);line-height:1.65;">Check spam, or confirm you signed up with this address. You can resend in <strong>0:42</strong>.</div>
+                </div>
+                <button class="btn" style="width:100%;background:#f0f2f4;color:var(--text-faint);border-color:transparent;cursor:not-allowed;">Resend link · 0:42</button>
+            </div>
+        }
+
+        <!-- ═══ NEW PASSWORD ═══ -->
+        @if (_activeTab == "newpw")
+        {
+            <div style="background:#fff;border:1px solid var(--border);border-radius:18px;padding:clamp(26px,4vw,36px);max-width:460px;">
+                <div class="ob-step-label">CHOOSE A NEW PASSWORD</div>
+                <h1 style="font-family:var(--font-display);font-weight:700;font-size:1.45rem;line-height:1.2;margin-bottom:8px;">Set a new password.</h1>
+                <p class="ob-sub">You'll stay signed in on this device. Other devices will need the new password.</p>
+
+                <label style="font-size:12.5px;font-weight:600;color:var(--text-dim);display:block;margin-bottom:6px;">New password</label>
+                <input type="password" value="crossriver26" class="r-input" style="margin-bottom:10px;" />
+                <div style="display:flex;gap:4px;margin-bottom:7px;">
+                    <div style="flex:1;height:4px;border-radius:2px;background:var(--cyan);"></div>
+                    <div style="flex:1;height:4px;border-radius:2px;background:var(--cyan);"></div>
+                    <div style="flex:1;height:4px;border-radius:2px;background:var(--cyan);"></div>
+                    <div style="flex:1;height:4px;border-radius:2px;background:#eef0f2;"></div>
+                </div>
+                <div style="font-size:12px;color:var(--cyan-deep);font-weight:600;margin-bottom:16px;">Strong — 12 characters, no dictionary words</div>
+
+                <label style="font-size:12.5px;font-weight:600;color:var(--text-dim);display:block;margin-bottom:6px;">Confirm password</label>
+                <input type="password" value="crossriver26" class="r-input" style="margin-bottom:20px;" />
+
+                <button class="btn btn--primary" style="width:100%;padding:15px;">Save and sign in</button>
+            </div>
+        }
+
+        <!-- ═══ VERIFY EMAIL ═══ -->
+        @if (_activeTab == "verify")
+        {
+            <div style="background:#fff;border:1px solid var(--border);border-radius:18px;padding:clamp(26px,4vw,36px);max-width:460px;">
+                <div class="ob-step-label">VERIFY YOUR EMAIL</div>
+                <h1 style="font-family:var(--font-display);font-weight:700;font-size:1.45rem;line-height:1.2;margin-bottom:8px;">Enter your 6-digit code.</h1>
+                <p class="ob-sub">Sent to <strong style="color:var(--text);">amara@example.com</strong>. This confirms your account and lets your university find you.</p>
+
+                <!-- Code input boxes -->
+                <div style="display:flex;gap:8px;margin-bottom:18px;">
+                    @foreach (var digit in _verifyDigits)
+                    {
+                        <div style="flex:1;aspect-ratio:1;max-width:54px;border:1.5px solid @(digit != 0 ? "var(--cyan)" : "var(--border-strong)");border-radius:10px;display:flex;align-items:center;justify-content:center;
+                                     font-family:var(--font-display);font-weight:700;font-size:20px;
+                                     background:@(digit != 0 ? "transparent" : "#f6f8f9");
+                                     color:@(digit != 0 ? "var(--text)" : "var(--text-faint)");">
+                            @(digit != 0 ? digit : "")
+                        </div>
+                    }
+                </div>
+
+                <button class="btn btn--primary" style="width:100%;padding:15px;margin-bottom:16px;">Verify</button>
+                <div style="text-align:center;font-size:13px;color:var(--text-muted);margin-bottom:20px;">Didn't arrive? <a href="#">Resend code</a> · <a href="#">Change email</a></div>
+
+                <div style="background:#f6f8f9;border-radius:12px;padding:15px 17px;">
+                    <div style="font-size:12.5px;color:var(--text-dim);line-height:1.65;">You can explore Radar unverified, but you'll need a verified email to apply to opportunities and receive your weekly brief.</div>
+                </div>
+            </div>
+        }
+
+    </div>
+</div>
+
+<style>
+    @@keyframes sweep { 0% { transform: rotate(0); } 100% { transform: rotate(360deg); } }
+    @@keyframes ping { 0% { transform: scale(.4); opacity: .7; } 100% { transform: scale(1); opacity: 0; } }
+</style>
+
+@code {
+    private string _activeTab = "splash";
+    private static readonly (string Id, string Label)[] _tabs =
+    [
+        ("splash", "Splash"),
+        ("forgot", "Forgot password"),
+        ("sent", "Link sent"),
+        ("newpw", "New password"),
+        ("verify", "Verify email"),
+    ];
+
+    private static readonly int[] _verifyDigits = [4, 7, 2, 0, 0, 0];
+}

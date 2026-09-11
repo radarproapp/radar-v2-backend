@@ -1,0 +1,165 @@
+﻿@page "/research"
+@rendermode InteractiveServer
+@inherits RadarV2.Components.Base.SessionAwareBase
+@inject IResearchService ResearchService
+
+<PageTitle>Research Discovery — Radar</PageTitle>
+
+<div class="r-page" style="max-width:740px;">
+    <div class="r-page-head">
+        <h1 class="r-page-title">Research Discovery</h1>
+        <p class="r-page-sub">Search in plain English across OpenAlex, Semantic Scholar, arXiv, PubMed and Crossref. Last five years by default.</p>
+    </div>
+
+    <!-- Search bar -->
+    <div class="research-search">
+        <input type="text" value="@_query" @oninput="OnQueryChange"
+               placeholder="e.g. AI adoption among SMEs in Africa" />
+        <button @onclick="SearchAsync" disabled="@_searching">
+            @(_searching ? "Searchingâ€¦" : "Search")
+        </button>
+    </div>
+
+    <!-- Year range filters -->
+    <div class="research-filters">
+        @foreach (var range in _yearRanges)
+        {
+            <button class="r-chip @(_activeYearRange == range.Value ? "active" : "")"
+                    @onclick="() => SetYearRange(range.Value)">
+                @range.Label
+            </button>
+        }
+    </div>
+
+    @if (_error is not null)
+    {
+        <ErrorState Title="Search failed" Description="@_error" OnRetry="SearchAsync" />
+    }
+    else if (_searching)
+    {
+        <LoadingSkeleton Variant="feed" Count="3" />
+    }
+    else if (_hasSearched)
+    {
+        <div class="research-count">@_results.Count result@(_results.Count != 1 ? "s" : "") found</div>
+
+        @if (_results.Count == 0)
+        {
+            <EmptyState Icon="ðŸ"¬" Title="No papers found" Description="Try a different search term or broaden your year range.">
+                <button class="btn btn--sm" @onclick="() => { _hasSearched = false; _query = string.Empty; }">Clear search</button>
+            </EmptyState>
+        }
+        else
+        {
+            @foreach (var paper in _results)
+            {
+                <div class="research-paper">
+                    <div class="research-paper-title">@paper.Title</div>
+                    <div class="research-paper-meta">
+                        @string.Join(", ", paper.Authors) Â· @paper.Journal @paper.PublishedAt.Year Â· DOI @paper.Doi
+                    </div>
+
+                    <!-- 5-minute summary -->
+                    <div class="research-paper-summary">
+                        <div class="research-paper-summary-label">5-MINUTE SUMMARY</div>
+                        <div class="research-paper-summary-text">@paper.AiSummary</div>
+                    </div>
+
+                    <!-- Key findings -->
+                    @if (!string.IsNullOrWhiteSpace(paper.KeyFindings))
+                    {
+                        <div class="research-paper-findings-label">KEY FINDINGS</div>
+                        <div class="research-paper-finding">Â· @paper.KeyFindings</div>
+                    }
+
+                    <!-- Method -->
+                    @if (!string.IsNullOrWhiteSpace(paper.Methodology))
+                    {
+                        <div class="research-paper-method">
+                            <strong>Method:</strong> @paper.Methodology
+                        </div>
+                    }
+
+                    <!-- Actions -->
+                    <div style="display:flex;gap:7px;flex-wrap:wrap;">
+                        <button class="btn btn--sm" @onclick="() => ToggleSave(paper)">
+                            @(paper.IsSaved ? "Saved ✓" : "Save")
+                        </button>
+                        <button class="btn btn--sm" style="background:#f0f2f4;border-color:transparent;color:var(--text);"
+                                @onclick='() => Nav.NavigateTo("/ask")'>
+                            Ask Radar about this
+                        </button>
+                    </div>
+                </div>
+            }
+        }
+    }
+    else
+    {
+        <!-- Initial state — before first search -->
+        <EmptyState Icon="ðŸ"" Title="Search academic databases" Description="Type your research topic in plain English and Radar will search across trusted academic sources.">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;">
+                <button class="r-chip" @onclick='() => { _query = "AI adoption among SMEs in Africa"; SearchAsync(); }' style="font-size:12px;">AI adoption among SMEs</button>
+                <button class="r-chip" @onclick='() => { _query = "Machine learning in healthcare"; SearchAsync(); }' style="font-size:12px;">ML in healthcare</button>
+                <button class="r-chip" @onclick='() => { _query = "Climate change adaptation"; SearchAsync(); }' style="font-size:12px;">Climate change adaptation</button>
+            </div>
+        </EmptyState>
+    }
+</div>
+
+@code {
+    private string _query = "";
+    private int _activeYearRange = 5;
+    private List<ContentItem> _results = [];
+    private bool _searching;
+    private bool _hasSearched;
+    private string? _error;
+
+    private static readonly (string Label, int Value)[] _yearRanges =
+    [
+        ("Last 5 years", 5),
+        ("Last 3 years", 3),
+        ("Last year", 1),
+        ("All time", 0),
+    ];
+
+
+    private void OnQueryChange(ChangeEventArgs e)
+    {
+        _query = e.Value?.ToString() ?? string.Empty;
+    }
+
+    private async Task SearchAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_query)) return;
+        _searching = true;
+        _hasSearched = true;
+        _error = null;
+        try
+        {
+            var yearFrom = _activeYearRange > 0 ? DateTime.UtcNow.Year - _activeYearRange : 0;
+            _results = await ResearchService.SearchPapersAsync(_query, yearFrom);
+        }
+        catch (Exception ex)
+        {
+            _error = "Search failed. " + ex.Message;
+        }
+        _searching = false;
+    }
+
+    private async Task SetYearRange(int years)
+    {
+        _activeYearRange = years;
+        if (_hasSearched && !string.IsNullOrWhiteSpace(_query))
+            await SearchAsync();
+    }
+
+    private async Task ToggleSave(ContentItem paper)
+    {
+        if (Profile is null) return;
+        if (paper.IsSaved)
+            paper.IsSaved = false;
+        else
+            paper.IsSaved = true;
+    }
+}

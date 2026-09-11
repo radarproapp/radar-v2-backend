@@ -1,0 +1,172 @@
+@page "/"
+@rendermode InteractiveServer
+@inherits RadarV2.Components.Base.SessionAwareBase
+@inject INavigatorService NavigatorService
+
+<PageTitle>Today — Radar</PageTitle>
+
+@if (!AuthReady || _focus is null)
+{
+    <div class="r-page">
+        <div class="r-empty"><div class="r-spinner"></div></div>
+    </div>
+}
+else
+{
+    <div class="r-page">
+
+        <!-- Greeting -->
+        <div class="nav-greeting">
+            <div class="nav-date">@DateTime.Now.ToString("dddd d MMMM")</div>
+            <h1 class="nav-good-morning">Good @TimeOfDay, @FirstName.</h1>
+            <div class="nav-tagline">Here's what matters today.</div>
+        </div>
+
+        <!-- Weekly Brief Banner -->
+        <button class="nav-brief-banner" @onclick='() => Nav.NavigateTo("/weekly")'>
+            <div class="nav-brief-meta">
+                <span class="nav-brief-label">Weekly Intelligence Brief · @DateTime.Now.ToString("dddd")</span>
+                <span class="nav-brief-time">6 min</span>
+            </div>
+            <div class="nav-brief-text">Your week in one place — top opportunities, articles, papers, videos and podcasts.</div>
+            <span class="nav-brief-cta">Read the brief →</span>
+        </button>
+
+        <!-- Hero: Learn -->
+        <div class="nav-section-label">TODAY'S FOCUS</div>
+
+        <button class="nav-focus-card nav-focus-card--active" @onclick='() => Nav.NavigateTo("/learn")'>
+            <div class="nav-focus-label">LEARN</div>
+            <div class="nav-focus-title">@_focus.Learn.Title</div>
+            <div class="nav-focus-sub">@_focus.Learn.Subtitle</div>
+            <div class="nav-focus-meta">
+                <span class="btn btn--primary btn--sm">Start →</span>
+                @if (_focus.Learn.EstimatedTime is not null)
+                {
+                    <span style="font-size:12px;color:var(--text-muted)">@_focus.Learn.EstimatedTime today</span>
+                }
+            </div>
+        </button>
+
+        <!-- Signal: Read -->
+        <div class="nav-section-label">YOUR SIGNAL</div>
+
+        <button class="nav-signal-card" @onclick="OpenReadItem">
+            <div class="nav-signal-headline">@_focus.Read.Title</div>
+            <div class="nav-signal-section-label">Why it matters</div>
+            <div class="nav-signal-why">@_focus.Read.WhyItMatters</div>
+            <div class="nav-signal-edge">
+                <div class="nav-signal-edge-label">Your edge</div>
+                <div class="nav-signal-edge-text">@_focus.Read.AiSummary</div>
+            </div>
+            <div class="nav-signal-actions">
+                <span style="font-size:12.5px;font-weight:700;color:var(--cyan);">Understand →</span>
+                <span style="font-size:11.5px;color:var(--text-faint);font-weight:600;">@_focus.Read.Subtitle</span>
+            </div>
+        </button>
+
+        <!-- Opportunity -->
+        <div class="nav-section-label">OPPORTUNITY · FOUND FOR YOU</div>
+
+        <button class="nav-opp-card" @onclick='() => Nav.NavigateTo("/opportunities")'>
+            <div class="nav-opp-match-row">
+                <span class="nav-opp-match-num">@_focus.Apply.MatchScorePercent%</span>
+                <span class="nav-opp-match-label">match</span>
+                @if (_focus.Apply.DeadlineDays.HasValue)
+                {
+                    <span class="nav-opp-deadline" style="color:var(--red)">@_focus.Apply.DeadlineDays days left</span>
+                }
+            </div>
+            <div class="nav-focus-title" style="margin-bottom:3px;">@_focus.Apply.Title</div>
+            <div class="opp-org" style="margin-bottom:14px;">@_focus.Apply.Subtitle</div>
+            <div class="nav-opp-reasons">
+                <div class="nav-opp-reasons-label">Why Radar matched you</div>
+                <div class="nav-opp-reason">Your goal · @Profile!.PrimaryGoal</div>
+                <div class="nav-opp-reason">Your interests · @string.Join(" + ", Profile.Interests.Take(2))</div>
+                <div class="nav-opp-reason">Your profile · @PersonaLabel(Profile.Persona)</div>
+            </div>
+            <span style="font-size:12.5px;font-weight:700;color:var(--cyan);">Explore →</span>
+        </button>
+
+        <!-- Next Move -->
+        <div class="nav-section-label">YOUR NEXT MOVE</div>
+
+        <button class="nav-next-move" @onclick='() => Nav.NavigateTo("/learn")'>
+            <div class="nav-next-move-title">@_focus.Build.Title</div>
+            <div class="nav-next-move-desc">One practical action that turns what you have learned into something you can show.</div>
+            <span class="nav-next-move-link">Open Project Studio →</span>
+        </button>
+
+        <!-- Momentum -->
+        <div class="nav-momentum">
+            <div class="nav-momentum-label">YOUR MOMENTUM</div>
+            <div class="nav-momentum-stats">
+                <div>
+                    <div class="nav-momentum-stat-val">@Profile!.Stats.LearningStreakDays-day</div>
+                    <div class="nav-momentum-stat-label">Learning streak</div>
+                </div>
+                <div>
+                    <div class="nav-momentum-stat-val">@Profile.Stats.RoadmapProgressPercent%</div>
+                    <div class="nav-momentum-stat-label">Roadmap complete</div>
+                </div>
+                <div>
+                    <div class="nav-momentum-stat-val">@Profile.Stats.SavedResourcesCount</div>
+                    <div class="nav-momentum-stat-label">Resources saved</div>
+                </div>
+                <div>
+                    <div class="nav-momentum-stat-val">@Profile.Stats.ProjectsCompleted</div>
+                    <div class="nav-momentum-stat-label">Projects built</div>
+                </div>
+                <div>
+                    <div class="nav-momentum-stat-val">@Profile.Stats.OpportunitiesApplied</div>
+                    <div class="nav-momentum-stat-label">Opportunities explored</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Caught up -->
+        <div class="nav-caught-up">
+            <div class="nav-caught-up-title">You're caught up.</div>
+            <div class="nav-caught-up-sub">5 signals worth your attention today. Radar will have more tomorrow.</div>
+        </div>
+
+        <!-- Ask Radar bar -->
+        <button class="nav-ask-bar" @onclick='() => Nav.NavigateTo("/ask")'>
+            <div class="nav-ask-icon">?</div>
+            <span class="nav-ask-input">Ask Radar anything…</span>
+        </button>
+
+    </div>
+}
+
+@code {
+    private NavigatorFocus? _focus;
+
+    protected override async Task OnAuthenticatedAsync()
+    {
+        _focus = await NavigatorService.GetTodaysFocusAsync(Profile!);
+    }
+
+    private void OpenReadItem()
+    {
+        if (!string.IsNullOrWhiteSpace(_focus?.Read.ContentItemId))
+            Nav.NavigateTo($"/feed/{_focus.Read.ContentItemId}");
+        else
+            Nav.NavigateTo("/feed");
+    }
+
+    private string TimeOfDay => DateTime.Now.Hour switch
+    {
+        < 12 => "morning",
+        < 17 => "afternoon",
+        _    => "evening"
+    };
+
+    private string FirstName => Profile?.Name.Split(' ')[0] ?? "there";
+
+    private static string PersonaLabel(PersonaType p) => p switch
+    {
+        PersonaType.YoungProfessional => "Young Professional",
+        _ => p.ToString()
+    };
+}

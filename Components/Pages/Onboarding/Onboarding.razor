@@ -1,0 +1,507 @@
+@page "/onboarding"
+@layout RadarV2.Components.Layout.OnboardingLayout
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage
+@using RadarV2.Services
+@using RadarV2.Services.Interfaces
+@inject IUserProfileService UserProfileService
+@inject IAuthService AuthService
+@inject IUserSessionService UserSession
+@inject ProtectedLocalStorage LocalStorage
+@inject NavigationManager Nav
+
+<PageTitle>Set up Radar</PageTitle>
+
+<div class="ob-shell">
+
+    <!-- Left panel -->
+    <div class="ob-left">
+
+        <!-- Logo -->
+        <div class="ob-topbar">
+            <div class="ob-logo-mark">R</div>
+            <div class="ob-divider-v"></div>
+            <span class="ob-logo-name">Radar</span>
+        </div>
+
+        <!-- Progress dots -->
+        @if (_step > 0)
+        {
+            <div class="ob-progress">
+                @for (int i = 1; i <= TotalOnboardingSteps; i++)
+                {
+                    var filled = i <= _step;
+                    <div class="ob-progress-dot" style="background:@(filled ? "#008c93" : "rgba(20,24,31,.1)")"></div>
+                }
+            </div>
+        }
+        else
+        {
+            <div style="height:32px;"></div>
+        }
+
+        <!-- Card -->
+        <div class="ob-card">
+
+            @if (_step == 0)
+            {
+                <!-- WELCOME -->
+                <div style="flex:1;display:flex;flex-direction:column;">
+                    <div class="ob-step-label">Welcome</div>
+                    <h1 class="ob-title" style="font-size:clamp(1.5rem,4vw,1.9rem);margin-bottom:12px;">Let's build your Personal Intelligence Profile.</h1>
+                    <p class="ob-sub" style="margin-bottom:24px;">A few quick questions so Radar knows who you are, what you're working toward, and what deserves your attention first.</p>
+                    <div style="background:#f6f8f9;border-radius:14px;padding:17px 19px;">
+                        <div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#008c93;margin-bottom:10px;">Every morning, one question</div>
+                        <div style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:15px;line-height:1.5;">"What should I do today to get closer to my goal?"</div>
+                    </div>
+                    <div class="ob-actions">
+                        <button class="btn btn--primary" style="width:100%;padding:15px;" @onclick="Next">Get started</button>
+                    </div>
+                    <div style="text-align:center;margin-top:14px;font-size:13px;color:#8a91a0;">Already have an account? <a href="/login" style="color:#008c93;font-weight:600;">Sign in</a></div>
+                </div>
+            }
+            else if (_step == 1)
+            {
+                <!-- ACCOUNT -->
+                <div style="flex:1;display:flex;flex-direction:column;">
+                    <div class="ob-step-label">Step 1 of @TotalOnboardingSteps · Account</div>
+                    <h1 class="ob-title">Create your account.</h1>
+                    <p class="ob-sub">This is how you'll get back into Radar.</p>
+                    <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:18px;">
+                        <button class="btn" style="width:100%;padding:13px;">Continue with Google</button>
+                        <button class="btn" style="width:100%;padding:13px;">Continue with Apple</button>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:12px;color:#aab2c0;font-size:12px;margin-bottom:18px;">
+                        <div style="flex:1;height:1px;background:rgba(20,24,31,.1);"></div>or<div style="flex:1;height:1px;background:rgba(20,24,31,.1);"></div>
+                    </div>
+                    <input type="text" placeholder="Full name" @bind="_name" @bind:event="oninput" class="r-input" style="margin-bottom:10px;" />
+                    <input type="email" placeholder="Email address" @bind="_email" @bind:event="oninput" class="r-input" style="margin-bottom:10px;" />
+                    <input type="password" placeholder="Create password" @bind="_password" @bind:event="oninput" class="r-input" />
+                    @if (_password.Length > 0 && _password.Length < 8)
+                    {
+                        <div style="margin-top:8px;font-size:12.5px;color:#d94f4f;">Password must be at least 8 characters.</div>
+                    }
+                    <div class="ob-actions">
+                        <button class="btn" @onclick="Back">Back</button>
+                        <button class="btn btn--primary" style="flex:1;" @onclick="Next" disabled="@(!AccountReady)">Continue</button>
+                    </div>
+                </div>
+            }
+            else if (_step == 2)
+            {
+                <!-- PROFILE / PERSONA -->
+                <div style="flex:1;display:flex;flex-direction:column;">
+                    <div class="ob-step-label">Step 2 of @TotalOnboardingSteps · Profile</div>
+                    <h1 class="ob-title">Tell Radar about yourself.</h1>
+                    <p class="ob-sub" style="margin-bottom:20px;">Radar asks different questions depending on who you are.</p>
+                    <div class="ob-options">
+                        @foreach (var (persona, label) in Personas)
+                        {
+                            var isActive = _selectedPersona == persona;
+                            <button class="ob-option @(isActive ? "active" : "")"
+                                    @onclick="() => SelectPersona(persona)">
+                                <span>@label</span>
+                                <span class="ob-option__check">✓</span>
+                            </button>
+                        }
+                    </div>
+                    @if (_selectedPersona.HasValue && PersonaDetails(_selectedPersona.Value) is var fields && fields.Length > 0)
+                    {
+                        <div style="margin-top:16px;padding-top:16px;border-top:1px solid rgba(20,24,31,.08);">
+                            @foreach (var (key, label) in fields)
+                            {
+                                var fieldKey = key;
+                                <div style="margin-bottom:12px;">
+                                    <label style="font-size:12.5px;font-weight:600;color:#535c6b;display:block;margin-bottom:6px;">@label</label>
+                                    <input type="text" placeholder="@label"
+                                           value="@(_personaDetails.GetValueOrDefault(fieldKey, string.Empty))"
+                                           @oninput="e => OnPersonaDetailChange(fieldKey, e)"
+                                           class="r-input" />
+                                </div>
+                            }
+                        </div>
+                    }
+                    <div class="ob-actions">
+                        <button class="btn" @onclick="Back">Back</button>
+                        <button class="btn btn--primary" style="flex:1;" @onclick="Next" disabled="@(!_selectedPersona.HasValue)">Continue</button>
+                    </div>
+                </div>
+            }
+            else if (_step == 3)
+            {
+                <!-- REGION -->
+                <div style="flex:1;display:flex;flex-direction:column;">
+                    <div class="ob-step-label">Step 3 of @TotalOnboardingSteps · Region</div>
+                    <h1 class="ob-title">Pick your region.</h1>
+                    <p class="ob-sub" style="margin-bottom:20px;">Radar personalises sources, opportunities and examples to where you are.</p>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:14px;">
+                        @foreach (var region in Regions)
+                        {
+                            var isActive = _selectedRegion == region;
+                            <button class="ob-option @(isActive ? "active" : "")"
+                                    style="text-align:left;"
+                                    @onclick="() => _selectedRegion = region">
+                                @region
+                            </button>
+                        }
+                    </div>
+                    <label style="font-size:12.5px;font-weight:600;color:#535c6b;display:block;margin-bottom:6px;">Country or city (optional)</label>
+                    <input type="text" placeholder="e.g. Lagos, Nigeria" @bind="_city" @bind:event="oninput" class="r-input" />
+                    <div class="ob-actions">
+                        <button class="btn" @onclick="Back">Back</button>
+                        <button class="btn btn--primary" style="flex:1;" @onclick="Next" disabled="@(string.IsNullOrEmpty(_selectedRegion))">Continue</button>
+                    </div>
+                </div>
+            }
+            else if (_step == 4)
+            {
+                <!-- GOAL -->
+                <div style="flex:1;display:flex;flex-direction:column;">
+                    <div class="ob-step-label">Step 4 of @TotalOnboardingSteps · Goal</div>
+                    <h1 class="ob-title">What's your primary goal?</h1>
+                    <p class="ob-sub" style="margin-bottom:20px;">Everything Radar shows you — reading, learning, opportunities — is prioritised against this one thing.</p>
+                    <div class="ob-options">
+                        @foreach (var goal in GoalsFor(_selectedPersona))
+                        {
+                            var isActive = _selectedGoal == goal;
+                            <button class="ob-option @(isActive ? "active" : "")"
+                                    @onclick="() => SelectGoal(goal)">
+                                <span>@goal</span>
+                                <span class="ob-option__check">✓</span>
+                            </button>
+                        }
+                    </div>
+                    <label style="font-size:12.5px;font-weight:600;color:#535c6b;display:block;margin-bottom:6px;margin-top:14px;">Or describe your own goal</label>
+                    <input type="text" placeholder="e.g. Launch my own consultancy" @bind="_customGoal" @bind:event="oninput"
+                           @onfocus="() => _selectedGoal = null"
+                           class="r-input" />
+                    <div class="ob-actions">
+                        <button class="btn" @onclick="Back">Back</button>
+                        <button class="btn btn--primary" style="flex:1;" @onclick="Next" disabled="@(!GoalReady)">Continue</button>
+                    </div>
+                </div>
+            }
+            else if (_step == 5)
+            {
+                <!-- INTERESTS -->
+                <div style="flex:1;display:flex;flex-direction:column;">
+                    <div class="ob-step-label">Step 5 of @TotalOnboardingSteps · Interests</div>
+                    <h1 class="ob-title">Choose your interests.</h1>
+                    <p class="ob-sub" style="margin-bottom:6px;">Pick 3 to 5. This shapes your feed, your weekly brief and what Radar recommends you learn.</p>
+                    <div class="ob-interests-meta">@_selectedInterests.Count of 5 selected</div>
+                    <div style="overflow-y:auto;flex:1;padding-bottom:4px;">
+                        @foreach (var (category, items) in InterestGroups)
+                        {
+                            <div class="ob-interests-group">
+                                <div class="ob-interests-group-label">@category</div>
+                                <div class="ob-interests-pills">
+                                    @foreach (var interest in items)
+                                    {
+                                        var isActive = _selectedInterests.Contains(interest);
+                                        var atMax = _selectedInterests.Count >= 5 && !isActive;
+                                        <button class="r-interest-pill @(isActive ? "active" : "")"
+                                                disabled="@atMax"
+                                                @onclick="() => ToggleInterest(interest)">
+                                            @interest
+                                        </button>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                    <div class="ob-actions">
+                        <button class="btn" @onclick="Back">Back</button>
+                        <button class="btn btn--primary" style="flex:1;" @onclick="Next" disabled="@(_selectedInterests.Count < 3)">Continue</button>
+                    </div>
+                    @if (_selectedInterests.Count < 3)
+                    {
+                        <div style="text-align:center;font-size:12px;color:#aab2c0;margin-top:10px;">Choose at least 3 interests to continue</div>
+                    }
+                </div>
+            }
+            else if (_step == 6)
+            {
+                <!-- NOTIFICATIONS -->
+                <div style="flex:1;display:flex;flex-direction:column;">
+                    <div class="ob-step-label">Step 6 of @TotalOnboardingSteps · Notifications</div>
+                    <h1 class="ob-title">Stay on your schedule.</h1>
+                    <p class="ob-sub" style="margin-bottom:22px;">Choose when Radar should reach you. You can turn these off at any time.</p>
+                    <div style="display:flex;flex-direction:column;gap:10px;">
+                        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:15px 16px;border-radius:11px;background:#f6f8f9;border:1.5px solid rgba(20,24,31,.08);">
+                            <div>
+                                <div style="font-size:13.5px;font-weight:700;">Weekly Intelligence Brief</div>
+                                <div style="font-size:12px;color:#8a91a0;">Monday morning, your week in one place</div>
+                            </div>
+                            <button @onclick="() => _notifWeekly = !_notifWeekly"
+                                    style="width:42px;height:24px;border-radius:99px;border:none;background:@(_notifWeekly ? "#008c93" : "rgba(20,24,31,.16)");position:relative;flex:none;cursor:pointer;">
+                                <div style="width:18px;height:18px;border-radius:50%;background:#fff;position:absolute;top:3px;left:@(_notifWeekly ? "21px" : "3px");transition:left .15s;"></div>
+                            </button>
+                        </div>
+                        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:15px 16px;border-radius:11px;background:#f6f8f9;border:1.5px solid rgba(20,24,31,.08);">
+                            <div>
+                                <div style="font-size:13.5px;font-weight:700;">Opportunity deadlines</div>
+                                <div style="font-size:12px;color:#8a91a0;">7 days and 48 hours before close</div>
+                            </div>
+                            <button @onclick="() => _notifDeadlines = !_notifDeadlines"
+                                    style="width:42px;height:24px;border-radius:99px;border:none;background:@(_notifDeadlines ? "#008c93" : "rgba(20,24,31,.16)");position:relative;flex:none;cursor:pointer;">
+                                <div style="width:18px;height:18px;border-radius:50%;background:#fff;position:absolute;top:3px;left:@(_notifDeadlines ? "21px" : "3px");transition:left .15s;"></div>
+                            </button>
+                        </div>
+                        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:15px 16px;border-radius:11px;background:#f6f8f9;border:1.5px solid rgba(20,24,31,.08);">
+                            <div>
+                                <div style="font-size:13.5px;font-weight:700;">Roadmap reminders</div>
+                                <div style="font-size:12px;color:#8a91a0;">A nudge when a module stalls</div>
+                            </div>
+                            <button @onclick="() => _notifRoadmap = !_notifRoadmap"
+                                    style="width:42px;height:24px;border-radius:99px;border:none;background:@(_notifRoadmap ? "#008c93" : "rgba(20,24,31,.16)");position:relative;flex:none;cursor:pointer;">
+                                <div style="width:18px;height:18px;border-radius:50%;background:#fff;position:absolute;top:3px;left:@(_notifRoadmap ? "21px" : "3px");transition:left .15s;"></div>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="ob-actions">
+                        <button class="btn" @onclick="Back">Back</button>
+                        <button class="btn btn--primary" style="flex:1;" @onclick="Next">Finish</button>
+                    </div>
+                </div>
+            }
+            else if (_step == 7)
+            {
+                <!-- DONE -->
+                <div style="flex:1;display:flex;flex-direction:column;">
+                    <div class="ob-step-label">You're set</div>
+                    <h1 class="ob-title" style="margin-bottom:10px;">Your Personal Intelligence Profile is ready.</h1>
+                    <p class="ob-sub" style="line-height:1.65;margin-bottom:20px;">Radar opens on Today's Focus — one thing to learn, read, watch, listen to, apply for and build.</p>
+                    <div class="ob-profile-summary">
+                        <div class="ob-profile-summary-label">Your profile</div>
+                        <div class="ob-profile-row">
+                            <span class="ob-profile-row-key">You are</span>
+                            <span class="ob-profile-row-val">@PersonaLabel(_selectedPersona)</span>
+                        </div>
+                        <div class="ob-profile-row">
+                            <span class="ob-profile-row-key">Working toward</span>
+                            <span class="ob-profile-row-val">@(_selectedGoal ?? _customGoal)</span>
+                        </div>
+                        <div class="ob-profile-row">
+                            <span class="ob-profile-row-key">Region</span>
+                            <span class="ob-profile-row-val">@RegionSummary</span>
+                        </div>
+                        <div class="ob-profile-row">
+                            <span class="ob-profile-row-key">Interests</span>
+                            <span class="ob-profile-row-val" style="max-width:60%;">@string.Join(" · ", _selectedInterests)</span>
+                        </div>
+                    </div>
+                    @if (_authError != null)
+                    {
+                        <div style="margin-top:14px;padding:12px 14px;background:#fff0f0;border-radius:10px;border:1px solid #f5c6c6;font-size:13px;color:#d94f4f;">@_authError</div>
+                    }
+                    <div class="ob-actions" style="padding-top:22px;">
+                        <button class="btn btn--primary" style="width:100%;padding:15px;" @onclick="FinishAsync" disabled="@_saving">
+                            @if (_saving) { <span>Setting up…</span> } else { <span>Enter Radar →</span> }
+                        </button>
+                    </div>
+                </div>
+            }
+
+        </div>
+
+        @if (_step is >= 1 and <= 6)
+        {
+            <div class="ob-footnote">Step @_step of @TotalOnboardingSteps</div>
+        }
+
+    </div>
+
+    <!-- Right atmospheric photo -->
+    <div class="ob-photo">
+        <img src="@SideImage" alt="" />
+        <div class="ob-photo-overlay"></div>
+        <div class="ob-photo-caption">
+            <div class="ob-photo-eyebrow">@SideEyebrow</div>
+            <div class="ob-photo-text">@SideCaption</div>
+        </div>
+    </div>
+
+</div>
+
+@code {
+    private const int TotalOnboardingSteps = 6;
+    private int _step = 0;
+    private string _name = string.Empty;
+    private string _email = string.Empty;
+    private string _password = string.Empty;
+    private PersonaType? _selectedPersona;
+    private Dictionary<string, string> _personaDetails = new();
+    private string? _selectedRegion;
+    private string _city = string.Empty;
+    private string? _selectedGoal;
+    private string _customGoal = string.Empty;
+    private readonly HashSet<string> _selectedInterests = new();
+    private bool _notifWeekly = true;
+    private bool _notifDeadlines = true;
+    private bool _notifRoadmap;
+    private bool _saving;
+    private string? _authError;
+
+    private static readonly (PersonaType, string)[] Personas =
+    {
+        (PersonaType.Student,           "Student"),
+        (PersonaType.Graduate,          "Graduate"),
+        (PersonaType.YoungProfessional, "Young Professional"),
+        (PersonaType.Entrepreneur,      "Entrepreneur"),
+        (PersonaType.Researcher,        "Researcher"),
+    };
+
+    private static readonly string[] Regions =
+        { "Africa", "Middle East", "Asia-Pacific", "Europe", "Americas", "Global" };
+
+    private static (string Key, string Label)[] PersonaDetails(PersonaType persona) => persona switch
+    {
+        PersonaType.Student           => new[] { ("university", "University"), ("faculty", "Faculty"), ("level", "Level (e.g. Year 3)") },
+        PersonaType.Graduate          => new[] { ("university", "University attended"), ("discipline", "Discipline"), ("year", "Year graduated") },
+        PersonaType.YoungProfessional => new[] { ("industry", "Industry"), ("role", "Current role"), ("experience", "Years of experience") },
+        PersonaType.Entrepreneur      => new[] { ("business", "Business name"), ("industry", "Industry"), ("stage", "Stage (e.g. Pre-seed)") },
+        PersonaType.Researcher        => new[] { ("institution", "Institution"), ("researchArea", "Research area"), ("position", "Current position") },
+        _                             => Array.Empty<(string, string)>()
+    };
+
+    private static string[] GoalsFor(PersonaType? persona) => persona switch
+    {
+        PersonaType.Student           => new[] { "Get Internship", "Get Scholarship", "Graduate with First Class", "Learn AI", "Build Portfolio" },
+        PersonaType.Graduate          => new[] { "Get First Job", "Learn AI", "Build Professional Portfolio", "Switch Career", "Prepare for NYSC Opportunities" },
+        PersonaType.YoungProfessional => new[] { "Get Promotion", "Career Transition", "Become Team Lead", "Learn New Skills", "Earn Professional Certification" },
+        PersonaType.Entrepreneur      => new[] { "Get Customers", "Raise Funding", "Build AI Startup", "Scale Business", "Expand Internationally" },
+        PersonaType.Researcher        => new[] { "Publish Papers", "Find Academic Literature", "Find Research Grants", "Apply for PhD", "Improve Academic Writing" },
+        _                             => Array.Empty<string>()
+    };
+
+    private static readonly (string Category, string[] Items)[] InterestGroups =
+    {
+        ("Technology",          new[] { "Artificial Intelligence", "Machine Learning", "Data Science", "Software Engineering", "Cloud Computing", "Cybersecurity", "UI/UX", "Product Management" }),
+        ("Business",            new[] { "Entrepreneurship", "Marketing", "Finance", "Economics", "Leadership", "Strategy", "Investment" }),
+        ("Research & Academia", new[] { "Academic Writing", "Research Methods", "Statistics", "Systematic Reviews" }),
+        ("Professional Fields", new[] { "Medicine", "Law", "Public Policy", "Engineering", "Agriculture", "Education", "Psychology", "Climate Change" }),
+        ("Creative Fields",     new[] { "Design", "Photography", "Content Creation", "Film" }),
+    };
+
+    private static string PersonaLabel(PersonaType? p) => p switch
+    {
+        PersonaType.Student           => "Student",
+        PersonaType.Graduate          => "Graduate",
+        PersonaType.YoungProfessional => "Young Professional",
+        PersonaType.Entrepreneur      => "Entrepreneur",
+        PersonaType.Researcher        => "Researcher",
+        _                             => "—"
+    };
+
+    private bool AccountReady => !string.IsNullOrWhiteSpace(_name)
+        && !string.IsNullOrWhiteSpace(_email)
+        && _password.Length >= 8;
+    private bool GoalReady => !string.IsNullOrWhiteSpace(_selectedGoal) || !string.IsNullOrWhiteSpace(_customGoal);
+    private string RegionSummary => string.IsNullOrWhiteSpace(_city) ? (_selectedRegion ?? "—") : $"{_selectedRegion} · {_city}";
+
+    private string SideImage => _step switch
+    {
+        0 => "https://images.unsplash.com/photo-1758874383904-c3c409aeb32d?fm=jpg&q=80&w=1200&auto=format&fit=crop",
+        1 => "https://images.unsplash.com/photo-1758874383904-c3c409aeb32d?fm=jpg&q=80&w=1200&auto=format&fit=crop",
+        2 => "https://images.unsplash.com/photo-1724627561948-3004cc467dc6?fm=jpg&q=80&w=1200&auto=format&fit=crop",
+        3 => "https://images.unsplash.com/photo-1642009071428-119813340e22?fm=jpg&q=80&w=1200&auto=format&fit=crop",
+        4 => "https://images.unsplash.com/photo-1693597046525-f0727538336b?fm=jpg&q=80&w=1200&auto=format&fit=crop",
+        5 => "https://images.unsplash.com/photo-1689421755116-afec95af4f69?fm=jpg&q=80&w=1200&auto=format&fit=crop",
+        6 => "https://images.unsplash.com/photo-1643845892686-30c241c3938c?fm=jpg&q=80&w=1200&auto=format&fit=crop",
+        _ => "https://images.unsplash.com/photo-1663026287805-6ef59d3feb19?fm=jpg&q=80&w=1200&auto=format&fit=crop",
+    };
+
+    private string SideEyebrow => _step switch
+    {
+        0 => "Getting started",
+        1 => "Your account",
+        2 => "Who you are",
+        3 => "Your region",
+        4 => "Your goal",
+        5 => "Your interests",
+        6 => "On your schedule",
+        _ => "You're in",
+    };
+
+    private string SideCaption => _step switch
+    {
+        0 => "Know what matters. Learn what matters. Become ready for what matters.",
+        1 => "One account, calibrated entirely to you.",
+        2 => "Radar asks different questions depending on who you are.",
+        3 => "Personalised to where you are, and what is happening there.",
+        4 => "Everything Radar recommends is prioritised against this.",
+        5 => "Curated from trusted sources, explained in minutes.",
+        6 => "Delivered when you need it, never more than that.",
+        _ => "Start your day with Radar, not with Google.",
+    };
+
+    private void SelectPersona(PersonaType persona)
+    {
+        _selectedPersona = persona;
+        _selectedGoal = null;
+        _personaDetails = new();
+    }
+
+    private void SelectGoal(string goal)
+    {
+        _selectedGoal = goal;
+        _customGoal = string.Empty;
+    }
+
+    private void OnPersonaDetailChange(string key, ChangeEventArgs e)
+    {
+        _personaDetails[key] = e.Value?.ToString() ?? string.Empty;
+    }
+
+    private void ToggleInterest(string interest)
+    {
+        if (_selectedInterests.Contains(interest))
+            _selectedInterests.Remove(interest);
+        else if (_selectedInterests.Count < 5)
+            _selectedInterests.Add(interest);
+    }
+
+    private void Next()
+    {
+        if (_step < 7) _step++;
+    }
+
+    private void Back()
+    {
+        if (_step > 0) _step--;
+    }
+
+    private async Task FinishAsync()
+    {
+        _saving = true;
+        _authError = null;
+
+        var authResult = await AuthService.RegisterAsync(_name.Trim(), _email.Trim(), _password);
+        if (!authResult.Success)
+        {
+            _authError = authResult.Error;
+            _saving = false;
+            return;
+        }
+
+        UserSession.SetUser(authResult.UserId!, authResult.UserName!);
+        await LocalStorage.SetAsync("radar_session", new StoredSession(authResult.UserId!, authResult.UserName!));
+
+        var profile = await UserProfileService.GetCurrentUserAsync() ?? new UserProfile();
+        profile.Persona = _selectedPersona!.Value;
+        profile.PrimaryGoal = _selectedGoal ?? _customGoal;
+        profile.Interests = new List<string>(_selectedInterests);
+        profile.Region = _selectedRegion ?? "Global";
+        profile.City = _city;
+        profile.PersonaDetails = new Dictionary<string, string>(_personaDetails);
+        profile.Notifications = new NotificationPrefs
+        {
+            WeeklyBrief = _notifWeekly,
+            OpportunityDeadlines = _notifDeadlines,
+            RoadmapReminders = _notifRoadmap,
+        };
+
+        await UserProfileService.CompleteOnboardingAsync(profile);
+        Nav.NavigateTo("/");
+    }
+}

@@ -1,0 +1,157 @@
+﻿@page "/clips"
+@rendermode InteractiveServer
+@inherits RadarV2.Components.Base.SessionAwareBase
+@inject IClipsService ClipsService
+
+<PageTitle>Clips — Radar</PageTitle>
+
+<div style="min-height:100dvh;display:flex;flex-direction:column;background:var(--navy);">
+
+    <!-- Header -->
+    <div style="display:flex;align-items:center;gap:14px;padding:14px clamp(18px,4vw,40px);flex:none;position:sticky;top:0;z-index:5;background:var(--navy);">
+        <a href="/" style="font-size:18px;color:#fff;">â†</a>
+        <span style="font-family:var(--font-display);font-weight:700;font-size:15px;flex:1;color:#fff;">Clips</span>
+        @if (_clips.Count > 0)
+        {
+            <span style="font-size:11.5px;font-weight:600;color:rgba(255,255,255,.5);">@(_currentIndex + 1) / @_clips.Count</span>
+        }
+    </div>
+
+    @if (_loading)
+    {
+        <!-- Loading skeleton for clips -->
+        <div style="flex:1;width:100%;max-width:480px;margin:0 auto;padding:0 clamp(14px,3vw,20px) 20px;display:flex;flex-direction:column;">
+            <div style="position:relative;flex:1;min-height:520px;border-radius:20px;overflow:hidden;background:linear-gradient(160deg,#1e2530 0%,#0d1b1d 100%);display:flex;flex-direction:column;justify-content:center;padding:0 26px;">
+                <div style="height:14px;width:80px;background:rgba(0,194,203,.2);border-radius:4px;margin-bottom:20px;animation:pulse 1.5s infinite;"></div>
+                <div style="height:28px;width:90%;background:rgba(255,255,255,.1);border-radius:6px;margin-bottom:20px;animation:pulse 1.5s infinite .2s;"></div>
+                <div style="height:14px;width:110px;background:rgba(255,255,255,.06);border-radius:4px;margin-bottom:12px;animation:pulse 1.5s infinite .4s;"></div>
+                <div style="height:16px;width:100%;background:rgba(255,255,255,.06);border-radius:4px;margin-bottom:8px;animation:pulse 1.5s infinite .6s;"></div>
+                <div style="height:16px;width:75%;background:rgba(255,255,255,.06);border-radius:4px;animation:pulse 1.5s infinite .8s;"></div>
+            </div>
+        </div>
+    }
+    else if (_error is not null)
+    {
+        <div style="flex:1;display:flex;align-items:center;justify-content:center;padding:40px;">
+            <div style="text-align:center;max-width:300px;">
+                <div style="font-size:32px;margin-bottom:12px;">âš ï¸</div>
+                <div style="font-family:var(--font-display);font-weight:700;font-size:16px;color:#fff;margin-bottom:8px;">Failed to load clips</div>
+                <div style="font-size:13px;color:rgba(255,255,255,.5);margin-bottom:16px;">@_error</div>
+                <button class="btn" style="background:var(--cyan-bright);color:#0d2b2d;border-color:transparent;" @onclick="LoadClipsAsync">Try again</button>
+            </div>
+        </div>
+    }
+    else if (_clips.Count == 0)
+    {
+        <div style="flex:1;display:flex;align-items:center;justify-content:center;padding:40px;">
+            <div style="text-align:center;max-width:300px;">
+                <div style="font-size:32px;margin-bottom:12px;">ðŸŽ¬</div>
+                <div style="font-family:var(--font-display);font-weight:700;font-size:16px;color:#fff;margin-bottom:8px;">No clips today</div>
+                <div style="font-size:13px;color:rgba(255,255,255,.5);margin-bottom:16px;">Radar is preparing your daily signals. Check back tomorrow.</div>
+                <a href="/" style="font-size:12.5px;font-weight:700;background:var(--cyan-bright);color:#0d2b2d;padding:10px 16px;border-radius:8px;text-decoration:none;">Go to Today</a>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div style="flex:1;width:100%;max-width:480px;margin:0 auto;padding:0 clamp(14px,3vw,20px) 20px;display:flex;flex-direction:column;">
+
+            <!-- Clip card -->
+            <div style="position:relative;flex:1;min-height:520px;border-radius:20px;overflow:hidden;background:linear-gradient(160deg,#1e2530 0%,#0d1b1d 100%);display:flex;flex-direction:column;">
+
+                <!-- Progress bars -->
+                <div style="position:absolute;top:0;left:0;right:0;display:flex;gap:3px;padding:11px 13px 0;">
+                    @for (int i = 0; i < _clips.Count; i++)
+                    {
+                        var active = i <= _currentIndex;
+                        <div style="flex:1;height:2.5px;border-radius:2px;background:@(active ? "var(--cyan-bright)" : "rgba(255,255,255,.18)");"></div>
+                    }
+                </div>
+
+                <!-- Content -->
+                <div style="flex:1;display:flex;flex-direction:column;justify-content:center;padding:0 26px;">
+                    <div style="font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--cyan-bright);margin-bottom:15px;">@_clips[_currentIndex].Tag</div>
+                    <div style="font-family:var(--font-display);font-weight:700;font-size:clamp(1.3rem,4.5vw,1.55rem);line-height:1.32;margin-bottom:15px;color:#fff;">@_clips[_currentIndex].Signal</div>
+                    <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.4);margin-bottom:7px;">Why it matters</div>
+                    <div style="font-size:14px;color:rgba(255,255,255,.72);line-height:1.7;">@_clips[_currentIndex].WhyItMatters</div>
+                </div>
+
+                <!-- Bottom actions -->
+                <div style="position:relative;padding:20px 26px 24px;background:linear-gradient(180deg,rgba(18,22,29,0),rgba(18,22,29,.85));">
+                    <div style="font-size:11.5px;color:rgba(255,255,255,.5);font-weight:600;margin-bottom:15px;">@_clips[_currentIndex].Source</div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                        <a href="/" style="font-size:12.5px;font-weight:700;background:var(--cyan-bright);color:#0d2b2d;padding:10px 16px;border-radius:8px;">Understand â†’</a>
+                        <button class="btn" style="background:rgba(255,255,255,.12);color:#fff;border-color:transparent;font-size:12.5px;padding:10px 16px;" @onclick="SaveCurrent">Save</button>
+                    </div>
+                </div>
+
+                <!-- Tap zones for navigation -->
+                <button style="position:absolute;top:0;bottom:0;left:0;width:32%;background:none;border:none;opacity:0;cursor:pointer;" @onclick="Prev"></button>
+                <button style="position:absolute;top:0;bottom:0;right:0;width:32%;background:none;border:none;opacity:0;cursor:pointer;" @onclick="Next"></button>
+            </div>
+
+            <!-- Navigation buttons -->
+            <div style="display:flex;align-items:center;gap:10px;margin-top:14px;flex:none;">
+                <button class="btn" style="border-color:rgba(255,255,255,.22);color:#fff;background:none;font-size:13px;padding:12px 18px;" @onclick="Prev">Back</button>
+                <button class="btn" style="flex:1;background:rgba(255,255,255,.12);color:#fff;border-color:transparent;font-size:13.5px;padding:12px;" @onclick="Next">
+                    @(_currentIndex >= _clips.Count - 1 ? "Start over" : "Next clip â†’")
+                </button>
+            </div>
+
+            <div style="text-align:center;font-size:11.5px;color:rgba(255,255,255,.32);margin-top:12px;">
+                @(_currentIndex >= _clips.Count - 1 ? "That's all five. You're caught up." : "Five clips a day, each under a minute. Tap either side to move.")
+            </div>
+
+        </div>
+    }
+</div>
+
+<style>
+    @@keyframes pulse { 0%,100%{opacity:.4} 50%{opacity:1} }
+</style>
+
+@code {
+    private List<Clip> _clips = [];
+    private int _currentIndex;
+    private bool _loading = true;
+    private string? _error;
+
+    protected override async Task OnAuthenticatedAsync() => await LoadClipsAsync();
+
+    private async Task LoadClipsAsync()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            _clips = await ClipsService.GetDailyClipsAsync(Profile!);
+        }
+        catch (Exception ex)
+        {
+            _error = "Could not load clips. " + ex.Message;
+        }
+        _loading = false;
+    }
+
+    private void Next()
+    {
+        if (_currentIndex < _clips.Count - 1)
+            _currentIndex++;
+        else
+            _currentIndex = 0;
+    }
+
+    private void Prev()
+    {
+        if (_currentIndex > 0)
+            _currentIndex--;
+        else
+            _currentIndex = _clips.Count - 1;
+    }
+
+    private async Task SaveCurrent()
+    {
+        if (Profile is not null && _clips.Count > 0)
+            await ClipsService.SaveClipAsync(Profile.Id, _clips[_currentIndex].Id);
+    }
+}

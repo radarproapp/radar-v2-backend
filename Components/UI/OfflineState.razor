@@ -1,0 +1,21 @@
+@* Reusable offline/connection state component *@
+
+<div class="r-offline-state">
+    <div class="r-offline-state__icon">📡</div>
+    <div class="r-offline-state__title">@Title</div>
+    @if (!string.IsNullOrEmpty(Description))
+    {
+        <p class="r-offline-state__desc">@Description</p>
+    }
+    @if (ShowReconnect)
+    {
+        <button class="btn btn--accent" @onclick="OnReconnect">Reconnect</button>
+    }
+</div>
+
+@code {
+    [Parameter] public string Title { get; set; } = "You're offline";
+    [Parameter] public string? Description { get; set; } = "Check your internet connection and try again.";
+    [Parameter] public bool ShowReconnect { get; set; } = true;
+    [Parameter] public EventCallback OnReconnect { get; set; }
+}

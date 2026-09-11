@@ -1,0 +1,112 @@
+﻿@page "/compare"
+@page "/compare/{ComparisonId}"
+@rendermode InteractiveServer
+@inherits RadarV2.Components.Base.SessionAwareBase
+@inject ICompareService CompareService
+
+<PageTitle>Compare — Radar</PageTitle>
+
+<div class="r-page" style="max-width:820px;">
+    @if (_error is not null)
+    {
+        <ErrorState Title="Failed to load comparison" Description="@_error" OnRetry="LoadAsync" />
+    }
+    else if (_comparison is null)
+    {
+        <LoadingSkeleton Variant="card" Count="2" />
+    }
+    else
+    {
+        <!-- Header -->
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:18px;">
+            <div style="flex:1;">
+                <div class="r-kicker">SIDE BY SIDE</div>
+                <h1 class="r-page-title">@_comparison.Title</h1>
+            </div>
+            <button class="btn btn--tonal btn--sm">Save</button>
+        </div>
+
+        <!-- Items being compared -->
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px;">
+            @foreach (var item in _comparison.Items)
+            {
+                <div style="display:flex;align-items:center;gap:8px;background:#fff;border:1.5px solid rgba(20,24,31,.12);border-radius:99px;padding:7px 8px 7px 14px;">
+                    <span style="font-size:12.5px;font-weight:700;">@item</span>
+                    <span style="font-size:14px;color:var(--text-faint);cursor:pointer;">Ã—</span>
+                </div>
+            }
+            <button class="btn btn--sm" style="background:#f0f2f4;border-color:transparent;">+ Add a third</button>
+        </div>
+
+        <!-- Summary card (dark) -->
+        <div style="background:var(--navy);border-radius:16px;padding:20px 22px;color:#fff;margin-bottom:14px;">
+            <div style="font-family:var(--font-display);font-weight:700;font-size:clamp(1.02rem,1.9vw,1.18rem);line-height:1.4;margin-bottom:13px;">@_comparison.Summary</div>
+            <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--cyan-bright);margin-bottom:6px;">WHY IT MATTERS</div>
+            <div style="font-size:13.5px;color:rgba(255,255,255,.78);line-height:1.75;">@_comparison.WhyItMatters</div>
+        </div>
+
+        <!-- Your edge -->
+        @if (_comparison.AiEdge is not null)
+        {
+            <div style="background:var(--cyan-light);border-radius:14px;padding:17px 19px;margin-bottom:20px;">
+                <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--cyan-deep);margin-bottom:6px;">YOUR EDGE</div>
+                <div style="font-size:13px;color:#0d3d40;line-height:1.7;">@_comparison.AiEdge</div>
+            </div>
+        }
+
+        <!-- Comparison rows -->
+        @foreach (var row in _comparison.Rows)
+        {
+            <div style="margin-bottom:16px;">
+                <div style="display:flex;align-items:center;gap:9px;margin-bottom:9px;">
+                    <div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-faint);">@row.Label</div>
+                    <span style="font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:3px 9px;border-radius:99px;
+                               color:@(row.Tag == ComparisonRowTag.Differs ? "#c0392b" : row.Tag == ComparisonRowTag.Same ? "#046b70" : "#8a91a0");
+                               background:@(row.Tag == ComparisonRowTag.Differs ? "#fdf3f2" : row.Tag == ComparisonRowTag.Same ? "#e7f5f4" : "#f0f2f4");">
+                        @(row.Tag == ComparisonRowTag.Differs ? "Differs" : row.Tag == ComparisonRowTag.Same ? "Same" : "Context")
+                    </span>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                    <div style="background:#fff;border:1px solid rgba(20,24,31,.1);border-radius:14px;padding:15px 17px;">
+                        <div style="font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--text-muted);margin-bottom:7px;">
+                            @(row.LabelA ?? _comparison.Items.ElementAtOrDefault(0) ?? "A")
+                        </div>
+                        <div style="font-size:13.5px;color:#374151;line-height:1.65;">@row.ValueA</div>
+                    </div>
+                    <div style="background:#fff;border:1px solid rgba(20,24,31,.1);border-radius:14px;padding:15px 17px;">
+                        <div style="font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--text-muted);margin-bottom:7px;">
+                            @(row.LabelB ?? _comparison.Items.ElementAtOrDefault(1) ?? "B")
+                        </div>
+                        <div style="font-size:13.5px;color:#374151;line-height:1.65;">@row.ValueB</div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (_comparison.Disclaimer is not null)
+        {
+            <div style="font-size:12px;color:var(--text-faint);line-height:1.65;margin-top:8px;">@_comparison.Disclaimer</div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public string? ComparisonId { get; set; }
+    private PolicyComparison? _comparison;
+    private string? _error;
+
+    protected override async Task OnAuthenticatedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _error = null;
+        try
+        {
+            _comparison = await CompareService.GetComparisonAsync(ComparisonId ?? "cmp1");
+        }
+        catch (Exception ex)
+        {
+            _error = "Could not load comparison. " + ex.Message;
+        }
+    }
+}

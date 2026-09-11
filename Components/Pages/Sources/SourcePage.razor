@@ -1,0 +1,166 @@
+﻿@page "/source/{SourceId}"
+@rendermode InteractiveServer
+@inherits RadarV2.Components.Base.SessionAwareBase
+@inject ISourceService SourceService
+
+<PageTitle>Source — Radar</PageTitle>
+
+<div class="r-page">
+    @if (_error is not null)
+    {
+        <ErrorState Title="Failed to load source" Description="@_error" OnRetry="LoadAsync" />
+    }
+    else if (_source is null)
+    {
+        <LoadingSkeleton Variant="stats" />
+        <div style="height:16px;"></div>
+        <LoadingSkeleton Variant="feed" Count="2" />
+    }
+    else
+    {
+        <!-- Header with follow button -->
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:18px;">
+            <div style="flex:1;">
+                <h1 class="r-page-title">@_source.Name</h1>
+            </div>
+            <button class="btn @(_source.IsFollowing ? "btn--primary" : "") btn--sm"
+                    @onclick="ToggleFollow">
+                @(_source.IsFollowing ? "Following" : "Follow")
+            </button>
+        </div>
+
+        <!-- Source card -->
+        <div style="background:#fff;border:1px solid rgba(20,24,31,.1);border-radius:16px;padding:22px;margin-bottom:14px;">
+            <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px;">
+                <div style="width:52px;height:52px;border-radius:12px;background:var(--cyan-light);color:var(--cyan-deep);display:flex;align-items:center;justify-content:center;font-family:var(--font-display);font-weight:700;font-size:15px;flex:none;">
+                    @_source.Abbreviation
+                </div>
+                <div style="min-width:0;">
+                    <h1 style="font-family:var(--font-display);font-weight:700;font-size:1.2rem;line-height:1.25;margin-bottom:3px;">@_source.Name</h1>
+                    <div style="font-size:12px;color:var(--text-muted);font-weight:600;">@_source.Type Â· @_source.Domain</div>
+                </div>
+            </div>
+            <div style="background:#f6f8f9;border-radius:12px;padding:15px 17px;">
+                <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-faint);margin-bottom:7px;">WHY RADAR TRUSTS THIS SOURCE</div>
+                <div style="font-size:13px;color:#374151;line-height:1.7;">@_source.TrustNote</div>
+            </div>
+        </div>
+
+        <!-- Your edge -->
+        @if (_source.AiEdge is not null)
+        {
+            <div style="background:var(--cyan-light);border-radius:14px;padding:17px 19px;margin-bottom:20px;">
+                <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--cyan-deep);margin-bottom:6px;">YOUR EDGE</div>
+                <div style="font-size:13px;color:#0d3d40;line-height:1.7;">@_source.AiEdge</div>
+            </div>
+        }
+
+        <!-- Stats -->
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:20px;">
+            <div style="text-align:center;padding:15px 8px;border-radius:13px;background:#fff;border:1px solid rgba(20,24,31,.1);">
+                <div style="font-family:var(--font-display);font-weight:700;font-size:1.3rem;color:var(--cyan-deep);line-height:1;margin-bottom:5px;">@_source.ItemsInRadar</div>
+                <div style="font-size:10.5px;font-weight:600;color:var(--text-muted);">Items in Radar</div>
+            </div>
+            <div style="text-align:center;padding:15px 8px;border-radius:13px;background:#fff;border:1px solid rgba(20,24,31,.1);">
+                <div style="font-family:var(--font-display);font-weight:700;font-size:1.3rem;color:var(--cyan-deep);line-height:1;margin-bottom:5px;">@_source.ItemsRead</div>
+                <div style="font-size:10.5px;font-weight:600;color:var(--text-muted);">You have read</div>
+            </div>
+            <div style="text-align:center;padding:15px 8px;border-radius:13px;background:#fff;border:1px solid rgba(20,24,31,.1);">
+                <div style="font-family:var(--font-display);font-weight:700;font-size:1.3rem;color:var(--cyan-deep);line-height:1;margin-bottom:5px;">@_source.PublishFrequency</div>
+                <div style="font-size:10.5px;font-weight:600;color:var(--text-muted);">Publishes</div>
+            </div>
+        </div>
+
+        <!-- Recent items -->
+        <div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text-faint);margin-bottom:10px;">RECENT FROM THIS SOURCE</div>
+        @if (_source.RecentItems.Count == 0)
+        {
+            <EmptyState Icon="ðŸ"„" Title="No recent items" Description="This source hasn't published anything recently." Compact="true" />
+        }
+        else
+        {
+            <div style="display:flex;flex-direction:column;gap:9px;margin-bottom:20px;">
+                @foreach (var item in _source.RecentItems)
+                {
+                    <a href="/feed/@item.Id" style="display:block;background:#fff;border:1px solid rgba(20,24,31,.1);border-radius:14px;padding:16px 18px;text-decoration:none;color:inherit;">
+                        <div style="font-family:var(--font-display);font-weight:700;font-size:14px;line-height:1.4;margin-bottom:4px;">@item.Signal</div>
+                        <div style="font-size:11.5px;color:var(--text-muted);font-weight:600;">@DateHelper.Humanize(item.PublishedAt)</div>
+                    </a>
+                }
+            </div>
+        }
+
+        <!-- Following settings -->
+        <div style="background:#fff;border:1px solid rgba(20,24,31,.1);border-radius:14px;padding:18px 20px;">
+            <div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text-faint);margin-bottom:12px;">FOLLOWING SETTINGS</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding-bottom:14px;border-bottom:1px solid rgba(20,24,31,.06);margin-bottom:14px;">
+                <div>
+                    <div style="font-size:13.5px;font-weight:700;">Include in my weekly brief</div>
+                    <div style="font-size:11.5px;color:var(--text-muted);">About two items a week</div>
+                </div>
+                <button @onclick="ToggleWeeklyBrief"
+                        style="width:42px;height:24px;border-radius:99px;border:none;background:@(_source.IncludeInWeeklyBrief ? "var(--cyan)" : "rgba(20,24,31,.16)");position:relative;flex:none;cursor:pointer;">
+                    <div style="width:18px;height:18px;border-radius:50%;background:#fff;position:absolute;top:3px;left:@(_source.IncludeInWeeklyBrief ? "21px" : "3px");transition:left .15s;"></div>
+                </button>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+                <div>
+                    <div style="font-size:13.5px;font-weight:700;">Prioritise in my feed</div>
+                    <div style="font-size:11.5px;color:var(--text-muted);">Rank above other sources</div>
+                </div>
+                <button @onclick="TogglePrioritise"
+                        style="width:42px;height:24px;border-radius:99px;border:none;background:@(_source.PrioritiseInFeed ? "var(--cyan)" : "rgba(20,24,31,.16)");position:relative;flex:none;cursor:pointer;">
+                    <div style="width:18px;height:18px;border-radius:50%;background:#fff;position:absolute;top:3px;left:@(_source.PrioritiseInFeed ? "21px" : "3px");transition:left .15s;"></div>
+                </button>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string SourceId { get; set; } = "";
+    private SourceProfile? _source;
+    private string? _error;
+
+    protected override async Task OnAuthenticatedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _error = null;
+        try
+        {
+            _source = await SourceService.GetSourceAsync(SourceId);
+        }
+        catch (Exception ex)
+        {
+            _error = "Could not load source. " + ex.Message;
+        }
+    }
+
+    private async Task ToggleFollow()
+    {
+        if (Profile is not null && _source is not null)
+        {
+            await SourceService.ToggleFollowAsync(Profile.Id, _source.Id);
+            _source.IsFollowing = !_source.IsFollowing;
+        }
+    }
+
+    private async Task ToggleWeeklyBrief()
+    {
+        if (Profile is not null && _source is not null)
+        {
+            await SourceService.ToggleWeeklyBriefAsync(Profile.Id, _source.Id);
+            _source.IncludeInWeeklyBrief = !_source.IncludeInWeeklyBrief;
+        }
+    }
+
+    private async Task TogglePrioritise()
+    {
+        if (Profile is not null && _source is not null)
+        {
+            await SourceService.TogglePrioritiseAsync(Profile.Id, _source.Id);
+            _source.PrioritiseInFeed = !_source.PrioritiseInFeed;
+        }
+    }
+}

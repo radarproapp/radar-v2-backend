@@ -1,0 +1,109 @@
+@page "/institutions"
+@layout MarketingLayout
+
+<div class="mkt-institutions">
+
+    <!-- HEADER -->
+    <section class="mkt-page-header">
+        <div class="mkt-page-header__inner">
+            <div class="mkt-section-label">Built for institutions</div>
+            <h1>Every leader gets the view they need.</h1>
+            <p>Same underlying intelligence, adapted to the decisions each institution actually makes. Choose a type below to see how Radar shows up for them.</p>
+        </div>
+    </section>
+
+    <!-- TABS + CONTENT -->
+    <section class="mkt-inst-content">
+        <div class="mkt-inst-content__inner">
+            <div class="mkt-inst-tabs">
+                @foreach (var tab in _tabs)
+                {
+                    <button class="mkt-inst-tab @(_activeTab == tab.Id ? "active" : "")"
+                            @onclick="() => _activeTab = tab.Id">
+                        @tab.Label
+                    </button>
+                }
+            </div>
+
+            <div class="mkt-inst-detail">
+                <div class="mkt-inst-detail__visual">
+                    <div class="mkt-inst-detail__img" style="background:@_activeTabData.ImgBg;"></div>
+                </div>
+                <div class="mkt-inst-detail__text">
+                    <h2>@_activeTabData.Title</h2>
+                    <p>@_activeTabData.Body</p>
+                    <div class="mkt-inst-stats">
+                        @foreach (var stat in _activeTabData.Stats)
+                        {
+                            <div class="mkt-inst-stat">
+                                <div class="mkt-inst-stat__val">@stat.Value</div>
+                                <div class="mkt-inst-stat__label">@stat.Label</div>
+                            </div>
+                        }
+                    </div>
+                    <div class="mkt-inst-quote">"@_activeTabData.Quote"</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- INTEGRATION -->
+    <section class="mkt-inst-integration">
+        <div class="mkt-inst-integration__inner">
+            <div>
+                <h2>Radar sits alongside what you already use.</h2>
+                <p>No rip-and-replace. Works with your LMS, HR system, and SSO — live within a month.</p>
+            </div>
+            <a href="/how-it-works" class="btn btn--dark btn--lg">See the implementation timeline →</a>
+        </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="mkt-cta-section">
+        <div class="mkt-cta-card">
+            <div class="mkt-cta-card__content">
+                <h2>Bring Radar to your institution.</h2>
+                <p>Most institutions see measurable impact within six months. Let's talk about yours.</p>
+            </div>
+            <div class="mkt-cta-card__actions">
+                <a href="/" class="btn btn--dark btn--lg">Talk to us</a>
+            </div>
+        </div>
+    </section>
+
+</div>
+
+@code {
+    private string _activeTab = "universities";
+
+    private record TabData(string Id, string Label, string Title, string Body, string Quote, string ImgBg, (string Value, string Label)[] Stats);
+
+    private readonly TabData[] _tabs = new TabData[]
+    {
+        new TabData("universities", "Universities", "Every student graduates with a portfolio, not just a transcript.",
+            "Radar gives each student a personalised intelligence feed and learning pathway aligned to their programme. Faculty see which modules are driving real capability growth, and employers discover graduates with verified skills.",
+            "We used to measure success by graduation rates. Now we measure it by capability at graduation.",
+            "linear-gradient(135deg,#1a3a4a,#0d2530)",
+            new[] { ("12,400+", "Active students"), ("89%", "Daily usage"), ("3.2×", "Portfolio completion") }),
+
+        new TabData("banks", "Banks & enterprises", "Your workforce stays current without leaving their desk.",
+            "Radar delivers curated intelligence to every employee based on their role — risk, compliance, strategy, tech — and tracks which teams are building the capabilities your next quarter demands.",
+            "Our compliance team catches regulatory shifts weeks earlier than before.",
+            "linear-gradient(135deg,#1a2a3a,#0d1820)",
+            new[] { ("4,200+", "Employees enrolled"), ("94%", "Weekly return rate"), ("67%", "Skills gap reduced") }),
+
+        new TabData("government", "Government", "Policy teams stay ahead of change — not behind it.",
+            "Radar monitors domestic and international policy shifts, translates them into plain language briefs, and connects each update to the departments and skills it affects.",
+            "Five minutes on Radar replaced three hours of manual policy scanning.",
+            "linear-gradient(135deg,#2a2a3a,#181820)",
+            new[] { ("8", "Ministries onboarded"), ("200+", "Policy briefs / week"), ("34%", "Faster response time") }),
+
+        new TabData("ngos", "NGOs & partners", "Programme teams track what matters — without the data lag.",
+            "Radar turns scattered reports, field data, and research into actionable briefs — so programme leads can make decisions based on what's happening now, not what was true three months ago.",
+            "Radar helped us spot a funding opportunity we would have missed entirely.",
+            "linear-gradient(135deg,#1a3a2a,#0d2018)",
+            new[] { ("16", "Programme teams"), ("92%", "Brief relevance score"), ("2.8×", "Faster reporting") }),
+    };
+
+    private TabData _activeTabData => Array.Find(_tabs, t => t.Id == _activeTab) ?? _tabs[0];
+}

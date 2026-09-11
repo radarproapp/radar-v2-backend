@@ -1,0 +1,102 @@
+﻿@page "/plans"
+@rendermode InteractiveServer
+@inherits RadarV2.Components.Base.SessionAwareBase
+@inject IPlansService PlansService
+
+<PageTitle>Plans — Radar</PageTitle>
+
+<div class="r-page" style="max-width:820px;">
+    <div class="r-page-head">
+        <h1 class="r-page-title">Radar is free to use.</h1>
+        <p class="r-page-sub" style="max-width:52ch;">Your weekly brief, the full feed, your Growth Roadmap and saved resources stay free permanently. Pro adds depth for people pushing hard at a goal.</p>
+    </div>
+
+    <!-- Monthly/Yearly toggle -->
+    <div style="display:flex;background:#f0f2f4;border-radius:99px;padding:3px;gap:2px;width:fit-content;margin-bottom:22px;">
+        <button style="font-size:12px;font-weight:700;padding:8px 16px;border-radius:99px;border:none;cursor:pointer;
+                       background:@(!_yearly ? "var(--cyan)" : "transparent");color:@(!_yearly ? "#fff" : "var(--text-dim)");"
+                @onclick="() => _yearly = false">
+            Monthly
+        </button>
+        <button style="font-size:12px;font-weight:700;padding:8px 16px;border-radius:99px;border:none;cursor:pointer;
+                       background:@(_yearly ? "var(--cyan)" : "transparent");color:@(_yearly ? "#fff" : "var(--text-dim)");"
+                @onclick="() => _yearly = true">
+            Yearly Â· save 30%
+        </button>
+    </div>
+
+    <!-- Plans grid -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:22px;">
+        @foreach (var plan in _plans)
+        {
+            if (plan.IsPro)
+            {
+                <!-- Pro plan (dark card) -->
+                <div style="background:var(--navy);border-radius:18px;padding:24px 22px;color:#fff;position:relative;">
+                    <div style="position:absolute;top:20px;right:20px;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#0d2b2d;background:var(--cyan-bright);border-radius:99px;padding:5px 11px;">@plan.Badge</div>
+                    <div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--cyan-bright);margin-bottom:10px;">@plan.Name</div>
+                    <div style="display:flex;align-items:baseline;gap:6px;margin-bottom:6px;">
+                        <span style="font-family:var(--font-display);font-weight:700;font-size:2.1rem;line-height:1;">@FormatPrice(plan)</span>
+                        <span style="font-size:13px;color:rgba(255,255,255,.55);font-weight:600;">@(_yearly ? "/ year" : "/ month")</span>
+                    </div>
+                    <div style="font-size:12px;color:var(--cyan-bright);font-weight:600;margin-bottom:18px;">
+                        @(_yearly ? "Two months free — â‚¦2,100 a month" : "Switch to yearly and save 30%")
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:9px;margin-bottom:20px;">
+                        @foreach (var feature in plan.Features)
+                        {
+                            <div style="display:flex;gap:9px;font-size:13px;line-height:1.55;">
+                                <span style="color:var(--cyan-bright);font-weight:800;flex:none;">✓</span>
+                                <span style="color:rgba(255,255,255,.85);">@feature</span>
+                            </div>
+                        }
+                    </div>
+                    <button class="btn" style="width:100%;background:var(--cyan-bright);color:#0d2b2d;border-color:transparent;padding:14px;font-size:14px;">
+                        Start 14-day free trial
+                    </button>
+                    <div style="font-size:11.5px;color:rgba(255,255,255,.45);text-align:center;margin-top:10px;">No card required to start</div>
+                </div>
+            }
+            else
+            {
+                <!-- Free plan -->
+                <div style="background:#fff;border:1px solid rgba(20,24,31,.1);border-radius:18px;padding:24px 22px;">
+                    <div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);margin-bottom:10px;">Free Â· @plan.Note</div>
+                    <div style="display:flex;align-items:baseline;gap:6px;margin-bottom:18px;">
+                        <span style="font-family:var(--font-display);font-weight:700;font-size:2.1rem;line-height:1;">â‚¦0</span>
+                        <span style="font-size:13px;color:var(--text-muted);font-weight:600;">forever</span>
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:9px;margin-bottom:20px;">
+                        @foreach (var feature in plan.Features)
+                        {
+                            <div style="display:flex;gap:9px;font-size:13px;line-height:1.55;">
+                                <span style="color:var(--cyan);font-weight:800;flex:none;">✓</span>
+                                <span>@feature</span>
+                            </div>
+                        }
+                    </div>
+                    <button class="btn" style="width:100%;background:#f0f2f4;color:var(--text-muted);border-color:transparent;cursor:default;">Current plan</button>
+                </div>
+            }
+        }
+    </div>
+
+    <div style="font-size:12px;color:var(--text-faint);line-height:1.7;">Pricing shown in Nigerian Naira, adjusted to your region. Cancel anytime — your saved resources, notes and roadmap progress stay yours on the free plan.</div>
+</div>
+
+@code {
+    private bool _yearly;
+    private List<SubscriptionPlan> _plans = [];
+
+    protected override async Task OnAuthenticatedAsync()
+    {
+        _plans = await PlansService.GetPlansAsync();
+    }
+
+    private string FormatPrice(SubscriptionPlan plan)
+    {
+        if (plan.MonthlyPrice == 0) return "â‚¦0";
+        var price = _yearly ? plan.YearlyPrice : plan.MonthlyPrice;
+        return $"â‚¦{price:N0}";
+    }
+}

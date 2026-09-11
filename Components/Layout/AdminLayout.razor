@@ -1,0 +1,183 @@
+@inherits LayoutComponentBase
+@inject NavigationManager Nav
+
+<div style="min-height:100dvh;display:flex;background:#f6f8f9;">
+
+    <aside class="admin-side">
+        <div class="admin-side__brand">
+            <div class="admin-side__mark">R</div>
+            <span class="admin-side__name">Radar</span>
+            <span class="admin-side__badge">Admin</span>
+        </div>
+        <div class="admin-side__sub">Internal · all accounts</div>
+
+        <div class="admin-side__group">
+            <div class="admin-side__group-title">Overview</div>
+            <button class="admin-side__item @(_activePage == "overview" ? "active" : "")"
+                    @onclick='() => NavigateTo("overview")'>
+                <span class="admin-side__bar" style="background:#008c93;"></span>
+                <span>Dashboard</span>
+            </button>
+        </div>
+
+        <div class="admin-side__group">
+            <div class="admin-side__group-title">Content</div>
+            <button class="admin-side__item @(_activePage == "queue" ? "active" : "")"
+                    @onclick='() => NavigateTo("queue")'>
+                <span class="admin-side__bar" style="background:#008c93;"></span>
+                <span>Review Queue</span>
+                <span class="admin-side__count">12</span>
+            </button>
+            <button class="admin-side__item @(_activePage == "sources" ? "active" : "")"
+                    @onclick='() => NavigateTo("sources")'>
+                <span class="admin-side__bar" style="background:#008c93;"></span>
+                <span>Sources</span>
+            </button>
+            <button class="admin-side__item @(_activePage == "quality" ? "active" : "")"
+                    @onclick='() => NavigateTo("quality")'>
+                <span class="admin-side__bar" style="background:#c0392b;"></span>
+                <span>AI Quality</span>
+                <span class="admin-side__count admin-side__count--warn">3</span>
+            </button>
+        </div>
+
+        <div class="admin-side__group">
+            <div class="admin-side__group-title">People</div>
+            <button class="admin-side__item @(_activePage == "users" ? "active" : "")"
+                    @onclick='() => NavigateTo("users")'>
+                <span class="admin-side__bar" style="background:#5b6bd9;"></span>
+                <span>Users</span>
+            </button>
+            <button class="admin-side__item @(_activePage == "institutions" ? "active" : "")"
+                    @onclick='() => NavigateTo("institutions")'>
+                <span class="admin-side__bar" style="background:#5b6bd9;"></span>
+                <span>Institutions</span>
+            </button>
+        </div>
+
+        <div class="admin-side__group">
+            <div class="admin-side__group-title">Growth</div>
+            <button class="admin-side__item @(_activePage == "growth" ? "active" : "")"
+                    @onclick='() => NavigateTo("growth")'>
+                <span class="admin-side__bar" style="background:#1f9d63;"></span>
+                <span>Growth</span>
+            </button>
+            <button class="admin-side__item @(_activePage == "moderation" ? "active" : "")"
+                    @onclick='() => NavigateTo("moderation")'>
+                <span class="admin-side__bar" style="background:#b7791a;"></span>
+                <span>Moderation</span>
+            </button>
+            <button class="admin-side__item @(_activePage == "authoring" ? "active" : "")"
+                    @onclick='() => NavigateTo("authoring")'>
+                <span class="admin-side__bar" style="background:#b7791a;"></span>
+                <span>Learn Authoring</span>
+            </button>
+        </div>
+
+        <div class="admin-side__group">
+            <div class="admin-side__group-title">System</div>
+            <button class="admin-side__item @(_activePage == "team" ? "active" : "")"
+                    @onclick='() => NavigateTo("team")'>
+                <span class="admin-side__bar" style="background:#535c6b;"></span>
+                <span>Admin Team</span>
+            </button>
+        </div>
+
+        <div class="admin-side__footer">
+            <div class="admin-side__footer-label">Signed in as</div>
+            <div class="admin-side__footer-name">Admin User</div>
+            <span class="admin-side__role-badge admin-side__role-badge--super">Super Admin</span>
+            <div class="admin-side__footer-note">Full access to all features</div>
+            <div class="admin-side__preview-label">Preview as</div>
+            <div class="admin-side__preview-toggle">
+                <button class="admin-side__preview-btn active">Super</button>
+                <button class="admin-side__preview-btn">Platform</button>
+            </div>
+        </div>
+    </aside>
+
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column;">
+        <header class="admin-header">
+            <div class="admin-header__burger" @onclick="ToggleSidebar">☰</div>
+            <div class="admin-header__title">
+                <div>@_pageTitle</div>
+                <div class="admin-header__sub">@_pageSub</div>
+            </div>
+            <input type="text" placeholder="Search users, sources, briefs…" class="admin-header__search" />
+            <div class="admin-header__avatar">R</div>
+        </header>
+
+        <div style="flex:1;padding:clamp(16px,2.4vw,26px) clamp(14px,2.4vw,28px) 44px;">
+            @Body
+        </div>
+    </div>
+</div>
+
+@code {
+    private string _activePage = "overview";
+    private string _pageTitle = "Dashboard";
+    private string _pageSub = "Overview · last 7 days";
+
+    private readonly Dictionary<string, (string title, string sub)> _pages = new()
+    {
+        ["overview"] = ("Dashboard", "Overview · last 7 days"),
+        ["queue"] = ("Review Queue", "Content awaiting approval"),
+        ["sources"] = ("Sources", "Manage trusted sources"),
+        ["quality"] = ("AI Quality", "Accuracy and flags"),
+        ["users"] = ("Users", "Account management"),
+        ["institutions"] = ("Institutions", "Organisation accounts"),
+        ["growth"] = ("Growth", "Activation and retention"),
+        ["moderation"] = ("Moderation", "Reports and flags"),
+        ["authoring"] = ("Learn Authoring", "Modules and lessons"),
+        ["team"] = ("Admin Team", "Roles and permissions"),
+    };
+
+    protected override void OnInitialized()
+    {
+        Nav.LocationChanged += OnLocationChanged;
+        UpdateFromUri(Nav.Uri);
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        UpdateFromUri(e.Location);
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void UpdateFromUri(string uri)
+    {
+        if (uri.Contains("/admin/queue")) _activePage = "queue";
+        else if (uri.Contains("/admin/sources")) _activePage = "sources";
+        else if (uri.Contains("/admin/quality")) _activePage = "quality";
+        else if (uri.Contains("/admin/users")) _activePage = "users";
+        else if (uri.Contains("/admin/institutions")) _activePage = "institutions";
+        else if (uri.Contains("/admin/growth")) _activePage = "growth";
+        else if (uri.Contains("/admin/moderation")) _activePage = "moderation";
+        else if (uri.Contains("/admin/authoring")) _activePage = "authoring";
+        else if (uri.Contains("/admin/team")) _activePage = "team";
+        else _activePage = "overview";
+
+        if (_pages.TryGetValue(_activePage, out var p))
+        {
+            _pageTitle = p.title;
+            _pageSub = p.sub;
+        }
+    }
+
+    private void NavigateTo(string page)
+    {
+        _activePage = page;
+        if (_pages.TryGetValue(page, out var p))
+        {
+            _pageTitle = p.title;
+            _pageSub = p.sub;
+        }
+    }
+
+    private void ToggleSidebar()
+    {
+        // JS interop would toggle .side-open on body
+    }
+
+    public void Dispose() => Nav.LocationChanged -= OnLocationChanged;
+}

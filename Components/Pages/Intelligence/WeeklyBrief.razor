@@ -1,0 +1,164 @@
+@page "/weekly"
+@rendermode InteractiveServer
+@inherits RadarV2.Components.Base.SessionAwareBase
+@inject IWeeklyBriefService WeeklyBriefService
+@inject IIntelligenceFeedService FeedService
+@inject IOpportunityService OpportunityService
+
+<PageTitle>Weekly Brief — Radar</PageTitle>
+
+<div class="r-page" style="max-width:720px;">
+    @if (!AuthReady || _loading)
+    {
+        <LoadingSkeleton Variant="card" Count="1" />
+        <div style="height:16px;"></div>
+        <LoadingSkeleton Variant="feed" Count="4" />
+    }
+    else if (_error is not null)
+    {
+        <ErrorState Title="Failed to load weekly brief" Description="@_error" OnRetry="LoadAsync" />
+    }
+    else if (_brief is null)
+    {
+        <EmptyState Icon="📋" Title="No weekly brief yet" Description="Your first weekly brief will arrive on Monday. Check back then.">
+            <button class="btn btn--primary btn--sm" @onclick='() => Nav.NavigateTo("/feed")'>Browse the feed</button>
+        </EmptyState>
+    }
+    else
+    {
+        <!-- Back -->
+        <button style="font-size:13px;font-weight:700;color:var(--cyan);background:none;border:none;padding:0;margin-bottom:18px;cursor:pointer;"
+                @onclick='() => Nav.NavigateTo("/")'>
+            ← Navigator
+        </button>
+
+        <div class="r-kicker">WEEKLY INTELLIGENCE BRIEF</div>
+        <h1 class="r-page-title" style="margin-bottom:10px;">Week of @_brief.WeekOf.ToString("d MMMM")</h1>
+        <p class="r-page-sub" style="margin-bottom:22px;">
+            Everything worth your attention this week, chosen against <strong style="color:var(--cyan-deep);">@(Profile?.PrimaryGoal ?? "your goal")</strong>.
+        </p>
+
+        <!-- Weekly recommendation (dark card) -->
+        <div class="weekly-rec">
+            <div class="weekly-rec-label">THIS WEEK'S RECOMMENDATION</div>
+            <div class="weekly-rec-text">@_brief.WeeklyRecommendation</div>
+        </div>
+
+        <!-- Top Opportunities -->
+        @if (_brief.TopOpportunities.Count > 0)
+        {
+            <div class="weekly-section">
+                <div class="weekly-section-label">TOP OPPORTUNITIES</div>
+                @foreach (var opp in _brief.TopOpportunities)
+                {
+                    <button class="weekly-item" @onclick='GoToOpportunities'>
+                        <div class="weekly-item-meta">@opp.Type · @opp.DaysUntilDeadline days left · @opp.MatchScorePercent% match</div>
+                        <div class="weekly-item-title">@opp.Title — @opp.Organisation</div>
+                    </button>
+                }
+            </div>
+        }
+
+        <!-- Top Articles -->
+        @if (_brief.TopArticles.Count > 0)
+        {
+            <div class="weekly-section">
+                <div class="weekly-section-label">TOP ARTICLES</div>
+                @foreach (var item in _brief.TopArticles)
+                {
+                    <button class="weekly-item" @onclick="() => GoToFeed(item.Id)">
+                        <div class="weekly-item-meta">@item.Source · @item.EstimatedReadTime</div>
+                        <div class="weekly-item-title">@item.Signal</div>
+                    </button>
+                }
+            </div>
+        }
+
+        <!-- Top Research Papers -->
+        @if (_brief.TopResearchPapers.Count > 0)
+        {
+            <div class="weekly-section">
+                <div class="weekly-section-label">TOP RESEARCH PAPERS</div>
+                @foreach (var item in _brief.TopResearchPapers)
+                {
+                    <button class="weekly-item" @onclick="() => GoToFeed(item.Id)">
+                        <div class="weekly-item-meta">@item.Journal · @item.PublishedAt.ToString("yyyy")</div>
+                        <div class="weekly-item-title">@item.Signal</div>
+                    </button>
+                }
+            </div>
+        }
+
+        <!-- Top Videos -->
+        @if (_brief.TopVideos.Count > 0)
+        {
+            <div class="weekly-section">
+                <div class="weekly-section-label">TOP VIDEOS</div>
+                @foreach (var item in _brief.TopVideos)
+                {
+                    <button class="weekly-item" @onclick="() => GoToFeed(item.Id)">
+                        <div class="weekly-item-meta">@item.Source · @item.EstimatedWatchTime</div>
+                        <div class="weekly-item-title">@item.Signal</div>
+                    </button>
+                }
+            </div>
+        }
+
+        <!-- Top Podcasts -->
+        @if (_brief.TopPodcasts.Count > 0)
+        {
+            <div class="weekly-section">
+                <div class="weekly-section-label">TOP PODCASTS</div>
+                @foreach (var item in _brief.TopPodcasts)
+                {
+                    <button class="weekly-item" @onclick="() => GoToFeed(item.Id)">
+                        <div class="weekly-item-meta">@item.Source · @item.EstimatedReadTime</div>
+                        <div class="weekly-item-title">@item.Signal</div>
+                    </button>
+                }
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private RadarV2.Models.WeeklyBrief? _brief;
+    private bool _loading = true;
+    private string? _error;
+
+    protected override async Task OnAuthenticatedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            // Auto-generate if no brief exists for this week
+        _brief = await WeeklyBriefService.GetLatestBriefAsync(Profile!.Id)
+                 ?? await WeeklyBriefService.GenerateBriefAsync(Profile.Id, Profile);
+
+        if (_brief is not null)
+        {
+            if (_brief.TopArticles.Count == 0)
+                _brief.TopArticles = await FeedService.GetFeedAsync(Profile, ContentType.Article, pageSize: 3);
+            if (_brief.TopResearchPapers.Count == 0)
+                _brief.TopResearchPapers = await FeedService.GetFeedAsync(Profile, ContentType.ResearchPaper, pageSize: 2);
+            if (_brief.TopVideos.Count == 0)
+                _brief.TopVideos = await FeedService.GetFeedAsync(Profile, ContentType.Video, pageSize: 2);
+            if (_brief.TopPodcasts.Count == 0)
+                _brief.TopPodcasts = await FeedService.GetFeedAsync(Profile, ContentType.Podcast, pageSize: 2);
+            if (_brief.TopOpportunities.Count == 0)
+                _brief.TopOpportunities = await OpportunityService.GetOpportunitiesAsync(Profile, pageSize: 3);
+        }
+        }
+        catch (Exception ex)
+        {
+            _error = "Failed to load weekly brief. " + ex.Message;
+        }
+        _loading = false;
+    }
+
+    private void GoToFeed(string id) => Nav.NavigateTo("/feed/" + id);
+    private void GoToOpportunities() => Nav.NavigateTo("/opportunities");
+}

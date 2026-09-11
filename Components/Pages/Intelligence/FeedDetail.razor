@@ -1,0 +1,362 @@
+﻿@page "/feed/{ItemId}"
+@rendermode InteractiveServer
+@inherits RadarV2.Components.Base.SessionAwareBase
+@inject IIntelligenceFeedService FeedService
+@inject IRoadmapService RoadmapService
+
+<PageTitle>Article — Radar</PageTitle>
+
+<div class="r-page" style="max-width:700px;">
+    @if (_error is not null)
+    {
+        <ErrorState Title="Failed to load article" Description="@_error" OnRetry="LoadAsync" />
+    }
+    else if (_item is null)
+    {
+        <LoadingSkeleton Variant="text" Lines="1" Width="120px" />
+        <div style="height:12px;"></div>
+        <LoadingSkeleton Variant="text" Lines="1" Width="200px" />
+        <div style="height:8px;"></div>
+        <LoadingSkeleton Variant="text" Lines="1" Width="80%" />
+        <div style="height:24px;"></div>
+        <LoadingSkeleton Variant="card" Count="1" />
+    }
+    else
+    {
+        <!-- Back link -->
+        <button style="font-size:13px;font-weight:700;color:var(--cyan);background:none;border:none;padding:0;margin-bottom:18px;cursor:pointer;"
+                @onclick='() => Nav.NavigateTo("/feed")'>
+            â† @_item.Type
+        </button>
+
+        <!-- Layer badge + source + meta -->
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:13px;flex-wrap:wrap;">
+            <span style="font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:@LayerColor(_item.Layer);background:@LayerBg(_item.Layer);border-radius:5px;padding:3px 9px;">
+                @LayerLabel(_item.Layer)
+            </span>
+            @if (_item.CredibilityTier is 1 or 2)
+            {
+                <span style="font-size:11px;font-weight:700;color:#008c93;background:#e0f4f6;border-radius:5px;padding:3px 8px;">
+                    Tier @_item.CredibilityTier Source
+                </span>
+            }
+            <span class="item-detail-source">@_item.Source</span>
+            <span style="font-size:12.5px;font-weight:600;color:var(--text-muted);">@DateHelper.Humanize(_item.PublishedAt) Â· @(_item.EstimatedReadTime ?? _item.EstimatedWatchTime ?? "")</span>
+        </div>
+
+        <!-- Signal headline -->
+        <h1 style="font-family:var(--font-display);font-weight:700;font-size:clamp(1.4rem,2.9vw,1.85rem);line-height:1.25;margin-bottom:8px;">@_item.Signal</h1>
+
+        <!-- Title -->
+        <div style="font-size:13px;color:var(--text-muted);font-weight:600;line-height:1.6;margin-bottom:18px;">@_item.Title</div>
+
+        <!-- Authors (for papers) -->
+        @if (_item.Authors.Count > 0)
+        {
+            <div style="font-size:12.5px;color:var(--text-muted);font-weight:600;line-height:1.6;margin-bottom:18px;">
+                @string.Join(", ", _item.Authors) Â· @_item.Journal @_item.PublishedAt.Year Â· DOI @_item.Doi
+            </div>
+        }
+
+        <!-- Why it matters -->
+        <div class="item-detail-section">
+            <div class="item-detail-section-label">WHY IT MATTERS</div>
+            <p>@_item.WhyItMatters</p>
+        </div>
+
+        <!-- What happened -->
+        <div class="item-detail-section">
+            <div class="item-detail-section-label">WHAT HAPPENED</div>
+            <p>@_item.WhatHappened</p>
+        </div>
+
+        <!-- Key Insights -->
+        @if (_item.KeyInsights.Count > 0)
+        {
+            <div class="item-detail-section">
+                <div class="item-detail-section-label">KEY INSIGHTS</div>
+                @foreach (var insight in _item.KeyInsights)
+                {
+                    <div class="item-detail-insight">
+                        <div class="item-detail-insight-dot"></div>
+                        <div class="item-detail-insight-text">@insight</div>
+                    </div>
+                }
+            </div>
+        }
+
+        <!-- Persona Impact -->
+        @if (_item.PersonaImpact.Count > 0)
+        {
+            <div class="item-detail-section">
+                <div class="item-detail-section-label">WHAT IT MEANS FOR YOU</div>
+                <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px;">
+                    @foreach (var persona in _item.PersonaImpact.Keys)
+                    {
+                        <button style="font-size:12px;font-weight:600;padding:5px 13px;border-radius:99px;border:1.5px solid @(_activePersona == persona ? "var(--cyan)" : "rgba(20,24,31,.12)");background:@(_activePersona == persona ? "var(--cyan)" : "transparent");color:@(_activePersona == persona ? "#fff" : "var(--text-muted)");cursor:pointer;"
+                                @onclick="() => _activePersona = persona">
+                            @persona
+                        </button>
+                    }
+                </div>
+                @if (_activePersona != null && _item.PersonaImpact.TryGetValue(_activePersona, out var impact))
+                {
+                    <p style="font-size:14px;line-height:1.7;color:#374151;">@impact</p>
+                }
+            </div>
+        }
+
+        <!-- Opportunities -->
+        @if (_item.Opportunities.Count > 0)
+        {
+            <div class="item-detail-section">
+                <div class="item-detail-section-label">OPPORTUNITIES</div>
+                @foreach (var opp in _item.Opportunities)
+                {
+                    <div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:8px;">
+                        <div style="width:7px;height:7px;border-radius:50%;background:var(--cyan);flex:none;margin-top:6px;"></div>
+                        <div style="font-size:13.5px;line-height:1.6;color:#14181f;">@opp</div>
+                    </div>
+                }
+            </div>
+        }
+
+        <!-- Recommended Actions -->
+        @if (_item.RecommendedActions.Count > 0)
+        {
+            <div style="background:#f6f8f9;border-radius:13px;padding:17px 19px;margin-bottom:20px;">
+                <div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--cyan);margin-bottom:12px;">RECOMMENDED ACTIONS</div>
+                @for (int i = 0; i < _item.RecommendedActions.Count; i++)
+                {
+                    var n = i + 1;
+                    var action = _item.RecommendedActions[i];
+                    <div style="display:flex;gap:11px;align-items:flex-start;margin-bottom:@(i < _item.RecommendedActions.Count - 1 ? "10px" : "0");">
+                        <div style="width:22px;height:22px;border-radius:50%;background:var(--cyan);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none;">@n</div>
+                        <div style="font-size:13.5px;line-height:1.6;color:#14181f;padding-top:2px;">@action</div>
+                    </div>
+                }
+            </div>
+        }
+
+        <!-- Method (for papers) -->
+        @if (!string.IsNullOrWhiteSpace(_item.Methodology))
+        {
+            <div class="item-detail-section">
+                <div class="item-detail-section-label">METHOD</div>
+                <p>@_item.Methodology</p>
+            </div>
+        }
+
+        <!-- Chapters (for videos) -->
+        @if (_item.Chapters.Count > 0)
+        {
+            <div class="item-detail-section">
+                <div class="item-detail-section-label">CHAPTER BREAKDOWN</div>
+                @foreach (var ch in _item.Chapters)
+                {
+                    <div style="font-size:13px;color:#374151;font-weight:600;line-height:1.5;">
+                        @ch.Timestamp.ToString(@"mm\:ss") — @ch.Title
+                    </div>
+                }
+            </div>
+        }
+
+        <!-- Your edge -->
+        @if (!string.IsNullOrWhiteSpace(_item.AiSummary))
+        {
+            <div class="item-detail-edge">
+                <div class="item-detail-edge-label">YOUR EDGE</div>
+                <p>@_item.AiSummary</p>
+            </div>
+        }
+
+        <!-- Intelligence â†’ Learn Loop -->
+        <div class="item-detail-learn-loop">
+            <div class="item-detail-learn-loop-label">WANT TO UNDERSTAND THIS PROPERLY?</div>
+            <div class="item-detail-learn-loop-title">Add @(_item.Topic) to your Growth Roadmap.</div>
+            <div class="item-detail-learn-loop-tags">
+                <span class="item-detail-learn-loop-tag">6 articles</span>
+                <span class="item-detail-learn-loop-tag">3 podcasts</span>
+                <span class="item-detail-learn-loop-tag">5 videos</span>
+                <span class="item-detail-learn-loop-tag">8 papers</span>
+                <span class="item-detail-learn-loop-tag">1 project</span>
+            </div>
+            <button class="btn btn--sm" style="background:var(--cyan-bright);color:#0d2b2d;border-color:transparent;"
+                    @onclick="AddToRoadmap">
+                @(_addedToRoadmap ? "✓ Added" : "Add to roadmap")
+            </button>
+        </div>
+
+        <!-- Actions -->
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn--sm" @onclick="ToggleSave">
+                @(_item.IsSaved ? "Saved ✓" : "Save")
+            </button>
+            <a class="btn btn--sm" style="background:#f0f2f4;color:var(--text);border-color:transparent;" href="@_item.Url" target="_blank">
+                Open original â†’
+            </a>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string ItemId { get; set; } = "";
+    private ContentItem? _item;
+    private string? _error;
+    private bool _addedToRoadmap;
+    private string? _activePersona;
+
+    protected override async Task OnAuthenticatedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _error = null;
+        try
+        {
+            _item = await FeedService.GetByIdAsync(ItemId);
+            if (_item is null)
+            {
+                _error = "This article could not be found.";
+                return;
+            }
+            // Default persona tab to the user's own persona
+            _activePersona = Profile?.Persona switch
+            {
+                PersonaType.Student           => "Student",
+                PersonaType.Entrepreneur      => "Founder",
+                PersonaType.YoungProfessional => "Professional",
+                PersonaType.Researcher        => "Professional",
+                PersonaType.Graduate          => "Student",
+                _                             => _item.PersonaImpact.Keys.FirstOrDefault()
+            };
+            // Fall back to first available key if user's persona isn't in the dict
+            if (_activePersona != null && !_item.PersonaImpact.ContainsKey(_activePersona))
+                _activePersona = _item.PersonaImpact.Keys.FirstOrDefault();
+        }
+        catch (Exception ex)
+        {
+            _error = "Failed to load article. " + ex.Message;
+        }
+    }
+
+    private static string LayerLabel(ContentLayer layer) => layer switch
+    {
+        ContentLayer.Policy         => "Policy",
+        ContentLayer.Academic       => "Research",
+        ContentLayer.Ideas          => "Big Idea",
+        ContentLayer.Learning       => "Learning",
+        ContentLayer.Video          => "Video",
+        ContentLayer.Skills         => "Skills",
+        ContentLayer.RealEstate     => "Real Estate",
+        ContentLayer.Law            => "Law",
+        ContentLayer.Literature     => "Literature",
+        ContentLayer.Transportation => "Transport",
+        ContentLayer.Gaming         => "Gaming",
+        ContentLayer.Art            => "Art",
+        ContentLayer.History        => "History",
+        ContentLayer.Sports         => "Sports",
+        ContentLayer.Music          => "Music",
+        ContentLayer.Film           => "Film & TV",
+        ContentLayer.Science        => "Science",
+        ContentLayer.Environment    => "Environment",
+        ContentLayer.Travel         => "Travel",
+        ContentLayer.Medicine       => "Medicine",
+        ContentLayer.Fashion        => "Fashion",
+        ContentLayer.Lifestyle      => "Lifestyle",
+        ContentLayer.Faith          => "Faith",
+        ContentLayer.Philosophy     => "Philosophy",
+        ContentLayer.Education      => "Education",
+        ContentLayer.Finance        => "Finance",
+        ContentLayer.Energy         => "Energy",
+        ContentLayer.Agriculture    => "Agriculture",
+        ContentLayer.Industry       => "Industry",
+        ContentLayer.Career         => "Career",
+        _                           => "Intelligence"
+    };
+
+    private static string LayerColor(ContentLayer layer) => layer switch
+    {
+        ContentLayer.Policy         => "#0e5f6b",
+        ContentLayer.Academic       => "#1a4d8f",
+        ContentLayer.Ideas          => "#6b3fa0",
+        ContentLayer.RealEstate     => "#b45309",
+        ContentLayer.Law            => "#1e3a5f",
+        ContentLayer.Literature     => "#713f12",
+        ContentLayer.Transportation => "#44495e",
+        ContentLayer.Gaming         => "#5b21b6",
+        ContentLayer.Art            => "#9d174d",
+        ContentLayer.History        => "#92400e",
+        ContentLayer.Sports         => "#14532d",
+        ContentLayer.Music          => "#831843",
+        ContentLayer.Film           => "#7f1d1d",
+        ContentLayer.Science        => "#0f766e",
+        ContentLayer.Environment    => "#166534",
+        ContentLayer.Travel         => "#0c4a6e",
+        ContentLayer.Medicine       => "#991b1b",
+        ContentLayer.Fashion        => "#7e22ce",
+        ContentLayer.Lifestyle      => "#c2410c",
+        ContentLayer.Faith          => "#78350f",
+        ContentLayer.Philosophy     => "#3b0764",
+        ContentLayer.Education      => "#1e3a8a",
+        ContentLayer.Finance        => "#064e3b",
+        ContentLayer.Energy         => "#78350f",
+        ContentLayer.Agriculture    => "#3f6212",
+        ContentLayer.Industry       => "#374151",
+        ContentLayer.Career         => "#1e3a8a",
+        _                           => "#374151"
+    };
+
+    private static string LayerBg(ContentLayer layer) => layer switch
+    {
+        ContentLayer.Policy         => "#e0f4f6",
+        ContentLayer.Academic       => "#ddeeff",
+        ContentLayer.Ideas          => "#ede9f7",
+        ContentLayer.RealEstate     => "#fef3c7",
+        ContentLayer.Law            => "#e8f0fe",
+        ContentLayer.Literature     => "#fefce8",
+        ContentLayer.Transportation => "#f0f4f8",
+        ContentLayer.Gaming         => "#ede9fe",
+        ContentLayer.Art            => "#fce7f3",
+        ContentLayer.History        => "#fff7ed",
+        ContentLayer.Sports         => "#dcfce7",
+        ContentLayer.Music          => "#fdf2f8",
+        ContentLayer.Film           => "#fef2f2",
+        ContentLayer.Science        => "#f0fdfa",
+        ContentLayer.Environment    => "#f0fdf4",
+        ContentLayer.Travel         => "#e0f2fe",
+        ContentLayer.Medicine       => "#fee2e2",
+        ContentLayer.Fashion        => "#f3e8ff",
+        ContentLayer.Lifestyle      => "#fff7ed",
+        ContentLayer.Faith          => "#fffbeb",
+        ContentLayer.Philosophy     => "#faf5ff",
+        ContentLayer.Education      => "#eff6ff",
+        ContentLayer.Finance        => "#d1fae5",
+        ContentLayer.Energy         => "#fef3c7",
+        ContentLayer.Agriculture    => "#ecfccb",
+        ContentLayer.Industry       => "#f0f2f4",
+        ContentLayer.Career         => "#dbeafe",
+        _                           => "#f0f2f4"
+    };
+
+    private async Task ToggleSave()
+    {
+        if (_item is null || Profile is null) return;
+        if (_item.IsSaved)
+        {
+            await FeedService.UnsaveItemAsync(Profile.Id, _item.Id);
+            _item.IsSaved = false;
+        }
+        else
+        {
+            await FeedService.SaveItemAsync(Profile.Id, _item.Id);
+            _item.IsSaved = true;
+        }
+    }
+
+    private async Task AddToRoadmap()
+    {
+        if (Profile is null || _addedToRoadmap) return;
+        await RoadmapService.AddTopicToRoadmapAsync(Profile.Id, "active", _item?.Topic ?? "");
+        _addedToRoadmap = true;
+    }
+}

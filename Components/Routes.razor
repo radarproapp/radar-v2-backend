@@ -1,0 +1,45 @@
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage
+@using RadarV2.Services
+@using RadarV2.Services.Interfaces
+@inject ProtectedLocalStorage LocalStorage
+@inject IUserSessionService UserSession
+
+@if (_ready)
+{
+    <Router AppAssembly="typeof(Program).Assembly" NotFoundPage="typeof(Pages.NotFound)">
+        <Found Context="routeData">
+            <RouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)"/>
+            <FocusOnNavigate RouteData="routeData" Selector="h1"/>
+        </Found>
+    </Router>
+}
+else
+{
+    <div style="min-height:100dvh;display:flex;align-items:center;justify-content:center;background:#eceff1;">
+        <div style="width:36px;height:36px;border-radius:50%;border:3px solid #008c93;border-top-color:transparent;animation:spin .75s linear infinite;"></div>
+    </div>
+}
+
+@code {
+    private bool _ready;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        if (!UserSession.IsAuthenticated)
+        {
+            try
+            {
+                var result = await LocalStorage.GetAsync<StoredSession>("radar_session");
+                if (result.Success && result.Value is { } session)
+                    UserSession.SetUser(session.UserId, session.UserName);
+            }
+            catch { }
+        }
+
+        _ready = true;
+        StateHasChanged();
+    }
+}

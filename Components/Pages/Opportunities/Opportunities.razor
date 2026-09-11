@@ -1,0 +1,162 @@
+@page "/opportunities"
+@rendermode InteractiveServer
+@inherits RadarV2.Components.Base.SessionAwareBase
+@inject IOpportunityService OpportunityService
+
+<PageTitle>Opportunity Hub — Radar</PageTitle>
+
+<div class="r-page">
+    <div class="r-page-head">
+        <h1 class="r-page-title">Opportunity Hub</h1>
+        <p class="r-page-sub">Curated against your profile and goal. Every one includes what you have and what you are missing.</p>
+    </div>
+
+    <!-- Type filters -->
+    <div class="opp-filters">
+        <button class="r-chip @(_activeType == null ? "active" : "")" @onclick="() => SetFilter(null)">All</button>
+        @foreach (var (label, type) in TypeFilters)
+        {
+            <button class="r-chip @(_activeType == type ? "active" : "")" @onclick="() => SetFilter(type)">@label</button>
+        }
+    </div>
+
+    @if (!AuthReady || _loading && _opportunities.Count == 0)
+    {
+        <LoadingSkeleton Variant="feed" Count="3" />
+    }
+    else if (_error is not null)
+    {
+        <ErrorState Title="Failed to load opportunities" Description="@_error" OnRetry="LoadAsync" />
+    }
+    else if (_loading)
+    {
+        <LoadingSkeleton Variant="feed" Count="3" />
+    }
+    else if (_opportunities.Count == 0)
+    {
+        <EmptyState Icon="🎯" Title="No opportunities found" Description="Try a different filter or check back tomorrow — Radar updates daily.">
+            <button class="btn btn--sm" @onclick="() => SetFilter(null)">Show all</button>
+        </EmptyState>
+    }
+    else
+    {
+        @foreach (var opp in _opportunities)
+        {
+            <div class="opp-card">
+                <div class="opp-card-top">
+                    <span class="opp-type-badge">@opp.Type.ToString()</span>
+                    <span class="opp-deadline @DeadlineClass(opp)">
+                        Deadline · @opp.DaysUntilDeadline days
+                    </span>
+                </div>
+
+                <div class="opp-title">@opp.Title</div>
+                <div class="opp-org">@opp.Organisation</div>
+                <div class="opp-desc">@opp.Description</div>
+
+                <!-- Why Radar matched you -->
+                @if (Profile is not null)
+                {
+                    <div class="opp-match-section">
+                        <div class="opp-match-label">WHY RADAR MATCHED YOU</div>
+                        <div class="opp-match-row">Your goal · @Profile.PrimaryGoal</div>
+                        <div class="opp-match-row">Your interests · @string.Join(" + ", Profile.Interests.Take(2))</div>
+                        <div class="opp-match-row">Your profile · @Profile.Persona</div>
+                    </div>
+                }
+
+                <!-- You have / Missing -->
+                @if (opp.Requirements.Count > 0)
+                {
+                    <div class="opp-have-miss">
+                        <div>
+                            <div class="opp-have-label">YOU HAVE</div>
+                            @foreach (var req in opp.Requirements.Take(3))
+                            {
+                                <div class="opp-have-item">@req</div>
+                            }
+                        </div>
+                        <div>
+                            <div class="opp-miss-label">MISSING</div>
+                            <div class="opp-miss-item">Portfolio project</div>
+                        </div>
+                    </div>
+                }
+
+                <div class="opp-actions">
+                    <div class="opp-match-bar">
+                        <div class="opp-match-bar-track">
+                            <div class="opp-match-bar-fill" style="width:@(opp.MatchScorePercent)%"></div>
+                        </div>
+                        <span class="opp-match-num">@opp.MatchScorePercent% match</span>
+                    </div>
+                    <a class="btn btn--primary btn--sm" href="@opp.Url" target="_blank">Apply →</a>
+                    <button class="btn btn--sm" @onclick="() => ToggleSave(opp)">
+                        @(opp.IsSaved ? "Saved ✓" : "Save")
+                    </button>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private static readonly (string Label, OpportunityType Type)[] TypeFilters =
+    [
+        ("Jobs",         OpportunityType.Job),
+        ("Internships",  OpportunityType.Internship),
+        ("Scholarships", OpportunityType.Scholarship),
+        ("Fellowships",  OpportunityType.Fellowship),
+        ("Remote Jobs",  OpportunityType.RemoteJob),
+        ("Grants",       OpportunityType.ResearchGrant),
+    ];
+
+    private OpportunityType? _activeType;
+    private List<Opportunity> _opportunities = [];
+    private bool _loading = true;
+    private string? _error;
+
+    protected override async Task OnAuthenticatedAsync() => await LoadAsync();
+
+    private async Task SetFilter(OpportunityType? type)
+    {
+        _activeType = type;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            _opportunities = await OpportunityService.GetOpportunitiesAsync(Profile!, _activeType);
+        }
+        catch (Exception ex)
+        {
+            _error = "Could not load opportunities. " + ex.Message;
+        }
+        _loading = false;
+    }
+
+    private async Task ToggleSave(Opportunity opp)
+    {
+        if (opp.IsSaved)
+        {
+            await OpportunityService.UnsaveOpportunityAsync(Profile!.Id, opp.Id);
+            opp.IsSaved = false;
+        }
+        else
+        {
+            await OpportunityService.SaveOpportunityAsync(Profile!.Id, opp.Id);
+            opp.IsSaved = true;
+        }
+    }
+
+    private static string DeadlineClass(Opportunity opp) => opp.DaysUntilDeadline switch
+    {
+        <= 7  => "opp-deadline--urgent",
+        <= 21 => "opp-deadline--warn",
+        _     => "opp-deadline--safe"
+    };
+}

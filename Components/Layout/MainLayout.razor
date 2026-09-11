@@ -1,0 +1,190 @@
+@inherits LayoutComponentBase
+@using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage
+@using RadarV2.Services
+@using RadarV2.Services.Interfaces
+@inject IUserProfileService UserProfileService
+@inject IUserSessionService UserSession
+@inject ProtectedLocalStorage LocalStorage
+@inject NavigationManager Nav
+
+<div style="min-height:100dvh;display:flex;flex-direction:column;">
+    @if (_showNav)
+    {
+        <nav class="r-nav">
+            <a href="/" class="r-nav__brand">
+                <div class="r-nav__mark">R</div>
+                <span class="r-nav__brand-text">Radar</span>
+            </a>
+
+            <div class="r-nav__links">
+                <button class="r-nav__link @(_activeSection == "intelligence" ? "active" : "")"
+                        @onclick='() => Nav.NavigateTo("/")'>Today</button>
+                <button class="r-nav__link @(_activePage == "feed" ? "active" : "")"
+                        @onclick='() => Nav.NavigateTo("/feed")'>Feed</button>
+                <button class="r-nav__link @(_activePage == "clips" ? "active" : "")"
+                        @onclick='() => Nav.NavigateTo("/clips")'>Clips</button>
+                <button class="r-nav__link @(_activePage == "capture" ? "active" : "")"
+                        @onclick='() => Nav.NavigateTo("/capture")'>Capture</button>
+                <button class="r-nav__link @(_activePage == "opportunities" ? "active" : "")"
+                        @onclick='() => Nav.NavigateTo("/opportunities")'>Opportunities</button>
+                <button class="r-nav__link @(_activePage == "saved" ? "active" : "")"
+                        @onclick='() => Nav.NavigateTo("/saved")'>Saved</button>
+                <button class="r-nav__link @(_activePage == "notebook" ? "active" : "")"
+                        @onclick='() => Nav.NavigateTo("/notebook")'>Notebook</button>
+                <button class="r-nav__link @(_activePage == "ask" ? "active" : "")"
+                        @onclick='() => Nav.NavigateTo("/ask")'>Ask Radar</button>
+                <button class="r-nav__link @(_activeSection == "learn" ? "active" : "")"
+                        @onclick='() => Nav.NavigateTo("/learn")'>Learn</button>
+                <button class="r-nav__link @(_activePage == "research" ? "active" : "")"
+                        @onclick='() => Nav.NavigateTo("/research")'>Research</button>
+                <button class="r-nav__link @(_activePage == "library" ? "active" : "")"
+                        @onclick='() => Nav.NavigateTo("/library")'>Library</button>
+                <button class="r-nav__link @(_activePage == "mentor" ? "active" : "")"
+                        @onclick='() => Nav.NavigateTo("/mentor")'>Mentor</button>
+            </div>
+
+            <div class="r-nav__right">
+                <div class="r-nav__section-pills">
+                    <button class="r-nav__pill @(_activeSection == "intelligence" ? "active" : "")"
+                            @onclick='() => Nav.NavigateTo("/")'>Intelligence</button>
+                    <button class="r-nav__pill @(_activeSection == "learn" ? "active" : "")"
+                            @onclick='() => Nav.NavigateTo("/learn")'>Learn</button>
+                </div>
+
+                <!-- Avatar with dropdown -->
+                <div style="position:relative;">
+                    <button class="r-nav__avatar" title="Account"
+                            @onclick="() => _menuOpen = !_menuOpen">
+                        @(_initials)
+                    </button>
+                    @if (_menuOpen)
+                    {
+                        <div style="position:absolute;right:0;top:calc(100% + 8px);background:#fff;border-radius:12px;box-shadow:0 4px 24px rgba(20,24,31,.14);border:1px solid rgba(20,24,31,.08);min-width:160px;z-index:200;overflow:hidden;">
+                            <button style="width:100%;text-align:left;padding:12px 16px;font-size:13.5px;font-weight:500;border:none;background:none;cursor:pointer;color:#14181f;"
+                                    @onclick='() => { _menuOpen = false; Nav.NavigateTo("/settings"); }'>
+                                Settings
+                            </button>
+                            <div style="height:1px;background:rgba(20,24,31,.07);margin:0 12px;"></div>
+                            <button style="width:100%;text-align:left;padding:12px 16px;font-size:13.5px;font-weight:500;border:none;background:none;cursor:pointer;color:#d94f4f;"
+                                    @onclick="SignOutAsync">
+                                Sign out
+                            </button>
+                        </div>
+                    }
+                </div>
+            </div>
+        </nav>
+    }
+
+    <main style="flex:1;">
+        @Body
+    </main>
+</div>
+
+@if (_menuOpen)
+{
+    <div style="position:fixed;inset:0;z-index:199;" @onclick="() => _menuOpen = false"></div>
+}
+
+<div id="blazor-error-ui" data-nosnippet>
+    An unhandled error has occurred.
+    <a href="." class="reload">Reload</a>
+</div>
+
+@code {
+    private string _initials = "A";
+    private bool _showNav = true;
+    private bool _menuOpen;
+    private string _activeSection = "intelligence";
+    private string _activePage = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        Nav.LocationChanged += OnLocationChanged;
+        UpdateNavState(Nav.Uri);
+        var profile = await UserProfileService.GetCurrentUserAsync();
+        if (profile is not null && !string.IsNullOrWhiteSpace(profile.Name))
+            _initials = profile.Name[0].ToString().ToUpper();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || UserSession.IsAuthenticated) return;
+        try
+        {
+            var result = await LocalStorage.GetAsync<RadarV2.Services.StoredSession>("radar_session");
+            if (result.Success && result.Value is { UserId: not null, UserName: not null } session)
+            {
+                UserSession.SetUser(session.UserId, session.UserName);
+                var profile = await UserProfileService.GetCurrentUserAsync();
+                if (profile is not null && !string.IsNullOrWhiteSpace(profile.Name))
+                    _initials = profile.Name[0].ToString().ToUpper();
+                StateHasChanged();
+            }
+        }
+        catch { /* ProtectedLocalStorage unavailable during prerender — safe to ignore */ }
+    }
+
+    private async Task SignOutAsync()
+    {
+        _menuOpen = false;
+        await LocalStorage.DeleteAsync("radar_session");
+        UserSession.ClearUser();
+        Nav.NavigateTo("/login");
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        _menuOpen = false;
+        UpdateNavState(e.Location);
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void UpdateNavState(string uri)
+    {
+        _showNav = !uri.Contains("/onboarding", StringComparison.OrdinalIgnoreCase)
+                && !uri.Contains("/login", StringComparison.OrdinalIgnoreCase);
+
+        if (uri.Contains("/learn", StringComparison.OrdinalIgnoreCase) ||
+            uri.Contains("/roadmap", StringComparison.OrdinalIgnoreCase) ||
+            uri.Contains("/lesson", StringComparison.OrdinalIgnoreCase))
+        {
+            _activeSection = "learn";
+        }
+        else
+        {
+            _activeSection = "intelligence";
+        }
+
+        if (uri.Contains("/feed", StringComparison.OrdinalIgnoreCase))
+            _activePage = "feed";
+        else if (uri.Contains("/clips", StringComparison.OrdinalIgnoreCase))
+            _activePage = "clips";
+        else if (uri.Contains("/capture", StringComparison.OrdinalIgnoreCase))
+            _activePage = "capture";
+        else if (uri.Contains("/opportunities", StringComparison.OrdinalIgnoreCase))
+            _activePage = "opportunities";
+        else if (uri.Contains("/saved", StringComparison.OrdinalIgnoreCase))
+            _activePage = "saved";
+        else if (uri.Contains("/notebook", StringComparison.OrdinalIgnoreCase))
+            _activePage = "notebook";
+        else if (uri.Contains("/ask", StringComparison.OrdinalIgnoreCase))
+            _activePage = "ask";
+        else if (uri.Contains("/mentor", StringComparison.OrdinalIgnoreCase))
+            _activePage = "mentor";
+        else if (uri.Contains("/research", StringComparison.OrdinalIgnoreCase))
+            _activePage = "research";
+        else if (uri.Contains("/library", StringComparison.OrdinalIgnoreCase))
+            _activePage = "library";
+        else if (uri.Contains("/learn", StringComparison.OrdinalIgnoreCase) ||
+                 uri.Contains("/roadmap", StringComparison.OrdinalIgnoreCase) ||
+                 uri.Contains("/lesson", StringComparison.OrdinalIgnoreCase) ||
+                 uri.Contains("/projects", StringComparison.OrdinalIgnoreCase) ||
+                 uri.Contains("/progress", StringComparison.OrdinalIgnoreCase))
+            _activePage = "learn";
+        else
+            _activePage = "";
+    }
+
+    public void Dispose() => Nav.LocationChanged -= OnLocationChanged;
+}

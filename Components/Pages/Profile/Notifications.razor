@@ -1,0 +1,110 @@
+﻿@page "/notifications"
+@rendermode InteractiveServer
+@inherits RadarV2.Components.Base.SessionAwareBase
+
+<PageTitle>Notifications — Radar</PageTitle>
+
+<div class="r-page" style="max-width:720px;">
+    <!-- Header -->
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:20px;">
+        <h1 class="r-page-title" style="flex:1;">Notifications</h1>
+        <button class="btn btn--text btn--sm" @onclick="MarkAllRead">Mark all read</button>
+    </div>
+
+    @if (_notifications.Count == 0)
+    {
+        <div class="r-empty">
+            <h3>No notifications yet</h3>
+            <p>Radar will alert you when something needs your attention.</p>
+        </div>
+    }
+    else
+    {
+        <!-- Today -->
+        @if (_todayNotifications.Count > 0)
+        {
+            <div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-faint);margin-bottom:8px;">TODAY</div>
+            <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:22px;">
+                @foreach (var notif in _todayNotifications)
+                {
+                    <button style="display:flex;gap:12px;padding:14px 15px;border-radius:12px;background:#fff;text-align:left;width:100%;cursor:pointer;
+                                   border:@(notif.IsUnread ? "1.5px solid var(--cyan)" : "1px solid var(--border)");"
+                            @onclick="() => NavigateTo(notif)">
+                        <div style="width:8px;height:8px;border-radius:50%;flex:none;margin-top:6px;
+                                    background:@(notif.IsUrgent ? "#c0392b" : notif.IsUnread ? "var(--cyan)" : "transparent");"></div>
+                        <div style="flex:1;">
+                            <div style="font-size:13.5px;font-weight:700;margin-bottom:2px;">@notif.Title</div>
+                            <div style="font-size:12.5px;color:var(--text-dim);line-height:1.5;">@notif.Description</div>
+                            <div style="font-size:11px;color:var(--text-faint);margin-top:4px;">@notif.Time Â· @notif.Category</div>
+                        </div>
+                    </button>
+                }
+            </div>
+        }
+
+        <!-- Earlier -->
+        @if (_earlierNotifications.Count > 0)
+        {
+            <div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-faint);margin-bottom:8px;">EARLIER</div>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+                @foreach (var notif in _earlierNotifications)
+                {
+                    <button style="display:flex;gap:12px;padding:14px 15px;border-radius:12px;background:#fff;text-align:left;width:100%;cursor:pointer;
+                                   border:1px solid var(--border);opacity:0.8;"
+                            @onclick="() => NavigateTo(notif)">
+                        <div style="width:8px;height:8px;border-radius:50%;flex:none;margin-top:6px;background:transparent;"></div>
+                        <div style="flex:1;">
+                            <div style="font-size:13.5px;font-weight:700;margin-bottom:2px;">@notif.Title</div>
+                            <div style="font-size:12.5px;color:var(--text-dim);line-height:1.5;">@notif.Description</div>
+                            <div style="font-size:11px;color:var(--text-faint);margin-top:4px;">@notif.Time Â· @notif.Category</div>
+                        </div>
+                    </button>
+                }
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private List<NotificationItem> _notifications = [];
+
+    private List<NotificationItem> _todayNotifications => _notifications.Where(n => n.IsToday).ToList();
+    private List<NotificationItem> _earlierNotifications => _notifications.Where(n => !n.IsToday).ToList();
+
+    protected override Task OnAuthenticatedAsync()
+    {
+        _notifications =
+        [
+            new() { Id = "1", Title = "AfDB YPP closes in 12 days", Description = "Your 87% match — Radar drafted a 12-day prep plan.", Time = "2h ago", Category = "Opportunity", IsUnread = true, IsUrgent = true, Route = "/opportunities" },
+            new() { Id = "2", Title = "Your Intelligence Brief is ready", Description = "5 stories Â· 5 min Â· led by the AfDB infrastructure fund.", Time = "7:00", Category = "Briefing", IsUnread = true, IsUrgent = false, Route = "/weekly" },
+            new() { Id = "3", Title = "Radar updated your roadmap", Description = "Payments & interoperability added — triggered by a policy signal.", Time = "Yesterday", Category = "Learn", IsUnread = false, IsUrgent = false, Route = "/learn" },
+            new() { Id = "4", Title = "A new paper matches your saved research", Description = "Recommendation under data sparsity Â· arXiv", Time = "2d ago", Category = "Research", IsUnread = false, IsUrgent = false, Route = "/research" },
+        ];
+        return Task.CompletedTask;
+    }
+
+    private void MarkAllRead()
+    {
+        foreach (var notif in _notifications)
+            notif.IsUnread = false;
+    }
+
+    private void NavigateTo(NotificationItem notif)
+    {
+        notif.IsUnread = false;
+        Nav.NavigateTo(notif.Route);
+    }
+
+    private class NotificationItem
+    {
+        public string Id { get; set; } = "";
+        public string Title { get; set; } = "";
+        public string Description { get; set; } = "";
+        public string Time { get; set; } = "";
+        public string Category { get; set; } = "";
+        public bool IsUnread { get; set; }
+        public bool IsUrgent { get; set; }
+        public string Route { get; set; } = "/";
+        public bool IsToday => Time is "2h ago" or "7:00" or "30m ago" or "1h ago";
+    }
+}

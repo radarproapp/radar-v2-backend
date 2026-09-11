@@ -1,0 +1,137 @@
+﻿@page "/capture"
+@rendermode InteractiveServer
+@inherits RadarV2.Components.Base.SessionAwareBase
+@inject ICaptureService CaptureService
+
+<PageTitle>Capture — Radar</PageTitle>
+
+<div class="r-page">
+    <div class="r-page-head">
+        <h1 class="r-page-title">Capture</h1>
+        <p class="r-page-sub">Anything you save gets the same treatment as everything else in Radar — a signal headline, why it matters, and a route into your roadmap.</p>
+    </div>
+
+    <!-- Capture input -->
+    <div style="background:#fff;border:1.5px solid rgba(20,24,31,.12);border-radius:16px;padding:16px;margin-bottom:22px;">
+        <input type="text" placeholder="Paste a link, or start typing a noteâ€¦"
+               @bind="_input" @bind:event="oninput"
+               style="width:100%;font-size:14.5px;padding:12px 4px;border:none;outline:none;font-family:inherit;" />
+        <div style="display:flex;gap:8px;flex-wrap:wrap;border-top:1px solid rgba(20,24,31,.08);padding-top:12px;">
+            @foreach (var mode in Enum.GetValues<CaptureMode>())
+            {
+                var isActive = _activeMode == mode;
+                <button style="font-size:12.5px;font-weight:700;padding:9px 15px;border-radius:99px;border:none;cursor:pointer;
+                               background:@(isActive ? "#e7f5f4" : "#f6f8f9");color:@(isActive ? "#046b70" : "#12161d");"
+                        @onclick="() => _activeMode = mode">
+                    @mode
+                </button>
+            }
+            <button style="margin-left:auto;font-size:12.5px;font-weight:700;padding:9px 18px;border-radius:99px;background:var(--cyan);color:#fff;border:none;cursor:pointer;"
+                    @onclick="CaptureAsync" disabled="@(string.IsNullOrWhiteSpace(_input) || _saving)">
+                @(_saving ? "Savingâ€¦" : "Save")
+            </button>
+        </div>
+    </div>
+
+    <!-- Error -->
+    @if (_captureError is not null)
+    {
+        <div style="background:#fdf3f2;border:1px solid rgba(192,57,43,.15);border-radius:12px;padding:14px 16px;margin-bottom:22px;display:flex;align-items:center;gap:10px;">
+            <span style="font-size:16px;">âš ï¸</span>
+            <div style="flex:1;">
+                <div style="font-size:13px;font-weight:600;color:#c0392b;">Capture failed</div>
+                <div style="font-size:12px;color:#8a4b44;">@_captureError</div>
+            </div>
+            <button style="font-size:12px;font-weight:700;color:var(--cyan-deep);background:none;border:none;cursor:pointer;" @onclick="() => _captureError = null">Dismiss</button>
+        </div>
+    }
+
+    <!-- Just captured -->
+    @if (_justCaptured is not null)
+    {
+        <div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--cyan);margin-bottom:11px;">JUST CAPTURED</div>
+        <div style="background:#fff;border:1px solid rgba(20,24,31,.1);border-radius:16px;padding:20px 22px;margin-bottom:22px;">
+            <div style="font-family:var(--font-display);font-weight:700;font-size:clamp(1rem,1.8vw,1.14rem);line-height:1.38;margin-bottom:13px;">@_justCaptured.Signal</div>
+            <div class="feed-section-label">WHY IT MATTERS</div>
+            <div style="font-size:13.5px;color:#374151;line-height:1.7;margin-bottom:13px;">@_justCaptured.WhyItMatters</div>
+            <div class="feed-edge">
+                <div class="feed-edge-label">YOUR EDGE</div>
+                <div class="feed-edge-text">@_justCaptured.AiSummary</div>
+            </div>
+            <div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;">
+                <a class="btn btn--primary btn--sm" href="/">Understand â†’</a>
+                <span style="font-size:11.5px;color:var(--text-faint);font-weight:600;margin-left:auto;">@_justCaptured.Source</span>
+            </div>
+        </div>
+    }
+
+    <!-- Recent captures -->
+    <div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text-faint);margin-bottom:11px;">RECENT CAPTURES</div>
+    @if (_loadingRecent)
+    {
+        <LoadingSkeleton Variant="text" Lines="3" />
+    }
+    else if (_recentCaptures.Count == 0)
+    {
+        <EmptyState Icon="ðŸ"¥" Title="No captures yet" Description="Paste a link or type a note above to get started." Compact="true" />
+    }
+    else
+    {
+        <div style="display:flex;flex-direction:column;gap:8px;">
+            @foreach (var item in _recentCaptures)
+            {
+                <div class="saved-item">
+                    <span class="saved-item-kind" style="background:@(item.IsProcessing ? "#f0f2f4" : "#e7f5f4");color:@(item.IsProcessing ? "#8a91a0" : "#046b70");">
+                        @item.Mode
+                    </span>
+                    <div style="flex:1;min-width:0;">
+                        <div style="font-size:13.5px;font-weight:600;line-height:1.4;">@item.Signal</div>
+                        <div style="font-size:11.5px;color:@(item.IsProcessing ? "#00838a" : "#8a91a0");font-weight:600;">@item.Source</div>
+                    </div>
+                    <span style="color:var(--text-faint);flex:none;">â†’</span>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private string _input = "";
+    private CaptureMode _activeMode = CaptureMode.Link;
+    private bool _saving;
+    private bool _loadingRecent = true;
+    private CapturedItem? _justCaptured;
+    private List<CapturedItem> _recentCaptures = [];
+    private string? _captureError;
+
+    protected override async Task OnAuthenticatedAsync() => await LoadRecentAsync();
+
+    private async Task LoadRecentAsync()
+    {
+        _loadingRecent = true;
+        try
+        {
+            _recentCaptures = await CaptureService.GetRecentCapturesAsync(Profile!.Id);
+        }
+        catch { /* silent */ }
+        _loadingRecent = false;
+    }
+
+    private async Task CaptureAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_input) || Profile is null) return;
+        _saving = true;
+        _captureError = null;
+        try
+        {
+            _justCaptured = await CaptureService.CaptureAsync(Profile.Id, _activeMode, _input);
+            _input = "";
+            await LoadRecentAsync();
+        }
+        catch (Exception ex)
+        {
+            _captureError = "Could not save your capture. " + ex.Message;
+        }
+        _saving = false;
+    }
+}

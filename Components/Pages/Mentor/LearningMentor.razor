@@ -1,0 +1,438 @@
+﻿@page "/mentor"
+@rendermode InteractiveServer
+@inherits RadarV2.Components.Base.SessionAwareBase
+@inject ILearningMentorService MentorService
+@inject INavigatorService NavigatorService
+
+<PageTitle>AI Learning Mentor — Radar</PageTitle>
+
+<div class="r-page" style="max-width:740px;">
+    <div class="r-page-head">
+        <h1 class="r-page-title">AI Learning Mentor</h1>
+        <p class="r-page-sub">Your tutor for anything on your roadmap. Explains, tests, builds study plans and reviews your work.</p>
+    </div>
+
+    <!-- Mode tabs -->
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px;">
+        @foreach (var mode in _modes)
+        {
+            <button class="r-chip @(_activeMode == mode.Id ? "active" : "")"
+                    @onclick="() => SetMode(mode.Id)">
+                @mode.Label
+            </button>
+        }
+    </div>
+
+    <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• CHAT MODE â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+    @if (_activeMode == "chat")
+    {
+        @if (_chatMessages.Count == 0)
+        {
+            <div class="ask-suggestions">
+                <div class="ask-suggestions-label">TRY ASKING YOUR MENTOR</div>
+                @foreach (var suggestion in _chatSuggestions)
+                {
+                    <button class="ask-suggestion-item" @onclick="() => SendChatMessage(suggestion)">@suggestion</button>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="ask-messages">
+                @foreach (var msg in _chatMessages)
+                {
+                    <div class="ask-msg @(msg.Role == "user" ? "ask-msg--user" : "ask-msg--assistant")">
+                        @((MarkupString)FormatMarkdown(msg.Content))
+                    </div>
+                }
+                @if (_chatThinking)
+                {
+                    <div class="ask-msg ask-msg--assistant"><div class="r-spinner r-spinner--sm"></div></div>
+                }
+            </div>
+        }
+
+        <div class="ask-input-row">
+            <textarea class="ask-input-field" rows="1" placeholder="Ask your mentorâ€¦"
+                      @bind="_chatInput" @onkeydown="HandleChatKey"></textarea>
+            <button class="ask-send-btn" @onclick="SendChatAsync" disabled="@(_chatThinking || string.IsNullOrWhiteSpace(_chatInput))">â†’</button>
+        </div>
+    }
+
+    <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• QUIZ MODE â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+    @if (_activeMode == "quiz")
+    {
+        @if (_quiz is null)
+        {
+            <!-- Generate quiz -->
+            <div style="background:#fff;border:1px solid var(--border);border-radius:16px;padding:24px;margin-bottom:20px;">
+                <div style="font-family:var(--font-display);font-weight:700;font-size:1.1rem;margin-bottom:8px;">Generate a Quiz</div>
+                <p style="font-size:13.5px;color:var(--text-dim);line-height:1.6;margin-bottom:16px;">Test your understanding of any topic from your roadmap.</p>
+                <input type="text" class="r-input" placeholder="e.g. Machine Learning Fundamentals" @bind="_quizTopic" @bind:event="oninput" style="margin-bottom:12px;" />
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
+                    @foreach (var q in _quickQuizTopics)
+                    {
+                        <button class="r-chip" @onclick="() => { _quizTopic = q; GenerateQuiz(); }" style="font-size:12px;">@q</button>
+                    }
+                </div>
+                <button class="btn btn--primary" @onclick="GenerateQuiz" disabled="@(string.IsNullOrWhiteSpace(_quizTopic) || _quizGenerating)">
+                    @(_quizGenerating ? "Generatingâ€¦" : "Generate Quiz")
+                </button>
+            </div>
+        }
+        else
+        {
+            <!-- Quiz in progress -->
+            <div style="background:#fff;border:1px solid var(--border);border-radius:16px;padding:24px;margin-bottom:16px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+                    <div>
+                        <div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text-faint);">QUIZ</div>
+                        <div style="font-family:var(--font-display);font-weight:700;font-size:1rem;">@_quiz.Topic</div>
+                    </div>
+                    <div style="font-size:12px;font-weight:700;color:var(--text-muted);">Question @(_quiz.CurrentQuestionIndex + 1) of @_quiz.Questions.Count</div>
+                </div>
+
+                <!-- Progress bar -->
+                <div style="height:4px;background:var(--bg-hover);border-radius:99px;overflow:hidden;margin-bottom:20px;">
+                    <div style="height:100%;width:@(((_quiz.CurrentQuestionIndex) * 100 / _quiz.Questions.Count))%;background:var(--cyan);border-radius:99px;transition:width .3s;"></div>
+                </div>
+
+                @if (!_quiz.IsComplete)
+                {
+                    var q = _quiz.Questions[_quiz.CurrentQuestionIndex];
+                    <div style="font-size:15px;font-weight:600;line-height:1.5;margin-bottom:16px;">@q.Question</div>
+
+                    <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px;">
+                        @for (int i = 0; i < q.Options.Count; i++)
+                        {
+                            var idx = i;
+                            var isSelected = _selectedAnswer == idx;
+                            var showResult = q.UserAnswered == true;
+                            var isCorrect = idx == q.CorrectIndex;
+                            var bg = showResult ? (isCorrect ? "var(--cyan-light)" : (isSelected ? "#fdf3f2" : "#fff")) : (isSelected ? "var(--cyan-light)" : "#fff");
+                            var bd = showResult ? (isCorrect ? "var(--cyan)" : (isSelected ? "#c0392b" : "var(--border)")) : (isSelected ? "var(--cyan)" : "var(--border-strong)");
+
+                            <button style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:14px 16px;border-radius:11px;cursor:pointer;font-size:14px;font-weight:500;background:@bg;border:1.5px solid @bd;color:var(--text);"
+                                    disabled="@(showResult)"
+                                    @onclick="() => _selectedAnswer = idx">
+                                <span style="width:24px;height:24px;border-radius:50%;border:2px solid @(showResult && isCorrect ? "var(--cyan)" : "var(--border-strong)");display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex:none;
+                                             background:@(showResult && isCorrect ? "var(--cyan)" : "transparent");color:@(showResult && isCorrect ? "#fff" : "var(--text-faint)");">
+                                    @(showResult ? (isCorrect ? "✓" : (isSelected && !isCorrect ? "âœ—" : (idx + 1))) : (idx + 1))
+                                </span>
+                                <span>@q.Options[idx]</span>
+                            </button>
+                        }
+                    </div>
+
+                    @if (q.UserAnswered == true)
+                    {
+                        <div style="background:@(q.UserAnswerIndex == q.CorrectIndex ? "var(--cyan-light)" : "#fdf3f2");border-radius:11px;padding:14px 16px;margin-bottom:16px;">
+                            <div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:@(q.UserAnswerIndex == q.CorrectIndex ? "var(--cyan-deep)" : "#c0392b");margin-bottom:6px;">
+                                @(q.UserAnswerIndex == q.CorrectIndex ? "CORRECT" : "INCORRECT")
+                            </div>
+                            <div style="font-size:13px;color:#374151;line-height:1.6;">@q.Explanation</div>
+                        </div>
+                        <button class="btn btn--primary" style="width:100%;" @onclick="NextQuestion">
+                            @(_quiz.CurrentQuestionIndex >= _quiz.Questions.Count - 1 ? "See Results" : "Next Question â†’")
+                        </button>
+                    }
+                    else
+                    {
+                        <button class="btn btn--primary" style="width:100%;" @onclick="SubmitAnswer" disabled="@(!_selectedAnswer.HasValue)">
+                            Check Answer
+                        </button>
+                    }
+                }
+            </div>
+        }
+
+        @if (_quiz?.IsComplete == true)
+        {
+            <!-- Quiz complete -->
+            <div style="background:#fff;border:1px solid var(--border);border-radius:16px;padding:24px;text-align:center;">
+                <div style="font-family:var(--font-display);font-weight:700;font-size:1.6rem;margin-bottom:8px;">Quiz Complete!</div>
+                <div style="font-size:14px;color:var(--text-dim);margin-bottom:20px;">@_quiz.Topic</div>
+                <div style="font-family:var(--font-display);font-weight:700;font-size:3rem;color:@(_quiz.Score >= _quiz.Questions.Count * 0.7 ? "var(--cyan)" : "var(--red)");line-height:1;margin-bottom:4px;">
+                    @_quiz.Score / @_quiz.Questions.Count
+                </div>
+                <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px;">
+                    @(_quiz.Score >= _quiz.Questions.Count * 0.7 ? "Great job! You've got a solid understanding." : "Keep studying — you'll get there!")
+                </div>
+                <div style="display:flex;gap:10px;justify-content:center;">
+                    <button class="btn" @onclick="() => _quiz = null">New Quiz</button>
+                    <button class="btn btn--primary" @onclick='() => Nav.NavigateTo("/learn")'>Back to Roadmap</button>
+                </div>
+            </div>
+        }
+    }
+
+    <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• STUDY PLAN MODE â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+    @if (_activeMode == "studyplan")
+    {
+        @if (_studyPlan is null)
+        {
+            <div style="background:#fff;border:1px solid var(--border);border-radius:16px;padding:24px;margin-bottom:20px;">
+                <div style="font-family:var(--font-display);font-weight:700;font-size:1.1rem;margin-bottom:8px;">Create a Study Plan</div>
+                <p style="font-size:13.5px;color:var(--text-dim);line-height:1.6;margin-bottom:16px;">I'll build a structured weekly plan based on your roadmap and goal.</p>
+                <input type="text" class="r-input" placeholder="Topic (e.g. Machine Learning)" @bind="_planTopic" @bind:event="oninput" style="margin-bottom:12px;" />
+                <input type="text" class="r-input" placeholder="Your goal (e.g. Get an AI internship)" @bind="_planGoal" @bind:event="oninput" style="margin-bottom:16px;" />
+                <button class="btn btn--primary" @onclick="CreateStudyPlan" disabled="@(string.IsNullOrWhiteSpace(_planTopic) || string.IsNullOrWhiteSpace(_planGoal) || _planCreating)">
+                    @(_planCreating ? "Creatingâ€¦" : "Create Study Plan")
+                </button>
+            </div>
+        }
+        else
+        {
+            <!-- Study plan display -->
+            <div style="background:var(--navy);border-radius:16px;padding:20px 22px;color:#fff;margin-bottom:16px;">
+                <div style="font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--cyan-bright);margin-bottom:9px;">YOUR STUDY PLAN</div>
+                <div style="font-family:var(--font-display);font-weight:700;font-size:16px;margin-bottom:4px;">@_studyPlan.Topic</div>
+                <div style="font-size:13px;color:rgba(255,255,255,.6);">Goal: @_studyPlan.Goal</div>
+            </div>
+
+            @foreach (var week in _studyPlan.Weeks)
+            {
+                <div style="background:#fff;border:1px solid var(--border);border-radius:14px;padding:18px 20px;margin-bottom:10px;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+                        <div>
+                            <div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--cyan);">WEEK @week.WeekNumber</div>
+                            <div style="font-family:var(--font-display);font-weight:700;font-size:14.5px;">@week.Theme</div>
+                        </div>
+                        @if (week.IsCompleted)
+                        {
+                            <span style="font-size:11px;font-weight:700;color:var(--lime);background:rgba(46,168,96,0.1);border-radius:99px;padding:4px 10px;">Done</span>
+                        }
+                    </div>
+                    @foreach (var task in week.Tasks)
+                    {
+                        <div style="display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-top:1px solid rgba(20,24,31,.06);">
+                            <span style="font-size:10.5px;font-weight:700;padding:4px 8px;border-radius:99px;background:#f0f2f4;color:var(--text-dim);flex:none;margin-top:2px;">@task.ResourceType</span>
+                            <div style="flex:1;">
+                                <div style="font-size:13.5px;font-weight:600;line-height:1.4;">@task.Title</div>
+                                <div style="font-size:12px;color:var(--text-muted);line-height:1.5;">@task.Description</div>
+                            </div>
+                            @if (task.EstimatedTime is not null)
+                            {
+                                <span style="font-size:11px;color:var(--text-faint);font-weight:600;flex:none;">@task.EstimatedTime</span>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+
+            <div style="display:flex;gap:10px;margin-top:8px;">
+                <button class="btn" @onclick="() => _studyPlan = null">New Plan</button>
+                <button class="btn btn--primary" @onclick='() => Nav.NavigateTo("/learn")'>Go to Roadmap</button>
+            </div>
+        }
+    }
+
+    <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• WORK REVIEW MODE â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+    @if (_activeMode == "review")
+    {
+        @if (_review is null)
+        {
+            <div style="background:#fff;border:1px solid var(--border);border-radius:16px;padding:24px;margin-bottom:20px;">
+                <div style="font-family:var(--font-display);font-weight:700;font-size:1.1rem;margin-bottom:8px;">Review My Work</div>
+                <p style="font-size:13.5px;color:var(--text-dim);line-height:1.6;margin-bottom:16px;">Paste your work and I'll give you detailed feedback on strengths, improvements, and suggestions.</p>
+                <div style="margin-bottom:12px;">
+                    <label style="font-size:12.5px;font-weight:600;color:var(--text-dim);display:block;margin-bottom:6px;">What are you reviewing?</label>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                        @foreach (var type in _reviewTypes)
+                        {
+                            <button class="r-chip @(_reviewType == type ? "active" : "")" @onclick="() => _reviewType = type">@type</button>
+                        }
+                    </div>
+                </div>
+                <input type="text" class="r-input" placeholder="Title (e.g. My research proposal)" @bind="_reviewTitle" @bind:event="oninput" style="margin-bottom:12px;" />
+                <textarea class="r-textarea" placeholder="Paste your work hereâ€¦"
+                          @bind="_reviewContent" @bind:event="oninput" style="min-height:180px;"></textarea>
+                <button class="btn btn--primary" style="margin-top:12px;" @onclick="ReviewWork"
+                        disabled="@(string.IsNullOrWhiteSpace(_reviewTitle) || string.IsNullOrWhiteSpace(_reviewContent) || _reviewRunning)">
+                    @(_reviewRunning ? "Reviewingâ€¦" : "Review My Work")
+                </button>
+            </div>
+        }
+        else
+        {
+            <!-- Review results -->
+            <div style="background:var(--navy);border-radius:16px;padding:20px 22px;color:#fff;margin-bottom:16px;">
+                <div style="font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--cyan-bright);margin-bottom:9px;">REVIEW</div>
+                <div style="font-family:var(--font-display);font-weight:700;font-size:16px;margin-bottom:4px;">@_review.WorkTitle</div>
+                <div style="font-size:13px;color:rgba(255,255,255,.6);">@_review.ReviewType Â· reviewed just now</div>
+            </div>
+
+            <div style="font-size:14px;color:#374151;line-height:1.7;margin-bottom:16px;">@_review.Feedback</div>
+
+            <!-- Strengths -->
+            <div style="background:var(--cyan-light);border-radius:14px;padding:17px 19px;margin-bottom:12px;">
+                <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--cyan-deep);margin-bottom:9px;">STRENGTHS</div>
+                @foreach (var s in _review.Strengths)
+                {
+                    <div style="font-size:13px;color:#0d3d40;line-height:1.6;margin-bottom:4px;">✓ @s</div>
+                }
+            </div>
+
+            <!-- Improvements -->
+            <div style="background:#fdf3f2;border-radius:14px;padding:17px 19px;margin-bottom:12px;">
+                <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#c0392b;margin-bottom:9px;">AREAS TO IMPROVE</div>
+                @foreach (var s in _review.Improvements)
+                {
+                    <div style="font-size:13px;color:#8a4b44;line-height:1.6;margin-bottom:4px;">! @s</div>
+                }
+            </div>
+
+            <!-- Suggestions -->
+            <div style="background:#fff;border:1px solid var(--border);border-radius:14px;padding:17px 19px;margin-bottom:16px;">
+                <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-faint);margin-bottom:9px;">SUGGESTIONS</div>
+                @foreach (var s in _review.Suggestions)
+                {
+                    <div style="font-size:13px;color:#374151;line-height:1.6;margin-bottom:6px;">â†’ @s</div>
+                }
+            </div>
+
+            <div style="display:flex;gap:10px;">
+                <button class="btn" @onclick="() => _review = null">Review Another</button>
+                <button class="btn btn--primary" @onclick='() => Nav.NavigateTo("/notebook")'>Open Notebook</button>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private NavigatorFocus? _focus;
+
+    // Modes
+    private string _activeMode = "chat";
+    private static readonly (string Id, string Label)[] _modes =
+    [
+        ("chat", "Chat"),
+        ("quiz", "Quiz"),
+        ("studyplan", "Study Plan"),
+        ("review", "Review Work"),
+    ];
+
+    // Chat
+    private string _chatInput = "";
+    private bool _chatThinking;
+    private readonly List<ChatMessage> _chatMessages = [];
+    private static readonly string[] _chatSuggestions =
+    [
+        "Explain machine learning simply.",
+        "Test me on what I just learned.",
+        "What should I focus on this week?",
+        "Recommend resources for my roadmap.",
+    ];
+
+    // Quiz
+    private MentorQuiz? _quiz;
+    private string _quizTopic = "";
+    private bool _quizGenerating;
+    private int? _selectedAnswer;
+    private static readonly string[] _quickQuizTopics = ["ML Fundamentals", "AI Basics", "Product Management", "Research Methods"];
+
+    // Study Plan
+    private MentorStudyPlan? _studyPlan;
+    private string _planTopic = "";
+    private string _planGoal = "";
+    private bool _planCreating;
+
+    // Review
+    private MentorWorkReview? _review;
+    private string _reviewTitle = "";
+    private string _reviewContent = "";
+    private string _reviewType = "Note";
+    private bool _reviewRunning;
+    private static readonly string[] _reviewTypes = ["Note", "Essay", "Research Proposal", "Project Brief", "CV / Cover Letter"];
+
+    protected override async Task OnAuthenticatedAsync()
+    {
+        _focus = await NavigatorService.GetTodaysFocusAsync(Profile!);
+        _planTopic = _focus?.Learn.Title ?? "";
+        _planGoal = Profile!.PrimaryGoal;
+    }
+
+    // â"€â"€ Chat â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+    private void SetMode(string mode)
+    {
+        _activeMode = mode;
+    }
+
+    private async Task SendChatMessage(string text)
+    {
+        _chatInput = text;
+        await SendChatAsync();
+    }
+
+    private async Task SendChatAsync()
+    {
+        var text = _chatInput.Trim();
+        if (string.IsNullOrWhiteSpace(text) || Profile is null) return;
+
+        _chatMessages.Add(new ChatMessage { Role = "user", Content = text });
+        _chatInput = "";
+        _chatThinking = true;
+
+        var response = await MentorService.SendMessageAsync(Profile.Id, text, _chatMessages);
+        _chatMessages.Add(response);
+        _chatThinking = false;
+    }
+
+    private async Task HandleChatKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey)
+            await SendChatAsync();
+    }
+
+    // â"€â"€ Quiz â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+    private async Task GenerateQuiz()
+    {
+        if (string.IsNullOrWhiteSpace(_quizTopic) || Profile is null) return;
+        _quizGenerating = true;
+        _quiz = await MentorService.GenerateQuizAsync(Profile.Id, _quizTopic);
+        _selectedAnswer = null;
+        _quizGenerating = false;
+    }
+
+    private async Task SubmitAnswer()
+    {
+        if (_quiz is null || !_selectedAnswer.HasValue) return;
+        _quiz = await MentorService.SubmitAnswerAsync(_quiz.Id, _quiz.CurrentQuestionIndex, _selectedAnswer.Value);
+        _selectedAnswer = null;
+    }
+
+    private void NextQuestion()
+    {
+        _selectedAnswer = null;
+    }
+
+    // â"€â"€ Study Plan â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+    private async Task CreateStudyPlan()
+    {
+        if (string.IsNullOrWhiteSpace(_planTopic) || string.IsNullOrWhiteSpace(_planGoal) || Profile is null) return;
+        _planCreating = true;
+        _studyPlan = await MentorService.CreateStudyPlanAsync(Profile.Id, _planTopic, _planGoal);
+        _planCreating = false;
+    }
+
+    // â"€â"€ Review â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+    private async Task ReviewWork()
+    {
+        if (string.IsNullOrWhiteSpace(_reviewTitle) || string.IsNullOrWhiteSpace(_reviewContent) || Profile is null) return;
+        _reviewRunning = true;
+        _review = await MentorService.ReviewWorkAsync(Profile.Id, _reviewTitle, _reviewContent, _reviewType);
+        _reviewRunning = false;
+    }
+
+    // â"€â"€ Helpers â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+    private static string FormatMarkdown(string text)
+    {
+        return text
+            .Replace("\n\n", "<br/><br/>")
+            .Replace("\n", "<br/>")
+            .Replace("**", "<strong>")
+            .Replace("**", "</strong>")
+            .Replace("*", "<em>")
+            .Replace("*", "</em>");
+    }
+}

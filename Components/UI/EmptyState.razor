@@ -1,0 +1,27 @@
+@* Reusable empty state component *@
+
+<div class="r-empty-state @(Compact ? "r-empty-state--compact" : "")">
+    @if (!string.IsNullOrEmpty(Icon))
+    {
+        <div class="r-empty-state__icon">@Icon</div>
+    }
+    <div class="r-empty-state__title">@Title</div>
+    @if (!string.IsNullOrEmpty(Description))
+    {
+        <p class="r-empty-state__desc">@Description</p>
+    }
+    @if (ChildContent is not null)
+    {
+        <div class="r-empty-state__actions">
+            @ChildContent
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string? Icon { get; set; }
+    [Parameter] public string Title { get; set; } = "";
+    [Parameter] public string? Description { get; set; }
+    [Parameter] public bool Compact { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

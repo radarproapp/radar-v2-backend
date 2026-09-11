@@ -1,0 +1,128 @@
+﻿@page "/profile/edit"
+@rendermode InteractiveServer
+@inherits RadarV2.Components.Base.SessionAwareBase
+
+<PageTitle>Edit Profile — Radar</PageTitle>
+
+<div class="r-page" style="max-width:600px;">
+    <div class="r-page-head">
+        <h1 class="r-page-title">Edit Profile</h1>
+        <p class="r-page-sub">Update your intelligence profile. Changes affect your feed, recommendations and opportunities.</p>
+    </div>
+
+    @if (Profile is not null)
+    {
+        <!-- Name -->
+        <div style="margin-bottom:18px;">
+            <label style="font-size:12.5px;font-weight:600;color:var(--text-dim);display:block;margin-bottom:6px;">Name</label>
+            <input type="text" class="r-input" value="@Profile.Name" @oninput="e => Profile.Name = e.Value?.ToString() ?? string.Empty" />
+        </div>
+
+        <!-- Email -->
+        <div style="margin-bottom:18px;">
+            <label style="font-size:12.5px;font-weight:600;color:var(--text-dim);display:block;margin-bottom:6px;">Email</label>
+            <input type="email" class="r-input" value="@Profile.Email" @oninput="e => Profile.Email = e.Value?.ToString() ?? string.Empty" />
+        </div>
+
+        <!-- Persona -->
+        <div style="margin-bottom:18px;">
+            <label style="font-size:12.5px;font-weight:600;color:var(--text-dim);display:block;margin-bottom:6px;">Persona</label>
+            <div style="display:flex;flex-wrap:wrap;gap:8px;">
+                @foreach (var (persona, label) in Personas)
+                {
+                    <button class="r-chip @(Profile.Persona == persona ? "active" : "")"
+                            @onclick="() => Profile.Persona = persona">
+                        @label
+                    </button>
+                }
+            </div>
+        </div>
+
+        <!-- Primary Goal -->
+        <div style="margin-bottom:18px;">
+            <label style="font-size:12.5px;font-weight:600;color:var(--text-dim);display:block;margin-bottom:6px;">Primary Goal</label>
+            <input type="text" class="r-input" value="@Profile.PrimaryGoal" @oninput="e => Profile.PrimaryGoal = e.Value?.ToString() ?? string.Empty" />
+        </div>
+
+        <!-- Region -->
+        <div style="margin-bottom:18px;">
+            <label style="font-size:12.5px;font-weight:600;color:var(--text-dim);display:block;margin-bottom:6px;">Region</label>
+            <input type="text" class="r-input" value="@Profile.Region" @oninput="e => Profile.Region = e.Value?.ToString() ?? string.Empty" />
+        </div>
+
+        <!-- City -->
+        <div style="margin-bottom:18px;">
+            <label style="font-size:12.5px;font-weight:600;color:var(--text-dim);display:block;margin-bottom:6px;">City</label>
+            <input type="text" class="r-input" value="@Profile.City" @oninput="e => Profile.City = e.Value?.ToString() ?? string.Empty" />
+        </div>
+
+        <!-- Interests -->
+        <div style="margin-bottom:22px;">
+            <label style="font-size:12.5px;font-weight:600;color:var(--text-dim);display:block;margin-bottom:8px;">Interests (@Profile.Interests.Count selected)</label>
+            <div style="display:flex;flex-wrap:wrap;gap:7px;">
+                @foreach (var interest in AllInterests)
+                {
+                    var isActive = Profile.Interests.Contains(interest);
+                    <button class="r-interest-pill @(isActive ? "active" : "")"
+                            @onclick="() => ToggleInterest(interest)">
+                        @interest
+                    </button>
+                }
+            </div>
+        </div>
+
+        <!-- Save -->
+        <div style="display:flex;gap:10px;">
+            <button class="btn" @onclick='() => Nav.NavigateTo("/")'>Cancel</button>
+            <button class="btn btn--primary" style="flex:1;" @onclick="SaveAsync" disabled="@_saving">
+                @(_saving ? "Savingâ€¦" : "Save changes")
+            </button>
+        </div>
+    }
+    else
+    {
+        <div class="r-empty"><div class="r-spinner"></div></div>
+    }
+</div>
+
+@code {
+    private bool _saving;
+
+    private static readonly (PersonaType, string)[] Personas =
+    {
+        (PersonaType.Student, "Student"),
+        (PersonaType.Graduate, "Graduate"),
+        (PersonaType.YoungProfessional, "Young Professional"),
+        (PersonaType.Entrepreneur, "Entrepreneur"),
+        (PersonaType.Researcher, "Researcher"),
+    };
+
+    private static readonly string[] AllInterests =
+    [
+        "Artificial Intelligence", "Machine Learning", "Data Science", "Software Engineering",
+        "Cloud Computing", "Cybersecurity", "UI/UX", "Product Management",
+        "Entrepreneurship", "Marketing", "Finance", "Economics", "Leadership", "Strategy", "Investment",
+        "Academic Writing", "Research Methods", "Statistics", "Systematic Reviews",
+        "Medicine", "Law", "Public Policy", "Engineering", "Agriculture", "Education", "Psychology", "Climate Change",
+        "Design", "Photography", "Content Creation", "Film",
+    ];
+
+
+    private void ToggleInterest(string interest)
+    {
+        if (Profile is null) return;
+        if (Profile.Interests.Contains(interest))
+            Profile.Interests.Remove(interest);
+        else if (Profile.Interests.Count < 5)
+            Profile.Interests.Add(interest);
+    }
+
+    private async Task SaveAsync()
+    {
+        if (Profile is null) return;
+        _saving = true;
+        await UserProfileService.SaveProfileAsync(Profile);
+        _saving = false;
+        Nav.NavigateTo("/");
+    }
+}

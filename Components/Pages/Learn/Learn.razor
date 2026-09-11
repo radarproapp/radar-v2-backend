@@ -1,0 +1,135 @@
+﻿@page "/learn"
+@rendermode InteractiveServer
+@inherits RadarV2.Components.Base.SessionAwareBase
+@inject IRoadmapService RoadmapService
+
+<PageTitle>Learn — Radar</PageTitle>
+
+<div class="r-page">
+
+    @if (_error is not null)
+    {
+        <ErrorState Title="Failed to load roadmap" Description="@_error" OnRetry="LoadAsync" />
+    }
+    else if (_loading)
+    {
+        <div class="r-page-head">
+            <div class="r-kicker">PERSONAL GROWTH ROADMAP</div>
+        </div>
+        <LoadingSkeleton Variant="card" Count="3" />
+    }
+    else if (_roadmap is null)
+    {
+        <EmptyState Icon="ðŸ—ºï¸" Title="No roadmap yet" Description="Complete onboarding to get your personal growth roadmap.">
+            <button class="btn btn--primary" @onclick='() => Nav.NavigateTo("/onboarding")'>Set up profile</button>
+        </EmptyState>
+    }
+    else
+    {
+        <div class="r-page-head">
+            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+                <div>
+                    <div class="r-kicker">PERSONAL GROWTH ROADMAP</div>
+                    <h1 class="r-page-title">@_roadmap!.Goal</h1>
+                </div>
+                <div style="display:flex;gap:8px;">
+                    <button class="btn btn--sm" @onclick='() => Nav.NavigateTo("/learn/hub")'>Learn Hub</button>
+                    <button class="btn btn--sm" @onclick='() => Nav.NavigateTo("/projects")'>Project Studio</button>
+                    <button class="btn btn--sm" @onclick='() => Nav.NavigateTo("/progress")'>Progress</button>
+                </div>
+            </div>
+        </div>
+
+        <p class="learn-roadmap-desc">
+            A structured journey, not a content dump.
+            @_roadmap.Modules.Count(m => !m.IsCompleted) modules left of @_roadmap.Modules.Count
+            Â· about @EstimatedWeeks weeks.
+        </p>
+
+        <!-- Progress bar -->
+        @if (_roadmap.ProgressPercent > 0)
+        {
+            <div style="margin-bottom:1.5rem">
+                <div style="display:flex;justify-content:space-between;font-size:11.5px;color:var(--text-muted);margin-bottom:4px">
+                    <span>Roadmap progress</span>
+                    <span>@_roadmap.ProgressPercent%</span>
+                </div>
+                <div style="height:5px;background:var(--bg-hover);border-radius:99px;overflow:hidden">
+                    <div style="height:100%;width:@(_roadmap.ProgressPercent)%;background:var(--cyan);border-radius:99px;transition:width .4s var(--ease)"></div>
+                </div>
+            </div>
+        }
+
+        <div class="learn-modules">
+            @for (int i = 0; i < _roadmap.Modules.Count; i++)
+            {
+                var module = _roadmap.Modules[i];
+                var isFirst = i == 0;
+                var isActive = !module.IsCompleted && !module.IsLocked && (isFirst || _roadmap.Modules[i - 1].IsCompleted);
+                var numClass = module.IsCompleted ? "completed" : (isActive ? "active" : "");
+                var cardClass = isActive ? "active" : "";
+
+                <div class="learn-module-row">
+                    <div class="learn-module-num @numClass">
+                        @if (module.IsCompleted)
+                        { <span>✓</span> }
+                        else
+                        { <span>@(i + 1)</span> }
+                    </div>
+                    <div class="learn-module-card @cardClass">
+                        <div class="learn-module-top">
+                            <div class="learn-module-title">@module.Title</div>
+                            @if (isActive)
+                            {
+                                <span class="learn-module-tag learn-module-tag--next">UP NEXT</span>
+                            }
+                        </div>
+
+                        <div class="learn-module-counts">
+                            <span class="learn-module-count">@module.Lessons.Count lessons</span>
+                            <span class="learn-module-count">6 articles</span>
+                            <span class="learn-module-count">2 podcasts</span>
+                            <span class="learn-module-count">4 videos</span>
+                            <span class="learn-module-count">3 papers</span>
+                            <span class="learn-module-count">1 project</span>
+                        </div>
+
+                        @if (isActive)
+                        {
+                            <button class="btn btn--primary btn--sm">Start module</button>
+                        }
+                        else if (!module.IsLocked)
+                        {
+                            <button class="btn btn--sm">Preview</button>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private GrowthRoadmap? _roadmap;
+    private bool _loading = true;
+    private string? _error;
+
+    private int EstimatedWeeks => (_roadmap?.Modules.Count(m => !m.IsCompleted) ?? 0) * 3;
+
+    protected override async Task OnAuthenticatedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            _roadmap = await RoadmapService.GetActiveRoadmapAsync(Profile!.Id);
+        }
+        catch (Exception ex)
+        {
+            _error = "Failed to load roadmap. " + ex.Message;
+        }
+        _loading = false;
+    }
+}

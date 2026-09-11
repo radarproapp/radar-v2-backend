@@ -1,0 +1,65 @@
+@inherits LayoutComponentBase
+
+<div style="min-height:100dvh;overflow-x:hidden;display:flex;flex-direction:column;">
+
+    <nav class="mkt-nav">
+        <a href="/" class="mkt-nav__brand">
+            <div class="mkt-nav__mark">R</div>
+            <div class="mkt-nav__divider"></div>
+            <span class="mkt-nav__name">Radar</span>
+        </a>
+        <div class="mkt-nav__links">
+            <a href="/product">Product</a>
+            <a href="/institutions">Institutions</a>
+            <a href="/how-it-works">How it works</a>
+        </div>
+        <div class="mkt-nav__actions">
+            <a href="/" class="mkt-nav__signin">Sign in</a>
+            <a href="/" class="btn btn--accent mkt-nav__start">Start free</a>
+        </div>
+    </nav>
+
+    <main style="flex:1;">
+        @Body
+    </main>
+
+    <footer class="mkt-footer">
+        <div class="mkt-footer__inner">
+            <div class="mkt-footer__top">
+                <div class="mkt-footer__brand">
+                    <div class="mkt-footer__brand-row">
+                        <div class="mkt-nav__mark" style="background:#00c2cb;color:#12161d;">R</div>
+                        <div class="mkt-footer__brand-divider"></div>
+                        <span>Radar</span>
+                    </div>
+                    <p>Africa's Intelligence Operating System — turning information into understanding, skills and proof.</p>
+                </div>
+                <div class="mkt-footer__cols">
+                    <div class="mkt-footer__col">
+                        <div class="mkt-footer__col-title">Product</div>
+                        <a href="/product">Overview</a>
+                        <a href="/product">Radar Intelligence</a>
+                        <a href="/product">Radar Learn</a>
+                        <a href="/how-it-works">How it works</a>
+                    </div>
+                    <div class="mkt-footer__col">
+                        <div class="mkt-footer__col-title">Institutions</div>
+                        <a href="/institutions">Universities</a>
+                        <a href="/institutions">Banks & finance</a>
+                        <a href="/institutions">Government & NGOs</a>
+                    </div>
+                    <div class="mkt-footer__col">
+                        <div class="mkt-footer__col-title">Company</div>
+                        <a href="#">Privacy policy</a>
+                        <a href="#">Terms of service</a>
+                        <a href="#">Contact</a>
+                    </div>
+                </div>
+            </div>
+            <div class="mkt-footer__bottom">
+                <span>© 2026 Radar. All rights reserved.</span>
+                <span>Made for a global, regionally-aware audience.</span>
+            </div>
+        </div>
+    </footer>
+</div>

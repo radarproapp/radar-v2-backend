@@ -1,0 +1,115 @@
+﻿@page "/learn/hub"
+@rendermode InteractiveServer
+@inherits RadarV2.Components.Base.SessionAwareBase
+@inject IIntelligenceFeedService FeedService
+
+<PageTitle>Learn Hub — Radar</PageTitle>
+
+<div class="r-page" style="max-width:780px;">
+    <div class="r-page-head">
+        <h1 class="r-page-title">Learn Hub</h1>
+        <p class="r-page-sub">The world's best learning resources, organised — not dumped into one feed.</p>
+    </div>
+
+    <!-- Section tabs -->
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px;">
+        @foreach (var sec in _sections)
+        {
+            <button class="r-chip @(_activeSection == sec.Id ? "active" : "")"
+                    @onclick="() => SetSection(sec.Id)">
+                @sec.Label
+            </button>
+        }
+    </div>
+
+    @if (_error is not null)
+    {
+        <ErrorState Title="Failed to load resources" Description="@_error" OnRetry="LoadItems" />
+    }
+    else if (_loading)
+    {
+        <LoadingSkeleton Variant="feed" Count="4" />
+    }
+    else if (_items.Count == 0)
+    {
+        <EmptyState Icon="ðŸ"š" Title="Nothing in this section yet" Description="Radar is curating resources for your interests. Check back soon." />
+    }
+    else
+    {
+        @foreach (var item in _items)
+        {
+            <div class="feed-item" style="cursor:pointer;" @onclick="() => GoToFeed(item.Id)">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+                    <span class="item-detail-source">@item.Source</span>
+                    <span style="font-size:11.5px;color:var(--text-muted);font-weight:600;">
+                        @(item.EstimatedReadTime ?? item.EstimatedWatchTime ?? "")
+                    </span>
+                </div>
+                <div class="feed-item-signal">@item.Signal</div>
+
+                @if (!string.IsNullOrWhiteSpace(item.AiSummary))
+                {
+                    <div class="feed-edge" style="margin-bottom:12px;">
+                        <div class="feed-edge-label">AI SUMMARY</div>
+                        <div class="feed-edge-text">@item.AiSummary</div>
+                    </div>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(item.WhyItMatters))
+                {
+                    <div class="feed-section-label">WHY IT MATTERS</div>
+                    <div style="font-size:13.5px;color:#374151;line-height:1.7;">@item.WhyItMatters</div>
+                }
+
+                <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:12px;">
+                    @foreach (var tag in item.Tags.Take(4))
+                    {
+                        <span style="font-size:11px;font-weight:600;background:#f0f2f4;border-radius:99px;padding:4px 10px;">@tag</span>
+                    }
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private static readonly (string Id, string Label, ContentType Type)[] _sections =
+    [
+        ("articles", "Articles", ContentType.Article),
+        ("podcasts", "Podcasts", ContentType.Podcast),
+        ("videos", "Videos", ContentType.Video),
+        ("papers", "Papers", ContentType.ResearchPaper),
+    ];
+
+    private string _activeSection = "articles";
+    private List<ContentItem> _items = [];
+    private bool _loading = true;
+    private string? _error;
+
+    protected override async Task OnAuthenticatedAsync() => await LoadItems();
+
+    private async Task SetSection(string sectionId)
+    {
+        _activeSection = sectionId;
+        await LoadItems();
+    }
+
+    private async Task LoadItems()
+    {
+        if (Profile is null) return;
+        _loading = true;
+        _error = null;
+        try
+        {
+            var section = _sections.First(s => s.Id == _activeSection);
+            _items = await FeedService.GetFeedAsync(Profile, section.Type, pageSize: 20);
+        }
+        catch (Exception ex)
+        {
+            _error = "Could not load resources. " + ex.Message;
+        }
+        _loading = false;
+    }
+
+    private void GoToFeed(string id) => Nav.NavigateTo("/feed/" + id);
+}

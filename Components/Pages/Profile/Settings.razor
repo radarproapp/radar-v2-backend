@@ -1,0 +1,126 @@
+﻿@page "/settings"
+@rendermode InteractiveServer
+@inherits RadarV2.Components.Base.SessionAwareBase
+
+<PageTitle>Settings — Radar</PageTitle>
+
+<div class="r-page" style="max-width:600px;">
+    <div class="r-page-head">
+        <h1 class="r-page-title">Settings</h1>
+    </div>
+
+    @if (Profile is not null)
+    {
+        <!-- Account -->
+        <div style="margin-bottom:24px;">
+            <div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text-faint);margin-bottom:10px;">ACCOUNT</div>
+            <div style="background:#fff;border:1px solid var(--border);border-radius:14px;padding:18px 20px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;padding-bottom:14px;border-bottom:1px solid rgba(20,24,31,.06);margin-bottom:14px;">
+                    <div>
+                        <div style="font-size:13.5px;font-weight:700;">@Profile.Name</div>
+                        <div style="font-size:11.5px;color:var(--text-muted);">@Profile.Email</div>
+                    </div>
+                    <button class="btn btn--sm" @onclick='() => Nav.NavigateTo("/profile/edit")'>Edit</button>
+                </div>
+                <div style="display:flex;align-items:center;justify-content:space-between;">
+                    <div>
+                        <div style="font-size:13.5px;font-weight:700;">Persona</div>
+                        <div style="font-size:11.5px;color:var(--text-muted);">@Profile.Persona</div>
+                    </div>
+                    <button class="btn btn--sm" @onclick='() => Nav.NavigateTo("/profile/edit")'>Change</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Notifications -->
+        <div style="margin-bottom:24px;">
+            <div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text-faint);margin-bottom:10px;">NOTIFICATIONS</div>
+            <div style="background:#fff;border:1px solid var(--border);border-radius:14px;padding:18px 20px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding-bottom:14px;border-bottom:1px solid rgba(20,24,31,.06);margin-bottom:14px;">
+                    <div>
+                        <div style="font-size:13.5px;font-weight:700;">Weekly Intelligence Brief</div>
+                        <div style="font-size:11.5px;color:var(--text-muted);">Monday morning</div>
+                    </div>
+                    <button @onclick="() => Profile.Notifications.WeeklyBrief = !Profile.Notifications.WeeklyBrief"
+                            style="width:42px;height:24px;border-radius:99px;border:none;background:@(Profile.Notifications.WeeklyBrief ? "var(--cyan)" : "rgba(20,24,31,.16)");position:relative;flex:none;cursor:pointer;">
+                        <div style="width:18px;height:18px;border-radius:50%;background:#fff;position:absolute;top:3px;left:@(Profile.Notifications.WeeklyBrief ? "21px" : "3px");transition:left .15s;"></div>
+                    </button>
+                </div>
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding-bottom:14px;border-bottom:1px solid rgba(20,24,31,.06);margin-bottom:14px;">
+                    <div>
+                        <div style="font-size:13.5px;font-weight:700;">Opportunity deadlines</div>
+                        <div style="font-size:11.5px;color:var(--text-muted);">7 days and 48 hours before close</div>
+                    </div>
+                    <button @onclick="() => Profile.Notifications.OpportunityDeadlines = !Profile.Notifications.OpportunityDeadlines"
+                            style="width:42px;height:24px;border-radius:99px;border:none;background:@(Profile.Notifications.OpportunityDeadlines ? "var(--cyan)" : "rgba(20,24,31,.16)");position:relative;flex:none;cursor:pointer;">
+                        <div style="width:18px;height:18px;border-radius:50%;background:#fff;position:absolute;top:3px;left:@(Profile.Notifications.OpportunityDeadlines ? "21px" : "3px");transition:left .15s;"></div>
+                    </button>
+                </div>
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+                    <div>
+                        <div style="font-size:13.5px;font-weight:700;">Roadmap reminders</div>
+                        <div style="font-size:11.5px;color:var(--text-muted);">A nudge when a module stalls</div>
+                    </div>
+                    <button @onclick="() => Profile.Notifications.RoadmapReminders = !Profile.Notifications.RoadmapReminders"
+                            style="width:42px;height:24px;border-radius:99px;border:none;background:@(Profile.Notifications.RoadmapReminders ? "var(--cyan)" : "rgba(20,24,31,.16)");position:relative;flex:none;cursor:pointer;">
+                        <div style="width:18px;height:18px;border-radius:50%;background:#fff;position:absolute;top:3px;left:@(Profile.Notifications.RoadmapReminders ? "21px" : "3px");transition:left .15s;"></div>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Plan -->
+        <div style="margin-bottom:24px;">
+            <div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text-faint);margin-bottom:10px;">PLAN</div>
+            <div style="background:#fff;border:1px solid var(--border);border-radius:14px;padding:18px 20px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;">
+                    <div>
+                        <div style="font-size:13.5px;font-weight:700;">Free plan</div>
+                        <div style="font-size:11.5px;color:var(--text-muted);">Your current plan</div>
+                    </div>
+                    <button class="btn btn--primary btn--sm" @onclick='() => Nav.NavigateTo("/plans")'>Upgrade</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Quick links -->
+        <div style="margin-bottom:24px;">
+            <div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text-faint);margin-bottom:10px;">QUICK LINKS</div>
+            <div style="background:#fff;border:1px solid var(--border);border-radius:14px;">
+                <button style="display:flex;align-items:center;justify-content:space-between;width:100%;padding:15px 20px;border:none;background:none;cursor:pointer;text-align:left;border-bottom:1px solid rgba(20,24,31,.06);"
+                        @onclick='() => Nav.NavigateTo("/notebook")'>
+                    <span style="font-size:13.5px;font-weight:700;">Notebook</span>
+                    <span style="color:var(--text-faint);">â†’</span>
+                </button>
+                <button style="display:flex;align-items:center;justify-content:space-between;width:100%;padding:15px 20px;border:none;background:none;cursor:pointer;text-align:left;border-bottom:1px solid rgba(20,24,31,.06);"
+                        @onclick='() => Nav.NavigateTo("/saved")'>
+                    <span style="font-size:13.5px;font-weight:700;">Saved resources</span>
+                    <span style="color:var(--text-faint);">â†’</span>
+                </button>
+                <button style="display:flex;align-items:center;justify-content:space-between;width:100%;padding:15px 20px;border:none;background:none;cursor:pointer;text-align:left;"
+                        @onclick='() => Nav.NavigateTo("/progress")'>
+                    <span style="font-size:13.5px;font-weight:700;">Growth Tracker</span>
+                    <span style="color:var(--text-faint);">â†’</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Save -->
+        <button class="btn btn--primary" style="width:100%;" @onclick="SaveAsync" disabled="@_saving">
+            @(_saving ? "Savingâ€¦" : "Save settings")
+        </button>
+    }
+</div>
+
+@code {
+    private bool _saving;
+
+
+    private async Task SaveAsync()
+    {
+        if (Profile is null) return;
+        _saving = true;
+        await UserProfileService.SaveProfileAsync(Profile);
+        _saving = false;
+    }
+}

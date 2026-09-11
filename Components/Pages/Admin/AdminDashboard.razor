@@ -1,0 +1,680 @@
+@page "/admin"
+@page "/admin/{Page}"
+@layout AdminLayout
+
+@if (_section == "overview")
+{
+    <div style="max-width:1180px;">
+        <!-- HERO BANNER -->
+        <div class="admin-banner">
+            <div class="admin-banner__label">What needs you today</div>
+            <div class="admin-banner__title">12 briefs awaiting review, 3 quality flags need attention</div>
+            <div class="admin-banner__sub">Your oldest pending brief is 4 hours old. Median turnaround today is 22 minutes.</div>
+            <div class="admin-banner__actions">
+                <button class="btn btn--accent">Open review queue · 12</button>
+                <button class="btn btn--ghost-white">3 quality flags</button>
+            </div>
+        </div>
+
+        <!-- KPIs -->
+        <div class="admin-kpi-grid">
+            <div class="admin-kpi">
+                <div class="admin-kpi__label">Published today</div>
+                <div class="admin-kpi__value">24</div>
+                <div class="admin-kpi__delta admin-kpi__delta--up">+6 vs yesterday</div>
+            </div>
+            <div class="admin-kpi">
+                <div class="admin-kpi__label">Active users</div>
+                <div class="admin-kpi__value">3,847</div>
+                <div class="admin-kpi__delta admin-kpi__delta--up">+12% this week</div>
+            </div>
+            <div class="admin-kpi">
+                <div class="admin-kpi__label">Avg confidence</div>
+                <div class="admin-kpi__value">91.3%</div>
+                <div class="admin-kpi__delta admin-kpi__delta--up">+0.4%</div>
+            </div>
+            <div class="admin-kpi">
+                <div class="admin-kpi__label">Open flags</div>
+                <div class="admin-kpi__value">3</div>
+                <div class="admin-kpi__delta admin-kpi__delta--down">+2 since Monday</div>
+            </div>
+        </div>
+
+        <!-- SPLIT LAYOUT -->
+        <div class="admin-split">
+            <!-- LEFT COLUMN -->
+            <div class="admin-split__left">
+                <!-- NEEDS A DECISION -->
+                <div class="admin-card">
+                    <div class="admin-card__header">
+                        <div class="admin-card__title">Needs a decision</div>
+                        <span class="admin-card__meta">Oldest first</span>
+                    </div>
+                    <div class="admin-action-row">
+                        <span class="admin-tag admin-tag--pending">Review</span>
+                        <span class="admin-action-row__label">OpenAI releases new reasoning framework</span>
+                        <span class="admin-action-row__age">2h ago</span>
+                    </div>
+                    <div class="admin-action-row">
+                        <span class="admin-tag admin-tag--pending">Review</span>
+                        <span class="admin-action-row__label">World Bank Africa economic outlook 2026</span>
+                        <span class="admin-action-row__age">4h ago</span>
+                    </div>
+                    <div class="admin-action-row">
+                        <span class="admin-tag admin-tag--flag">Flag</span>
+                        <span class="admin-action-row__label">Conflicting sources on fintech regulation</span>
+                        <span class="admin-action-row__age">5h ago</span>
+                    </div>
+                    <div class="admin-action-row">
+                        <span class="admin-tag admin-tag--pending">Review</span>
+                        <span class="admin-action-row__label">MIT OCW new ML course announcement</span>
+                        <span class="admin-action-row__age">6h ago</span>
+                    </div>
+                    <div class="admin-action-row" style="border-bottom:none;">
+                        <span class="admin-tag admin-tag--review">Edit</span>
+                        <span class="admin-action-row__label">NVIDIA Q3 earnings — AI infrastructure spend</span>
+                        <span class="admin-action-row__age">8h ago</span>
+                    </div>
+                </div>
+
+                <!-- PIPELINE CHART -->
+                <div class="admin-card">
+                    <div class="admin-card__title" style="margin-bottom:13px;">This week's pipeline</div>
+                    <div class="admin-pipeline-chart">
+                        @foreach (var bar in _pipelineBars)
+                        {
+                            <div class="admin-pipeline-chart__col">
+                                <div class="admin-pipeline-chart__bars">
+                                    <div class="admin-pipeline-chart__pub" style="height:@(bar.Pub)px;"></div>
+                                    <div class="admin-pipeline-chart__rej" style="height:@(bar.Rej)px;"></div>
+                                </div>
+                                <div class="admin-pipeline-chart__day">@bar.Day</div>
+                            </div>
+                        }
+                    </div>
+                    <div class="admin-pipeline-legend">
+                        <span><span class="admin-pipeline-legend__dot" style="background:#008c93;"></span>Published</span>
+                        <span><span class="admin-pipeline-legend__dot" style="background:#e7f5f4;"></span>Rejected</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- RIGHT COLUMN -->
+            <div class="admin-split__right">
+                <!-- INGESTION HEALTH -->
+                <div class="admin-card">
+                    <div class="admin-kpi__label" style="margin-bottom:12px;">Ingestion health</div>
+                    <div class="admin-health-row">
+                        <span class="admin-health-dot admin-health-dot--ok"></span>
+                        <div>
+                            <div class="admin-health-row__name">OpenAlex connector</div>
+                            <div class="admin-health-row__note">Last sync 12 min ago</div>
+                        </div>
+                    </div>
+                    <div class="admin-health-row">
+                        <span class="admin-health-dot admin-health-dot--ok"></span>
+                        <div>
+                            <div class="admin-health-row__name">Semantic Scholar</div>
+                            <div class="admin-health-row__note">Last sync 8 min ago</div>
+                        </div>
+                    </div>
+                    <div class="admin-health-row">
+                        <span class="admin-health-dot admin-health-dot--warn"></span>
+                        <div>
+                            <div class="admin-health-row__name">arXiv RSS</div>
+                            <div class="admin-health-row__note">Rate limited · 2h cooldown</div>
+                        </div>
+                    </div>
+                    <div class="admin-health-row">
+                        <span class="admin-health-dot admin-health-dot--ok"></span>
+                        <div>
+                            <div class="admin-health-row__name">PubMed</div>
+                            <div class="admin-health-row__note">Last sync 5 min ago</div>
+                        </div>
+                    </div>
+                    <button class="btn btn--subtle admin-health-btn">System health →</button>
+                </div>
+
+                <!-- INSIGHT -->
+                <div class="admin-insight-card">
+                    <div class="admin-insight-card__label">Worth knowing</div>
+                    <p>Usage spikes 40 minutes before university lectures start. Scheduling briefs for 7:30 AM WAT catches the morning peak.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+else if (_section == "queue")
+{
+    <div style="max-width:1180px;">
+        <div class="admin-card admin-queue-banner">
+            <div>
+                <div style="font-size:13px;font-weight:700;margin-bottom:2px;">Every brief is gated — nothing publishes without you.</div>
+                <div style="font-size:11.5px;color:#8a91a0;">12 awaiting review · median turnaround 22 min · 87% approved this week</div>
+            </div>
+            <div class="admin-queue-filters">
+                <button class="admin-chip active">All</button>
+                <button class="admin-chip">Articles</button>
+                <button class="admin-chip">Papers</button>
+                <button class="admin-chip">Videos</button>
+            </div>
+        </div>
+
+        <div class="admin-split">
+            <div class="admin-split__left">
+                @foreach (var item in _queueItems)
+                {
+                    <div class="admin-queue-item">
+                        <div class="admin-queue-item__meta">
+                            <span class="admin-tag admin-tag--pending">@item.Tier</span>
+                            <span class="admin-queue-item__source">@item.Source · @item.Age</span>
+                            @if (item.Warn is not null)
+                            {
+                                <span class="admin-tag admin-tag--flag">@item.Warn</span>
+                            }
+                        </div>
+                        <div class="admin-queue-item__title">@item.Title</div>
+                        <div class="admin-queue-item__conf">
+                            <div class="admin-queue-item__conf-bar">
+                                <div style="width:@(item.Conf)%;background:@(item.Conf >= 85 ? "#008c93" : item.Conf >= 70 ? "#b7791a" : "#c0392b");"></div>
+                            </div>
+                            <span>@item.Conf% confidence</span>
+                        </div>
+                    </div>
+                }
+            </div>
+            <div class="admin-split__right">
+                <div class="admin-card" style="align-self:start;">
+                    <div class="admin-queue-detail__label">Reviewing</div>
+                    <div class="admin-queue-detail__title">OpenAI releases new reasoning framework</div>
+
+                    <div class="admin-queue-detail__thesis">
+                        <div class="admin-queue-detail__thesis-label">AI thesis</div>
+                        <p>OpenAI's new reasoning model demonstrates significant improvements in multi-step logic, which could affect how product managers approach AI integration in their workflows.</p>
+                    </div>
+
+                    <div class="admin-queue-detail__checks">
+                        <div class="admin-queue-detail__check">
+                            <span style="color:#008c93;font-weight:800;">✓</span>
+                            <div><div style="font-weight:700;">Source verified</div><div style="color:#8a91a0;font-size:11.5px;">Published on OpenAI blog</div></div>
+                        </div>
+                        <div class="admin-queue-detail__check">
+                            <span style="color:#008c93;font-weight:800;">✓</span>
+                            <div><div style="font-weight:700;">Relevance confirmed</div><div style="color:#8a91a0;font-size:11.5px;">Matches 342 user profiles</div></div>
+                        </div>
+                        <div class="admin-queue-detail__check">
+                            <span style="color:#b7791a;font-weight:800;">!</span>
+                            <div><div style="font-weight:700;">Duplicate check</div><div style="color:#8a91a0;font-size:11.5px;">Similar to brief #4521 (7 days ago)</div></div>
+                        </div>
+                        <div class="admin-queue-detail__check">
+                            <span style="color:#008c93;font-weight:800;">✓</span>
+                            <div><div style="font-weight:700;">Bias check</div><div style="color:#8a91a0;font-size:11.5px;">Neutral tone, no promotional language</div></div>
+                        </div>
+                    </div>
+
+                    <div class="admin-queue-detail__actions">
+                        <button class="btn btn--accent" style="flex:1;min-width:110px;">Approve & publish</button>
+                        <button class="btn btn--subtle">Edit</button>
+                        <button class="btn btn--danger-outline">Reject</button>
+                    </div>
+                    <div style="font-size:11px;color:#aab2c0;margin-top:11px;">Approving pushes this to every user whose profile matches — 342 people right now.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+else if (_section == "sources")
+{
+    <div style="max-width:1180px;">
+        <div class="admin-kpi-grid admin-kpi-grid--3">
+            <div class="admin-kpi">
+                <div class="admin-kpi__label">Active sources</div>
+                <div class="admin-kpi__value">47</div>
+            </div>
+            <div class="admin-kpi">
+                <div class="admin-kpi__label">Tier 1 share</div>
+                <div class="admin-kpi__value">62%</div>
+            </div>
+            <div class="admin-kpi admin-kpi--danger">
+                <div class="admin-kpi__label">Needs attention</div>
+                <div class="admin-kpi__value">2</div>
+            </div>
+        </div>
+
+        <div class="admin-card">
+            <div class="admin-card__header">
+                <div class="admin-card__title">Source register</div>
+                <button class="btn btn--accent" style="font-size:11.5px;">+ Add source</button>
+            </div>
+            <div class="admin-table-header">
+                <div style="flex:2.4;">Source</div>
+                <div style="flex:1;">Tier</div>
+                <div style="flex:1;">Cadence</div>
+                <div style="flex:1;text-align:right;">Status</div>
+            </div>
+            @foreach (var src in _sources)
+            {
+                <div class="admin-table-row">
+                    <div style="flex:2.4;min-width:0;">
+                        <div style="font-size:12.5px;font-weight:700;">@src.Name</div>
+                        <div style="font-size:11px;color:#8a91a0;">@src.Domain · @src.Briefs briefs</div>
+                    </div>
+                    <div style="flex:1;">
+                        <span class="admin-tag admin-tag--tier@(src.Tier)">@src.TierLabel</span>
+                    </div>
+                    <div style="flex:1;font-size:11.5px;color:#535c6b;font-weight:600;">@src.Cadence</div>
+                    <div style="flex:1;text-align:right;">
+                        <span style="font-size:11px;font-weight:700;color:@(src.Active ? "#008c93" : "#c0392b");">@(src.Active ? "Active" : "Error")</span>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <div class="admin-insight-card" style="margin-top:14px;">
+            <div class="admin-insight-card__label">How tiering works</div>
+            <p>Tier 1 is a primary institutional source publishing about itself — treated as authoritative. Tier 2 is a credible institution reporting beyond its own remit — corroborated before publish. Tier 3 is everything else: used for signal, never quoted as fact. Click a tier to change it; the pipeline re-scores that source's queue immediately.</p>
+        </div>
+    </div>
+}
+
+else if (_section == "quality")
+{
+    <div style="max-width:1180px;">
+        <div class="admin-kpi-grid">
+            <div class="admin-kpi"><div class="admin-kpi__label">AI confidence</div><div class="admin-kpi__value">91.3%</div><div class="admin-kpi__delta admin-kpi__delta--up">+0.4%</div></div>
+            <div class="admin-kpi"><div class="admin-kpi__label">User corrections</div><div class="admin-kpi__value">7</div><div class="admin-kpi__delta admin-kpi__delta--down">+3 this week</div></div>
+            <div class="admin-kpi"><div class="admin-kpi__label">Resolution rate</div><div class="admin-kpi__value">94%</div><div class="admin-kpi__delta admin-kpi__delta--up">+2%</div></div>
+            <div class="admin-kpi"><div class="admin-kpi__label">Open flags</div><div class="admin-kpi__value">3</div><div class="admin-kpi__delta admin-kpi__delta--down">+2 since Monday</div></div>
+        </div>
+
+        <div class="admin-banner" style="margin-bottom:14px;">
+            <div class="admin-banner__label">Pattern worth fixing</div>
+            <div style="color:rgba(255,255,255,.85);line-height:1.75;">14% of flagged briefs cite "outdated data" — mostly from sources with >24h publication lag. Adding a freshness check before publish would catch most of these.</div>
+        </div>
+
+        <div class="admin-card">
+            <div class="admin-card__header">
+                <div class="admin-card__title">Open flags</div>
+            </div>
+            @foreach (var flag in _qualityFlags)
+            {
+                <div class="admin-flag-item">
+                    <div class="admin-flag-item__meta">
+                        <span class="admin-tag admin-tag--@(flag.Severity == "Medium" ? "flag" : "danger")">@flag.Severity</span>
+                        <span style="font-size:11.5px;color:#8a91a0;">@flag.Kind · @flag.Age</span>
+                        <span style="font-size:11px;color:#aab2c0;">@flag.Reports reports</span>
+                    </div>
+                    <div class="admin-flag-item__title">@flag.Title</div>
+                    <p class="admin-flag-item__desc">@flag.Detail</p>
+                    <div style="display:flex;gap:7px;">
+                        <button class="btn btn--accent" style="font-size:11.5px;">@flag.Action</button>
+                        <button class="btn btn--outline" style="font-size:11.5px;">View brief</button>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+else if (_section == "users")
+{
+    <div style="max-width:1180px;">
+        <div class="admin-kpi-grid">
+            <div class="admin-kpi"><div class="admin-kpi__label">Total users</div><div class="admin-kpi__value">8,247</div><div class="admin-kpi__delta admin-kpi__delta--up">+142 this week</div></div>
+            <div class="admin-kpi"><div class="admin-kpi__label">Daily active</div><div class="admin-kpi__value">3,847</div><div class="admin-kpi__delta admin-kpi__delta--up">+12%</div></div>
+            <div class="admin-kpi"><div class="admin-kpi__label">Day-7 retention</div><div class="admin-kpi__value">68%</div><div class="admin-kpi__delta admin-kpi__delta--up">+3%</div></div>
+            <div class="admin-kpi"><div class="admin-kpi__label">Onboarding done</div><div class="admin-kpi__value">91%</div><div class="admin-kpi__delta admin-kpi__delta--up">+5%</div></div>
+        </div>
+
+        <div class="admin-split">
+            <div class="admin-split__left">
+                <div class="admin-card" style="padding:0;overflow:hidden;">
+                    <div style="padding:14px 18px;border-bottom:1px solid rgba(20,24,31,.07);">
+                        <input type="text" placeholder="Search by name, email or institution…" class="admin-search" />
+                    </div>
+                    @foreach (var user in _adminUsers)
+                    {
+                        <div class="admin-user-row">
+                            <div class="admin-user-row__avatar" style="background:@user.AvBg;color:@user.AvFg;">@user.Initial</div>
+                            <div style="flex:1;min-width:0;">
+                                <div style="font-size:12.5px;font-weight:700;">@user.Name</div>
+                                <div style="font-size:11px;color:#8a91a0;">@user.Meta</div>
+                            </div>
+                            <span class="admin-tag admin-tag--@user.StatusClass">@user.Status</span>
+                        </div>
+                    }
+                </div>
+            </div>
+            <div class="admin-split__right">
+                <div class="admin-card" style="align-self:start;">
+                    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+                        <div class="admin-user-detail__avatar">A</div>
+                        <div>
+                            <div style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:14.5px;">Ada Nwosu</div>
+                            <div style="font-size:11.5px;color:#8a91a0;">ada@unilag.edu.ng</div>
+                        </div>
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:9px;margin-bottom:16px;">
+                        <div class="admin-user-detail__row"><span>Persona</span><span>Student</span></div>
+                        <div class="admin-user-detail__row"><span>Region</span><span>Lagos, Nigeria</span></div>
+                        <div class="admin-user-detail__row"><span>Goal</span><span>Get Internship</span></div>
+                        <div class="admin-user-detail__row"><span>Day streak</span><span>18 days</span></div>
+                        <div class="admin-user-detail__row"><span>Saved</span><span>34 resources</span></div>
+                        <div class="admin-user-detail__row"><span>Roadmap</span><span>42% complete</span></div>
+                    </div>
+                    <div class="admin-user-detail__activity">
+                        <div class="admin-user-detail__activity-label">Recent activity</div>
+                        <div>Completed "Product Discovery" lesson</div>
+                        <div>Saved "OpenAI reasoning framework" article</div>
+                        <div>Applied to Google Product Internship</div>
+                    </div>
+                    <div style="display:flex;gap:7px;margin-top:14px;">
+                        <button class="btn btn--subtle" style="flex:1;">View as user</button>
+                        <button class="btn btn--outline" style="font-size:12px;">Reset password</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+else if (_section == "institutions")
+{
+    <div style="max-width:1180px;">
+        <div class="admin-scope-banner">
+            Super Admins see all institutions. Platform Admins see only their assigned institutions.
+        </div>
+        <div class="admin-kpi-grid admin-kpi-grid--3">
+            <div class="admin-kpi"><div class="admin-kpi__label">Total institutions</div><div class="admin-kpi__value">14</div><div class="admin-kpi__delta admin-kpi__delta--up">+2 this quarter</div></div>
+            <div class="admin-kpi"><div class="admin-kpi__label">Total seats</div><div class="admin-kpi__value">24,800</div></div>
+            <div class="admin-kpi"><div class="admin-kpi__label">Seats used</div><div class="admin-kpi__value">73%</div></div>
+        </div>
+
+        @foreach (var inst in _institutions)
+        {
+            <div class="admin-card" style="margin-bottom:10px;">
+                <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:11px;flex-wrap:wrap;">
+                    <div>
+                        <div style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:14.5px;">@inst.Name</div>
+                        <div style="font-size:11.5px;color:#8a91a0;">@inst.Type · @inst.Plan · renews @inst.Renews</div>
+                    </div>
+                    <span class="admin-tag admin-tag--@(inst.Active ? "tier1" : "danger")">@(inst.Active ? "Active" : "At risk")</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:11px;">
+                    <div style="flex:1;height:6px;border-radius:3px;background:#eef0f2;overflow:hidden;">
+                        <div style="width:@(inst.SeatPct)%;height:100%;border-radius:3px;background:#008c93;"></div>
+                    </div>
+                    <span style="font-size:11.5px;font-weight:700;color:#535c6b;">@inst.Seats</span>
+                </div>
+                <p style="font-size:12px;color:#535c6b;line-height:1.6;margin-bottom:11px;">@inst.Note</p>
+                <div style="display:flex;gap:7px;flex-wrap:wrap;">
+                    <button class="btn btn--subtle">Open dashboard</button>
+                    <button class="btn btn--outline" style="font-size:11.5px;">Manage</button>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+else if (_section == "growth")
+{
+    <div style="max-width:1180px;">
+        <div class="admin-banner" style="margin-bottom:14px;">
+            <div class="admin-banner__label">The number that matters</div>
+            <div style="color:rgba(255,255,255,.85);line-height:1.75;">Day-7 retention is the strongest predictor of 90-day retention. Every 1% improvement here compounds into measurable capability growth.</div>
+        </div>
+
+        <div class="admin-card" style="margin-bottom:14px;">
+            <div class="admin-card__title" style="margin-bottom:16px;">Activation funnel · last 30 days</div>
+            @foreach (var step in _funnelSteps)
+            {
+                <div class="admin-funnel-row">
+                    <div class="admin-funnel-row__header">
+                        <span style="font-weight:700;">@step.Label</span>
+                        <span style="font-weight:700;color:@step.Color;">@step.Count · @step.Pct</span>
+                    </div>
+                    <div class="admin-funnel-row__bar">
+                        <div style="width:@step.Width%;background:@step.Color;"></div>
+                    </div>
+                    <div style="font-size:11px;color:#8a91a0;margin-top:5px;">@step.Note</div>
+                </div>
+            }
+        </div>
+
+        <div class="admin-split">
+            <div class="admin-split__left">
+                <div class="admin-card">
+                    <div class="admin-card__title" style="margin-bottom:14px;">Retention by persona</div>
+                    @foreach (var p in _retentionData)
+                    {
+                        <div class="admin-retention-row">
+                            <div class="admin-retention-row__header">
+                                <span>@p.Label</span>
+                                <span style="font-weight:700;color:@p.Color;">@p.Value</span>
+                            </div>
+                            <div class="admin-retention-row__bar">
+                                <div style="width:@p.Pct%;background:@p.BarColor;"></div>
+                            </div>
+                        </div>
+                    }
+                    <div style="font-size:11px;color:#aab2c0;margin-top:14px;">Day-30 return rate. Circle membership is the strongest single predictor across every persona.</div>
+                </div>
+            </div>
+            <div class="admin-split__right">
+                <div class="admin-insight-card">
+                    <div class="admin-insight-card__label">Suggested experiment</div>
+                    <div style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:14px;color:#0d3d40;margin-bottom:7px;">Prompt Circle join during onboarding</div>
+                    <p>Circle members return at roughly twice the rate, but only 21% ever join. Moving the prompt into onboarding is the cheapest available lever on retention.</p>
+                    <button class="btn btn--accent" style="margin-top:13px;">Draft the experiment</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+else if (_section == "moderation")
+{
+    <div style="max-width:1180px;">
+        <div class="admin-card" style="margin-bottom:14px;">
+            <div style="font-size:13px;font-weight:700;margin-bottom:3px;">0 open reports · Queue clear</div>
+            <div style="font-size:11.5px;color:#8a91a0;">Circles are small and goal-scoped, which keeps volume low. Most reports are off-topic promotion rather than abuse.</div>
+        </div>
+
+        <div class="admin-empty-state">
+            <div class="admin-empty-state__icon">✓</div>
+            <div class="admin-empty-state__title">Nothing to moderate.</div>
+            <p>All reports resolved. Radar will surface new ones here and notify you if anything is marked severe.</p>
+        </div>
+    </div>
+}
+
+else if (_section == "authoring")
+{
+    <div style="max-width:1180px;">
+        <div class="admin-kpi-grid">
+            <div class="admin-kpi"><div class="admin-kpi__label">Published modules</div><div class="admin-kpi__value">24</div><div class="admin-kpi__delta admin-kpi__delta--up">+2 this month</div></div>
+            <div class="admin-kpi"><div class="admin-kpi__label">Avg completion</div><div class="admin-kpi__value">73%</div><div class="admin-kpi__delta admin-kpi__delta--up">+4%</div></div>
+            <div class="admin-kpi"><div class="admin-kpi__label">Lessons total</div><div class="admin-kpi__value">186</div></div>
+            <div class="admin-kpi"><div class="admin-kpi__label">Pending review</div><div class="admin-kpi__value">3</div><div class="admin-kpi__delta admin-kpi__delta--down">Needs authoring</div></div>
+        </div>
+
+        <div class="admin-card">
+            <div class="admin-card__header">
+                <div class="admin-card__title">Modules</div>
+                <button class="btn btn--accent" style="font-size:11.5px;">+ New module</button>
+            </div>
+            @foreach (var mod in _modules)
+            {
+                <div class="admin-table-row">
+                    <div style="flex:1;min-width:0;">
+                        <div style="font-size:12.5px;font-weight:700;">@mod.Title</div>
+                        <div style="font-size:11px;color:#8a91a0;">@mod.Meta</div>
+                    </div>
+                    <div style="text-align:right;padding-right:12px;">
+                        <div style="font-size:12px;font-weight:700;color:#008c93;">@mod.Completion</div>
+                        <div style="font-size:10.5px;color:#aab2c0;">completion</div>
+                    </div>
+                    <span class="admin-tag admin-tag--@(mod.Status == "Published" ? "tier1" : mod.Status == "Draft" ? "pending" : "flag")">@mod.Status</span>
+                </div>
+            }
+        </div>
+
+        <div class="admin-danger-banner" style="margin-top:14px;">
+            <div class="admin-danger-banner__label">Needs authoring</div>
+            <p>Three modules are referenced by published briefs but do not exist yet — users tapping "Learn this" land on a placeholder. Payments & interoperability is the most requested, cited by 6 briefs and 41 users.</p>
+        </div>
+    </div>
+}
+
+else if (_section == "team")
+{
+    <div style="max-width:1180px;">
+        <div class="admin-banner" style="margin-bottom:14px;">
+            <div class="admin-banner__label">Two roles, one difference</div>
+            <div style="color:rgba(255,255,255,.85);line-height:1.75;max-width:62ch;">Platform Admins run the product — the queue, sources, moderation, content. What they cannot touch is the commercial and institutional layer: whose account exists, what it costs, how many seats it has, and who else gets access.</div>
+        </div>
+
+        <div class="admin-card">
+            <div class="admin-card__header">
+                <div class="admin-card__title">Admins · 4</div>
+                <button class="btn btn--accent" style="font-size:11.5px;">+ Invite admin</button>
+            </div>
+            @foreach (var admin in _teamMembers)
+            {
+                <div class="admin-table-row" style="flex-wrap:wrap;">
+                    <div class="admin-user-row__avatar" style="background:@admin.AvBg;color:@admin.AvFg;">@admin.Initial</div>
+                    <div style="flex:1;min-width:140px;">
+                        <div style="font-size:12.5px;font-weight:700;">@admin.Name</div>
+                        <div style="font-size:11px;color:#8a91a0;">@admin.Email</div>
+                    </div>
+                    <div style="flex:none;min-width:120px;">
+                        <span class="admin-tag admin-tag--@(admin.Role == "Super Admin" ? "tier1" : "pending")">@admin.Role</span>
+                    </div>
+                    <div style="flex:none;min-width:150px;">
+                        <div style="font-size:11.5px;font-weight:600;color:#535c6b;">@admin.Scope</div>
+                        <div style="font-size:10.5px;color:#aab2c0;">@admin.LastActive</div>
+                    </div>
+                    <button class="btn btn--subtle" style="font-size:11px;">Edit</button>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string? Page { get; set; }
+    private string _section = "overview";
+
+    protected override void OnParametersSet()
+    {
+        _section = string.IsNullOrEmpty(Page) ? "overview" : Page.ToLowerInvariant();
+    }
+
+    // Pipeline data
+    private record PipelineBar(string Day, int Pub, int Rej);
+    private PipelineBar[] _pipelineBars = new PipelineBar[]
+    {
+        new("Mon", 40, 8), new("Tue", 55, 12), new("Wed", 48, 6),
+        new("Thu", 62, 15), new("Fri", 45, 10), new("Sat", 20, 4), new("Sun", 10, 2)
+    };
+
+    // Queue items
+    private record QueueItem(string Tier, string Source, string Age, string Title, int Conf, string? Warn);
+    private QueueItem[] _queueItems = new QueueItem[]
+    {
+        new QueueItem("Tier 1", "OpenAI Blog", "2h ago", "OpenAI releases new reasoning framework", 94, null),
+        new QueueItem("Tier 1", "World Bank", "4h ago", "Africa economic outlook 2026", 91, null),
+        new QueueItem("Tier 2", "Multiple", "5h ago", "Conflicting sources on fintech regulation in Nigeria", 72, "Conflicts"),
+        new QueueItem("Tier 1", "MIT OCW", "6h ago", "MIT releases new ML fundamentals course", 88, null),
+        new QueueItem("Tier 3", "TechCrunch", "8h ago", "NVIDIA Q3 earnings — AI infrastructure spend", 85, "Tier 3"),
+    };
+
+    // Sources
+    private record SourceRow(string Name, string Domain, string Briefs, int Tier, string TierLabel, string Cadence, bool Active);
+    private SourceRow[] _sources = new SourceRow[]
+    {
+        new("OpenAI", "openai.com", "47", 1, "Tier 1", "Daily", true),
+        new("World Bank", "worldbank.org", "38", 1, "Tier 1", "Weekly", true),
+        new("MIT OCW", "ocw.mit.edu", "52", 1, "Tier 1", "Daily", true),
+        new("arXiv", "arxiv.org", "124", 2, "Tier 2", "Hourly", true),
+        new("Semantic Scholar", "semanticscholar.org", "89", 2, "Tier 2", "Hourly", true),
+        new("PubMed", "pubmed.ncbi.nlm.nih.gov", "67", 2, "Tier 2", "Daily", true),
+        new("TechCrunch", "techcrunch.com", "31", 3, "Tier 3", "Daily", false),
+    };
+
+    // Quality flags
+    private record QualityFlag(string Severity, string Kind, string Age, string Reports, string Title, string Detail, string Action);
+    private QualityFlag[] _qualityFlags = new QualityFlag[]
+    {
+        new("Medium", "Accuracy", "2 days", "2", "Conflicting regulation dates", "Two briefs cite different effective dates for the same regulation. Source A says Jan 2027; Source B says Q3 2027.", "Re-verify sources"),
+        new("Medium", "Staleness", "1 day", "1", "Outdated economic data", "Brief references 2024 GDP figures when 2025 data is available from the same source.", "Update data"),
+        new("Low", "Bias", "3 days", "1", "Promotional language detected", "One brief contains language that reads like marketing copy rather than neutral analysis.", "Rewrite tone"),
+    };
+
+    // Users
+    private record AdminUser(string Name, string Meta, string Initial, string AvBg, string AvFg, string Status, string StatusClass);
+    private AdminUser[] _adminUsers = new AdminUser[]
+    {
+        new("Ada Nwosu", "Student · UNILAG · Lagos", "A", "#12161d", "#00c2cb", "Active", "tier1"),
+        new("David Okonkwo", "Engineer · Lagos", "D", "#12161d", "#00c2cb", "Active", "tier1"),
+        new("Chioma Eze", "Researcher · Abuja", "C", "#12161d", "#00c2cb", "Active", "tier1"),
+        new("Tunde Bakare", "Graduate · Ibadan", "T", "#12161d", "#00c2cb", "Inactive", "pending"),
+        new("Fatima Aliyu", "Student · Kano", "F", "#12161d", "#00c2cb", "Active", "tier1"),
+        new("Emeka Obi", "Entrepreneur · PH", "E", "#12161d", "#00c2cb", "Suspended", "danger"),
+    };
+
+    // Institutions
+    private record Institution(string Name, string Type, string Plan, string Renews, bool Active, int SeatPct, string Seats, string Note);
+    private Institution[] _institutions = new Institution[]
+    {
+        new("University of Lagos", "University", "Enterprise", "Mar 2027", true, 78, "2,400 / 3,000 seats", "Active across 6 faculties. 89% daily usage."),
+        new("Access Bank", "Bank", "Enterprise", "Jan 2027", true, 65, "1,300 / 2,000 seats", "Rollout to risk and compliance teams complete."),
+        new("Federal Ministry of Education", "Government", "Standard", "Jun 2026", true, 42, "210 / 500 seats", "Pilot programme with 3 departments."),
+        new("TechnoServe Nigeria", "NGO", "Standard", "Sep 2026", false, 30, "45 / 150 seats", "Low adoption — engagement follow-up scheduled."),
+    };
+
+    // Funnel
+    private record FunnelStep(string Label, string Count, string Pct, string Note, string Color, int Width);
+    private FunnelStep[] _funnelSteps = new FunnelStep[]
+    {
+        new("Signed up", "8,247", "100%", "All accounts created", "#008c93", 100),
+        new("Onboarding done", "7,505", "91%", "Persona, region, goal set", "#008c93", 91),
+        new("Day-1 return", "5,602", "68%", "Came back after first session", "#008c93", 68),
+        new("Day-7 return", "3,847", "47%", "Active in week one", "#b7791a", 47),
+        new("Day-30 return", "2,474", "30%", "Monthly active", "#b7791a", 30),
+    };
+
+    // Retention
+    private record RetentionRow(string Label, string Value, string Pct, string Color, string BarColor);
+    private RetentionRow[] _retentionData = new RetentionRow[]
+    {
+        new("Students", "34%", "34", "#008c93", "#008c93"),
+        new("Graduates", "28%", "28", "#008c93", "#008c93"),
+        new("Young Professionals", "38%", "38", "#008c93", "#008c93"),
+        new("Entrepreneurs", "31%", "31", "#008c93", "#008c93"),
+        new("Researchers", "42%", "42", "#008c93", "#008c93"),
+    };
+
+    // Modules
+    private record ModuleRow(string Title, string Meta, string Completion, string Status);
+    private ModuleRow[] _modules = new ModuleRow[]
+    {
+        new("Product Thinking", "8 lessons · 12 resources", "92%", "Published"),
+        new("Customer Research", "6 lessons · 9 resources", "78%", "Published"),
+        new("AI Fundamentals", "10 lessons · 18 resources", "85%", "Published"),
+        new("Data Analytics", "7 lessons · 11 resources", "64%", "Draft"),
+        new("Payments & Interoperability", "Not started", "0%", "Pending"),
+    };
+
+    // Team
+    private record TeamMember(string Name, string Email, string Initial, string AvBg, string AvFg, string Role, string Scope, string LastActive);
+    private TeamMember[] _teamMembers = new TeamMember[]
+    {
+        new("Admin User", "admin@radar.app", "A", "#12161d", "#00c2cb", "Super Admin", "All features", "Active now"),
+        new("Chidi Okoro", "chidi@radar.app", "C", "#12161d", "#00c2cb", "Platform Admin", "Queue, sources, content", "2 hours ago"),
+        new("Blessing Amadi", "blessing@radar.app", "B", "#12161d", "#00c2cb", "Platform Admin", "Moderation, quality", "Yesterday"),
+        new("Yusuf Abdullahi", "yusuf@radar.app", "Y", "#12161d", "#00c2cb", "Super Admin", "All features", "3 days ago"),
+    };
+}

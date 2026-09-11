@@ -1,0 +1,73 @@
+﻿@page "/saved"
+@rendermode InteractiveServer
+@inherits RadarV2.Components.Base.SessionAwareBase
+@inject IIntelligenceFeedService FeedService
+
+<PageTitle>Saved — Radar</PageTitle>
+
+<div class="r-page">
+    <div class="r-page-head">
+        <h1 class="r-page-title">Saved resources</h1>
+        <p class="r-page-sub">Everything you have saved, in one searchable place.</p>
+    </div>
+
+    @if (_error is not null)
+    {
+        <ErrorState Title="Failed to load saved items" Description="@_error" OnRetry="LoadAsync" />
+    }
+    else if (_loading)
+    {
+        <LoadingSkeleton Variant="feed" Count="3" />
+    }
+    else if (_items.Count == 0)
+    {
+        <EmptyState Icon="ðŸ"–" Title="Nothing saved yet." Description="Save an article, paper, video or opportunity and it lands here.">
+            <button class="btn btn--primary btn--sm" @onclick='() => Nav.NavigateTo("/feed")'>Browse the feed</button>
+        </EmptyState>
+    }
+    else
+    {
+        @foreach (var item in _items)
+        {
+            <div class="saved-item">
+                <span class="saved-item-kind">@item.Type</span>
+                <button class="saved-item-info" @onclick="() => OpenDetail(item.Id)">
+                    <div class="saved-item-title">@item.Title</div>
+                    <div class="saved-item-note">@item.Source Â· @DateHelper.Humanize(item.PublishedAt)</div>
+                </button>
+                <button class="saved-item-remove" @onclick="() => Unsave(item)">Remove</button>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private List<ContentItem> _items = [];
+    private bool _loading = true;
+    private string? _error;
+
+    protected override async Task OnAuthenticatedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            _items = await FeedService.GetSavedItemsAsync(Profile!.Id);
+        }
+        catch (Exception ex)
+        {
+            _error = "Could not load saved items. " + ex.Message;
+        }
+        _loading = false;
+    }
+
+    private async Task Unsave(ContentItem item)
+    {
+        await FeedService.UnsaveItemAsync(Profile!.Id, item.Id);
+        _items.Remove(item);
+    }
+
+    private void OpenDetail(string id) => Nav.NavigateTo($"/feed/{id}");
+}

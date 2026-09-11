@@ -1,0 +1,100 @@
+﻿@page "/progress"
+@rendermode InteractiveServer
+@inherits RadarV2.Components.Base.SessionAwareBase
+
+<PageTitle>Growth Tracker — Radar</PageTitle>
+
+<div class="r-page" style="max-width:780px;">
+    <div class="r-page-head">
+        <h1 class="r-page-title">Growth Tracker</h1>
+        <p class="r-page-sub">Your learning journey, quantified.</p>
+    </div>
+
+    @if (_loading)
+    {
+        <LoadingSkeleton Variant="stats" />
+    }
+    else if (_error is not null)
+    {
+        <ErrorState Title="Could not load your progress" Description="@_error" OnRetry="LoadAsync" />
+    }
+    else if (Profile is not null)
+    {
+        <!-- Streak banner -->
+        <div style="background:var(--navy);border-radius:16px;padding:20px 22px;color:#fff;margin-bottom:20px;">
+            <div style="font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--cyan-bright);margin-bottom:10px;">LEARNING STREAK</div>
+            <div style="font-family:var(--font-display);font-weight:700;font-size:2.4rem;line-height:1;color:var(--cyan-bright);margin-bottom:4px;">
+                @Profile.Stats.LearningStreakDays-day
+            </div>
+            <div style="font-size:13px;color:rgba(255,255,255,.6);">Keep going — consistency compounds.</div>
+        </div>
+
+        <!-- Stats grid -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:24px;">
+            <div style="background:#fff;border:1px solid var(--border);border-radius:14px;padding:18px 20px;">
+                <div style="font-family:var(--font-display);font-weight:700;font-size:1.8rem;color:var(--cyan-deep);line-height:1;margin-bottom:4px;">@Profile.Stats.RoadmapProgressPercent%</div>
+                <div style="font-size:12px;color:var(--text-muted);font-weight:600;">Roadmap complete</div>
+                <div style="height:5px;background:var(--bg-hover);border-radius:99px;margin-top:8px;overflow:hidden;">
+                    <div style="height:100%;width:@(Profile.Stats.RoadmapProgressPercent)%;background:var(--cyan);border-radius:99px;"></div>
+                </div>
+            </div>
+            <div style="background:#fff;border:1px solid var(--border);border-radius:14px;padding:18px 20px;">
+                <div style="font-family:var(--font-display);font-weight:700;font-size:1.8rem;color:var(--cyan-deep);line-height:1;margin-bottom:4px;">@Profile.Stats.LessonsCompleted</div>
+                <div style="font-size:12px;color:var(--text-muted);font-weight:600;">Lessons completed</div>
+            </div>
+            <div style="background:#fff;border:1px solid var(--border);border-radius:14px;padding:18px 20px;">
+                <div style="font-family:var(--font-display);font-weight:700;font-size:1.8rem;color:var(--cyan-deep);line-height:1;margin-bottom:4px;">@Profile.Stats.ArticlesRead</div>
+                <div style="font-size:12px;color:var(--text-muted);font-weight:600;">Articles read</div>
+            </div>
+            <div style="background:#fff;border:1px solid var(--border);border-radius:14px;padding:18px 20px;">
+                <div style="font-family:var(--font-display);font-weight:700;font-size:1.8rem;color:var(--cyan-deep);line-height:1;margin-bottom:4px;">@Profile.Stats.PodcastsFinished</div>
+                <div style="font-size:12px;color:var(--text-muted);font-weight:600;">Podcasts finished</div>
+            </div>
+            <div style="background:#fff;border:1px solid var(--border);border-radius:14px;padding:18px 20px;">
+                <div style="font-family:var(--font-display);font-weight:700;font-size:1.8rem;color:var(--cyan-deep);line-height:1;margin-bottom:4px;">@Profile.Stats.VideosWatched</div>
+                <div style="font-size:12px;color:var(--text-muted);font-weight:600;">Videos watched</div>
+            </div>
+            <div style="background:#fff;border:1px solid var(--border);border-radius:14px;padding:18px 20px;">
+                <div style="font-family:var(--font-display);font-weight:700;font-size:1.8rem;color:var(--cyan-deep);line-height:1;margin-bottom:4px;">@Profile.Stats.ResearchPapersRead</div>
+                <div style="font-size:12px;color:var(--text-muted);font-weight:600;">Papers read</div>
+            </div>
+            <div style="background:#fff;border:1px solid var(--border);border-radius:14px;padding:18px 20px;">
+                <div style="font-family:var(--font-display);font-weight:700;font-size:1.8rem;color:var(--cyan-deep);line-height:1;margin-bottom:4px;">@Profile.Stats.ProjectsCompleted</div>
+                <div style="font-size:12px;color:var(--text-muted);font-weight:600;">Projects completed</div>
+            </div>
+            <div style="background:#fff;border:1px solid var(--border);border-radius:14px;padding:18px 20px;">
+                <div style="font-family:var(--font-display);font-weight:700;font-size:1.8rem;color:var(--cyan-deep);line-height:1;margin-bottom:4px;">@Profile.Stats.SavedResourcesCount</div>
+                <div style="font-size:12px;color:var(--text-muted);font-weight:600;">Resources saved</div>
+            </div>
+            <div style="background:#fff;border:1px solid var(--border);border-radius:14px;padding:18px 20px;">
+                <div style="font-family:var(--font-display);font-weight:700;font-size:1.8rem;color:var(--cyan-deep);line-height:1;margin-bottom:4px;">@Profile.Stats.OpportunitiesApplied</div>
+                <div style="font-size:12px;color:var(--text-muted);font-weight:600;">Opportunities explored</div>
+            </div>
+        </div>
+
+        <!-- Last activity -->
+        @if (Profile.Stats.LastActivityDate.HasValue)
+        {
+            <div style="font-size:12px;color:var(--text-faint);text-align:center;">
+                Last activity: @DateHelper.Humanize(Profile.Stats.LastActivityDate.Value)
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private string? _error;
+
+    protected override Task OnAuthenticatedAsync()
+    {
+        _loading = false;
+        return Task.CompletedTask;
+    }
+
+    private void LoadAsync()
+    {
+        _error = null;
+        Nav.NavigateTo("/progress", forceLoad: true);
+    }
+}

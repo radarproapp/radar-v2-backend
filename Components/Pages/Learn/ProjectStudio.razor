@@ -1,0 +1,112 @@
+﻿@page "/projects"
+@rendermode InteractiveServer
+@inherits RadarV2.Components.Base.SessionAwareBase
+@inject IProjectStudioService ProjectStudioService
+
+<PageTitle>Project Studio — Radar</PageTitle>
+
+<div class="r-page" style="max-width:780px;">
+    <div class="r-page-head">
+        <h1 class="r-page-title">Project Studio</h1>
+        <p class="r-page-sub">Practical projects that turn what you've learned into something you can show.</p>
+    </div>
+
+    @if (_error is not null)
+    {
+        <ErrorState Title="Failed to load projects" Description="@_error" OnRetry="LoadAsync" />
+    }
+    else if (_loading)
+    {
+        <LoadingSkeleton Variant="card" Count="2" />
+    }
+    else
+    {
+        <!-- User projects -->
+        @if (_userProjects.Count > 0)
+        {
+            <div style="margin-bottom:24px;">
+                <div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text-faint);margin-bottom:10px;">YOUR PROJECTS</div>
+                @foreach (var project in _userProjects)
+                {
+                    <div style="background:#fff;border:1px solid var(--border);border-radius:14px;padding:16px 18px;margin-bottom:8px;">
+                        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+                            <div style="font-family:var(--font-display);font-weight:700;font-size:14px;">@project.Title</div>
+                            @if (project.IsCompleted)
+                            {
+                                <span style="font-size:11px;font-weight:700;color:var(--lime);background:rgba(46,168,96,0.1);border-radius:99px;padding:4px 10px;">Completed</span>
+                            }
+                            else
+                            {
+                                <span style="font-size:11px;font-weight:700;color:var(--cyan);background:var(--cyan-light);border-radius:99px;padding:4px 10px;">In progress</span>
+                            }
+                        </div>
+                        <div style="font-size:12.5px;color:var(--text-dim);margin-top:4px;">@project.Description</div>
+                    </div>
+                }
+            </div>
+        }
+        else
+        {
+            <EmptyState Icon="ðŸš€" Title="No projects yet" Description="Start a project from a template below to practice what you've learned." Compact="true" />
+        }
+
+        <!-- Templates -->
+        <div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text-faint);margin-bottom:10px;">PROJECT TEMPLATES</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;">
+            @foreach (var template in _templates)
+            {
+                <div style="background:#fff;border:1px solid var(--border);border-radius:14px;padding:18px 20px;display:flex;flex-direction:column;">
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+                        <span style="font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--cyan-deep);background:var(--cyan-light);border-radius:99px;padding:4px 10px;">@template.Category</span>
+                        <span style="font-size:11px;color:var(--text-muted);font-weight:600;">@template.EstimatedTime</span>
+                    </div>
+                    <div style="font-family:var(--font-display);font-weight:700;font-size:14.5px;line-height:1.4;margin-bottom:6px;">@template.Title</div>
+                    <div style="font-size:12.5px;color:var(--text-dim);line-height:1.6;margin-bottom:12px;flex:1;">@template.Description</div>
+                    <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:12px;">
+                        @foreach (var tag in template.Tags)
+                        {
+                            <span style="font-size:10.5px;font-weight:600;background:#f0f2f4;border-radius:99px;padding:3px 8px;">@tag</span>
+                        }
+                    </div>
+                    <button class="btn btn--primary btn--sm" @onclick="() => StartProject(template.Id)">Start project</button>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private List<ProjectTemplate> _templates = [];
+    private List<StudioProject> _userProjects = [];
+    private bool _loading = true;
+    private string? _error;
+
+    protected override async Task OnAuthenticatedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            _templates = await ProjectStudioService.GetTemplatesAsync();
+            _userProjects = await ProjectStudioService.GetUserProjectsAsync(Profile!.Id);
+        }
+        catch (Exception ex)
+        {
+            _error = "Could not load projects. " + ex.Message;
+        }
+        _loading = false;
+    }
+
+    private async Task StartProject(string templateId)
+    {
+        if (Profile is null) return;
+        try
+        {
+            var project = await ProjectStudioService.StartProjectAsync(Profile.Id, templateId);
+            _userProjects.Add(project);
+        }
+        catch { /* silent */ }
+    }
+}

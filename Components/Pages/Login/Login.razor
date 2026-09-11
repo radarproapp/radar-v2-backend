@@ -1,0 +1,98 @@
+@page "/login"
+@layout RadarV2.Components.Layout.OnboardingLayout
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage
+@using RadarV2.Services
+@using RadarV2.Services.Interfaces
+@inject IAuthService AuthService
+@inject IUserSessionService UserSession
+@inject ProtectedLocalStorage LocalStorage
+@inject NavigationManager Nav
+
+<PageTitle>Sign in — Radar</PageTitle>
+
+<div class="ob-shell">
+
+    <div class="ob-left">
+
+        <div class="ob-topbar">
+            <div class="ob-logo-mark">R</div>
+            <div class="ob-divider-v"></div>
+            <span class="ob-logo-name">Radar</span>
+        </div>
+
+        <div style="height:32px;"></div>
+
+        <div class="ob-card">
+            <div style="flex:1;display:flex;flex-direction:column;">
+                <div class="ob-step-label">Welcome back</div>
+                <h1 class="ob-title">Sign in to Radar.</h1>
+                <p class="ob-sub" style="margin-bottom:24px;">Pick up exactly where you left off.</p>
+
+                <input type="email" placeholder="Email address" @bind="_email" @bind:event="oninput"
+                       class="r-input" style="margin-bottom:10px;" />
+                <input type="password" placeholder="Password" @bind="_password" @bind:event="oninput"
+                       class="r-input" @onkeydown="OnKeyDown" />
+
+                @if (_error != null)
+                {
+                    <div style="margin-top:8px;padding:10px 13px;background:#fff0f0;border-radius:10px;border:1px solid #f5c6c6;font-size:13px;color:#d94f4f;">@_error</div>
+                }
+
+                <div class="ob-actions" style="margin-top:20px;">
+                    <button class="btn btn--primary" style="width:100%;padding:15px;" @onclick="SignInAsync" disabled="@(!CanSubmit || _loading)">
+                        @if (_loading) { <span>Signing in…</span> } else { <span>Sign in</span> }
+                    </button>
+                </div>
+
+                <div style="text-align:center;margin-top:14px;font-size:13px;color:#8a91a0;">
+                    No account? <a href="/onboarding" style="color:#008c93;font-weight:600;">Get started</a>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <div class="ob-photo">
+        <img src="https://images.unsplash.com/photo-1758874383904-c3c409aeb32d?fm=jpg&q=80&w=1200&auto=format&fit=crop" alt="" />
+        <div class="ob-photo-overlay"></div>
+        <div class="ob-photo-caption">
+            <div class="ob-photo-eyebrow">Welcome back</div>
+            <div class="ob-photo-text">Start your day with Radar, not with Google.</div>
+        </div>
+    </div>
+
+</div>
+
+@code {
+    private string _email = string.Empty;
+    private string _password = string.Empty;
+    private string? _error;
+    private bool _loading;
+
+    private bool CanSubmit => !string.IsNullOrWhiteSpace(_email) && !string.IsNullOrWhiteSpace(_password);
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && CanSubmit)
+            await SignInAsync();
+    }
+
+    private async Task SignInAsync()
+    {
+        _loading = true;
+        _error = null;
+
+        var result = await AuthService.LoginAsync(_email.Trim(), _password);
+        if (!result.Success)
+        {
+            _error = result.Error;
+            _loading = false;
+            return;
+        }
+
+        UserSession.SetUser(result.UserId!, result.UserName!);
+        await LocalStorage.SetAsync("radar_session", new StoredSession(result.UserId!, result.UserName!));
+        Nav.NavigateTo("/");
+    }
+}

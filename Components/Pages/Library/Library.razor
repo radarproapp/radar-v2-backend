@@ -1,0 +1,223 @@
+﻿@page "/library"
+@rendermode InteractiveServer
+@inherits RadarV2.Components.Base.SessionAwareBase
+@inject ILibraryService LibraryService
+
+<PageTitle>Intelligence Library — Radar</PageTitle>
+
+<div class="r-page">
+    <div class="r-page-head">
+        <h1 class="r-page-title">Intelligence Library</h1>
+        <p style="font-size:13.5px;color:var(--text-muted);margin-top:4px;">Curated authoritative reports, flagship publications, and research documents.</p>
+    </div>
+
+    <!-- Search + filter row -->
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px;align-items:center;">
+        <input type="text" placeholder="Search documentsâ€¦"
+               style="flex:1;min-width:200px;padding:9px 14px;border:1.5px solid rgba(20,24,31,.12);border-radius:9px;font-size:13.5px;background:#fff;color:#14181f;outline:none;"
+               value="@_search" @oninput="OnSearchChanged" />
+        <select style="padding:9px 14px;border:1.5px solid rgba(20,24,31,.12);border-radius:9px;font-size:13.5px;background:#fff;color:#14181f;"
+                @bind="_selectedCategory" @bind:after="LoadAsync">
+            <option value="">All Categories</option>
+            @foreach (var cat in _categories)
+            {
+                <option value="@cat">@cat</option>
+            }
+        </select>
+        <select style="padding:9px 14px;border:1.5px solid rgba(20,24,31,.12);border-radius:9px;font-size:13.5px;background:#fff;color:#14181f;"
+                @bind="_selectedYear" @bind:after="LoadAsync">
+            <option value="0">All Years</option>
+            @foreach (var yr in _years)
+            {
+                <option value="@yr">@yr</option>
+            }
+        </select>
+    </div>
+
+    <!-- Category chips -->
+    @if (_categories.Count > 0)
+    {
+        <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:22px;">
+            <button class="r-chip @(string.IsNullOrEmpty(_selectedCategory) ? "active" : "")"
+                    @onclick='() => SetCategory("")'>All</button>
+            @foreach (var cat in _categories)
+            {
+                <button class="r-chip @(_selectedCategory == cat ? "active" : "")"
+                        @onclick="() => SetCategory(cat)">@cat</button>
+            }
+        </div>
+    }
+
+    @if (_loading)
+    {
+        <LoadingSkeleton Variant="feed" Count="6" />
+    }
+    else if (_error is not null)
+    {
+        <ErrorState Title="Could not load library" Description="@_error" OnRetry="LoadAsync" />
+    }
+    else if (_documents.Count == 0)
+    {
+        <EmptyState Icon="ðŸ"š" Title="No documents found" Description="Try adjusting your search or category filter." />
+    }
+    else
+    {
+        <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:14px;font-weight:600;">
+            @_documents.Count document@(_documents.Count == 1 ? "" : "s")
+        </div>
+
+        @foreach (var doc in _documents)
+        {
+            <div style="background:#fff;border:1.5px solid rgba(20,24,31,.08);border-radius:13px;padding:16px 18px;margin-bottom:12px;transition:border-color .15s;">
+                <!-- Category + year row -->
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px;flex-wrap:wrap;">
+                    <span style="font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:@CategoryColor(doc.Category);background:@CategoryBg(doc.Category);border-radius:5px;padding:3px 8px;">
+                        @doc.Category
+                    </span>
+                    @if (doc.IsAfrica)
+                    {
+                        <span style="font-size:10.5px;font-weight:700;letter-spacing:.05em;color:#008c93;background:#e0f4f6;border-radius:5px;padding:3px 8px;">Africa</span>
+                    }
+                    <span style="font-size:11px;font-weight:600;color:var(--text-muted);margin-left:auto;">@doc.Year</span>
+                </div>
+
+                <!-- Title -->
+                <div style="font-size:14.5px;font-weight:700;color:#14181f;line-height:1.35;margin-bottom:5px;">@doc.Title</div>
+
+                <!-- Publisher + type -->
+                <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:8px;">
+                    @doc.Publisher Â· @doc.DocumentType
+                </div>
+
+                <!-- Subtopic -->
+                @if (!string.IsNullOrWhiteSpace(doc.Subtopic))
+                {
+                    <div style="font-size:12.5px;color:#6b7280;line-height:1.5;margin-bottom:10px;">@doc.Subtopic</div>
+                }
+
+                <!-- Region + CTA -->
+                <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+                    <span style="font-size:11.5px;color:var(--text-muted);font-weight:500;">ðŸ" @doc.Region</span>
+                    <a href="@doc.Url" target="_blank" rel="noopener noreferrer"
+                       style="font-size:12.5px;font-weight:700;color:var(--cyan);text-decoration:none;display:inline-flex;align-items:center;gap:4px;">
+                        Access document â†’
+                    </a>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private List<LibraryDocument> _documents = [];
+    private List<string> _categories = [];
+    private static readonly int[] _years = [2026, 2025, 2024, 2023, 2022, 2021, 2020, 2019];
+    private string _selectedCategory = "";
+    private int _selectedYear;
+    private string _search = "";
+    private bool _loading = true;
+    private string? _error;
+    private System.Timers.Timer? _debounce;
+
+    protected override async Task OnAuthenticatedAsync()
+    {
+        _categories = await LibraryService.GetCategoriesAsync();
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+        StateHasChanged();
+        try
+        {
+            _documents = await LibraryService.GetAllAsync(
+                string.IsNullOrEmpty(_selectedCategory) ? null : _selectedCategory,
+                _selectedYear > 0 ? _selectedYear : null,
+                string.IsNullOrWhiteSpace(_search) ? null : _search);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        _loading = false;
+    }
+
+    private void SetCategory(string cat)
+    {
+        _selectedCategory = cat;
+        _ = LoadAsync();
+    }
+
+    private void OnSearchChanged(ChangeEventArgs e)
+    {
+        _search = e.Value?.ToString() ?? "";
+        _debounce?.Stop();
+        _debounce?.Dispose();
+        _debounce = new System.Timers.Timer(350);
+        _debounce.Elapsed += async (_, _) =>
+        {
+            _debounce?.Dispose();
+            await InvokeAsync(LoadAsync);
+        };
+        _debounce.AutoReset = false;
+        _debounce.Start();
+    }
+
+    private static string CategoryColor(string cat) => cat switch
+    {
+        "Climate"          => "#0e5f6b",
+        "Health"           => "#991b1b",
+        "Science"          => "#0f766e",
+        "Technology"       => "#1a4d8f",
+        "Business & Finance" => "#78350f",
+        "Politics"         => "#374151",
+        "Sports"           => "#14532d",
+        "Music"            => "#831843",
+        "Film & TV"        => "#450a0a",
+        "Education"        => "#1e3a8a",
+        "Fashion"          => "#7e22ce",
+        "Lifestyle"        => "#c2410c",
+        "Faith & Religion" => "#78350f",
+        "Philosophy"       => "#3b0764",
+        "Environment"      => "#166534",
+        "Travel"           => "#0c4a6e",
+        "Medicine"         => "#991b1b",
+        "Real Estate"      => "#b45309",
+        "Law"              => "#1e3a5f",
+        "Books & Literature" => "#713f12",
+        "History"          => "#92400e",
+        "Gaming & Esports" => "#5b21b6",
+        "Art & Craft"      => "#9d174d",
+        _                  => "#374151"
+    };
+
+    private static string CategoryBg(string cat) => cat switch
+    {
+        "Climate"          => "#e0f4f6",
+        "Health"           => "#fee2e2",
+        "Science"          => "#f0fdfa",
+        "Technology"       => "#ddeeff",
+        "Business & Finance" => "#fef3c7",
+        "Politics"         => "#f0f2f4",
+        "Sports"           => "#dcfce7",
+        "Music"            => "#fdf2f8",
+        "Film & TV"        => "#fef2f2",
+        "Education"        => "#eff6ff",
+        "Fashion"          => "#f3e8ff",
+        "Lifestyle"        => "#fff7ed",
+        "Faith & Religion" => "#fffbeb",
+        "Philosophy"       => "#faf5ff",
+        "Environment"      => "#f0fdf4",
+        "Travel"           => "#e0f2fe",
+        "Medicine"         => "#fee2e2",
+        "Real Estate"      => "#fef3c7",
+        "Law"              => "#e8f0fe",
+        "Books & Literature" => "#fefce8",
+        "History"          => "#fff7ed",
+        "Gaming & Esports" => "#ede9fe",
+        "Art & Craft"      => "#fce7f3",
+        _                  => "#f0f2f4"
+    };
+}
