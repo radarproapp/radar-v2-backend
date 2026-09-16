@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using RadarV2.Models;
@@ -12,11 +13,19 @@ public class FeedController : ControllerBase
 {
     private readonly IIntelligenceFeedService _feed;
     private readonly IUserProfileService _profiles;
+    private readonly IPersonalizedWhyService _why;
+    private readonly IAnalyticsService _analytics;
 
-    public FeedController(IIntelligenceFeedService feed, IUserProfileService profiles)
+    public FeedController(
+        IIntelligenceFeedService feed,
+        IUserProfileService profiles,
+        IPersonalizedWhyService why,
+        IAnalyticsService analytics)
     {
         _feed = feed;
         _profiles = profiles;
+        _why = why;
+        _analytics = analytics;
     }
 
     [HttpGet]
@@ -79,6 +88,55 @@ public class FeedController : ControllerBase
         if (profile is null) return Unauthorized();
 
         await _feed.UnsaveItemAsync(profile.Id, id);
+        return NoContent();
+    }
+
+    public sealed class WhyRatingRequest
+    {
+        [Required] public bool Helpful { get; set; }
+    }
+
+    /// <summary>
+    /// Personalized "why this matters" for this user, generated/cached on demand. Falls back to
+    /// the item's generic WhyItMatters (isPersonalized=false) when generation isn't possible
+    /// right now — see IPersonalizedWhyService for why that's not a hard failure.
+    /// </summary>
+    [HttpGet("{id}/why")]
+    public async Task<IActionResult> GetWhyAsync(string id)
+    {
+        var profile = await RequireProfileAsync();
+        if (profile is null) return Unauthorized();
+
+        var item = await _feed.GetByIdAsync(id);
+        if (item is null) return NotFound(new { error = "Item not found" });
+
+        var personalized = await _why.GetOrGenerateAsync(profile, item);
+        return Ok(new
+        {
+            text = personalized?.WhyText ?? item.WhyItMatters,
+            isPersonalized = personalized?.IsGenerated ?? false,
+            isHelpful = personalized?.IsHelpful,
+        });
+    }
+
+    [HttpPost("{id}/why-rating")]
+    public async Task<IActionResult> RateWhyAsync(string id, [FromBody] WhyRatingRequest request)
+    {
+        var profile = await RequireProfileAsync();
+        if (profile is null) return Unauthorized();
+
+        var item = await _feed.GetByIdAsync(id);
+        if (item is null) return NotFound(new { error = "Item not found" });
+
+        var personalized = await _why.GetOrGenerateAsync(profile, item);
+        await _why.RateAsync(profile.Id, id, personalized?.WhyText ?? item.WhyItMatters, request.Helpful);
+        await _analytics.LogEventAsync(new AnalyticsEvent
+        {
+            UserId = profile.Id,
+            Type = request.Helpful ? AnalyticsEventType.WhyRatedHelpful : AnalyticsEventType.WhyRatedNotHelpful,
+            ContentItemId = id,
+        });
+
         return NoContent();
     }
 

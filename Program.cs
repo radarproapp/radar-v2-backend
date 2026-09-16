@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Text;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.IdentityModel.Tokens;
 using RadarV2.Components;
 using RadarV2.Data;
@@ -24,11 +25,23 @@ builder.Services.AddControllers()
     });
 
 // JWT auth for the API. Signing key lives in Auth:Jwt (appsettings / env).
-// Fallback values keep local dev working when the section is missing.
+// Fallback values keep local dev working when the section is missing — but
+// never in Production: that fallback key is public (it's sitting in this
+// file in a public repo), so silently using it there would let anyone forge
+// a valid token. Fail fast instead of starting up insecure.
+const string DevOnlyJwtKey = "radar-dev-only-signing-key-change-me-0123456789abcdef";
 var jwtSection = builder.Configuration.GetSection("Auth:Jwt");
 var jwtIssuer   = jwtSection["Issuer"]   ?? "Radar";
 var jwtAudience = jwtSection["Audience"] ?? "Radar";
-var jwtKey      = jwtSection["Key"]      ?? "radar-dev-only-signing-key-change-me-0123456789abcdef";
+var jwtKey      = jwtSection["Key"]      ?? DevOnlyJwtKey;
+
+if (builder.Environment.IsProduction() && jwtKey == DevOnlyJwtKey)
+{
+    throw new InvalidOperationException(
+        "Refusing to start in Production without a real Auth:Jwt:Key configured. " +
+        "Set the Auth__Jwt__Key (and ideally Auth__Jwt__Issuer / Auth__Jwt__Audience) " +
+        "environment variable to a unique secret — never the checked-in dev default.");
+}
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -69,10 +82,15 @@ builder.Services.AddAuthorization();
 
 // CORS for the React SPA (separate origin in dev and once deployed).
 // JWT bearer auth means no cookies cross the origin, so no AllowCredentials needed.
+// Allowed origins come from config (Cors:AllowedOrigins) so adding a custom domain
+// later is an env var change, not a code change + redeploy.
+var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+    ?? ["http://localhost:5173", "http://127.0.0.1:5173"];
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("Spa", policy => policy
-        .WithOrigins("http://localhost:5173", "http://127.0.0.1:5173")
+        .WithOrigins(allowedOrigins)
         .AllowAnyHeader()
         .AllowAnyMethod());
 });
@@ -181,8 +199,22 @@ builder.Services.AddScoped<ISourceService, MongoSourceService>();
 builder.Services.AddScoped<ITopicService, MongoTopicService>();
 builder.Services.AddScoped<IPlansService, MongoPlansService>();
 builder.Services.AddScoped<ILearningMentorService, MongoLearningMentorService>();
+builder.Services.AddScoped<IAnalyticsService, MongoAnalyticsService>();
+builder.Services.AddScoped<IPersonalizedWhyService, PersonalizedWhyService>();
 
 var app = builder.Build();
+
+// Railway (and most PaaS hosts) terminate TLS at their edge and forward plain
+// HTTP internally with X-Forwarded-Proto: https. Without this, UseHttpsRedirection
+// below never sees the request as HTTPS and redirects every single request,
+// forever (the client already used HTTPS, so it just loops). Must run first.
+var forwardedHeadersOptions = new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+};
+forwardedHeadersOptions.KnownNetworks.Clear();
+forwardedHeadersOptions.KnownProxies.Clear();
+app.UseForwardedHeaders(forwardedHeadersOptions);
 
 if (!app.Environment.IsDevelopment())
 {

@@ -14,8 +14,9 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 COPY --from=build /app/publish .
 
-ENV ASPNETCORE_URLS=http://+:80
 ENV ASPNETCORE_ENVIRONMENT=Production
 EXPOSE 80
 
-ENTRYPOINT ["dotnet", "RadarV2.dll"]
+# Railway (and similar PaaS hosts) inject a PORT env var the container must
+# listen on; fall back to 80 for hosts that don't (e.g. Azure App Service).
+ENTRYPOINT ["/bin/sh", "-c", "exec dotnet RadarV2.dll --urls http://+:${PORT:-80}"]
