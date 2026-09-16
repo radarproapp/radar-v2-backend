@@ -4,13 +4,21 @@ namespace RadarV2.Services.Ingestion;
 
 public static class LibraryRegistry
 {
-    public static readonly IReadOnlyList<LibraryDocument> All =
-        ((LibraryDocument[])[.. Climate, .. Health, .. Science, .. Technology,
+    // All must be built in a static constructor, not a field initializer: field initializers
+    // run in declaration order, and this one is declared before the arrays it spreads (Climate,
+    // Health, ...) further down the file — at field-initializer time those are still null,
+    // throwing ArgumentNullException. Same bug class already fixed once in SourceRegistry.
+    public static readonly IReadOnlyList<LibraryDocument> All;
+
+    static LibraryRegistry()
+    {
+        All = ((LibraryDocument[])[.. Climate, .. Health, .. Science, .. Technology,
             .. BusinessFinance, .. Politics, .. Sports, .. Music, .. FilmTv,
             .. Education, .. Fashion, .. Lifestyle, .. FaithReligion,
             .. Philosophy, .. Environment, .. Travel, .. Medicine,
             .. RealEstate, .. Law, .. Literature, .. History, .. GamingEsports, .. ArtCraft
         ]).AsReadOnly();
+    }
 
     // ── Climate ───────────────────────────────────────────────────────────────
 
