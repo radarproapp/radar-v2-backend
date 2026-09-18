@@ -91,6 +91,20 @@ public class FeedController : ControllerBase
         return NoContent();
     }
 
+    /// <summary>
+    /// Marks an item as not relevant for this user — excluded from GetFeedAsync from now on.
+    /// Analytics logging is a separate client call to POST /api/events (same pattern as save/unsave).
+    /// </summary>
+    [HttpPost("{id}/dismiss")]
+    public async Task<IActionResult> DismissAsync(string id)
+    {
+        var profile = await RequireProfileAsync();
+        if (profile is null) return Unauthorized();
+
+        await _feed.DismissItemAsync(profile.Id, id);
+        return NoContent();
+    }
+
     public sealed class WhyRatingRequest
     {
         [Required] public bool Helpful { get; set; }

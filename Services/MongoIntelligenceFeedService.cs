@@ -16,10 +16,16 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
     {
         await EnsureSeedDataAsync();
 
+        var dismissedIds = !string.IsNullOrEmpty(profile.Id)
+            ? await GetDismissedItemIdsAsync(profile.Id)
+            : [];
+
         // Build base filter
         var filter = filterType.HasValue
             ? Builders<ContentItem>.Filter.Eq(i => i.Type, filterType.Value)
             : Builders<ContentItem>.Filter.Empty;
+        if (dismissedIds.Count > 0)
+            filter &= Builders<ContentItem>.Filter.Nin(i => i.Id, dismissedIds);
 
         // Narrow to user's interest layers when defined — fall back to full feed if no match
         var interestLayers = MapInterestsToLayers(profile.Interests);
@@ -39,6 +45,8 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
             var fallbackFilter = filterType.HasValue
                 ? Builders<ContentItem>.Filter.Eq(i => i.Type, filterType.Value)
                 : Builders<ContentItem>.Filter.Empty;
+            if (dismissedIds.Count > 0)
+                fallbackFilter &= Builders<ContentItem>.Filter.Nin(i => i.Id, dismissedIds);
             items = await _db.ContentItems
                 .Find(fallbackFilter)
                 .SortByDescending(i => i.PublishedAt)
@@ -157,6 +165,20 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
             s => s.UserId == userId && s.ContentItemId == contentItemId);
     }
 
+    public async Task DismissItemAsync(string userId, string contentItemId)
+    {
+        var exists = await _db.DismissedItems
+            .Find(d => d.UserId == userId && d.ContentItemId == contentItemId)
+            .AnyAsync();
+
+        if (!exists)
+            await _db.DismissedItems.InsertOneAsync(new DismissedItemDoc
+            {
+                UserId = userId,
+                ContentItemId = contentItemId
+            });
+    }
+
     public async Task<List<ContentItem>> GetSavedItemsAsync(string userId)
     {
         var savedIds = await GetSavedItemIdsAsync(userId);
@@ -193,6 +215,14 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
             .Find(s => s.UserId == userId)
             .ToListAsync();
         return saved.Select(s => s.ContentItemId).ToHashSet();
+    }
+
+    private async Task<HashSet<string>> GetDismissedItemIdsAsync(string userId)
+    {
+        var dismissed = await _db.DismissedItems
+            .Find(d => d.UserId == userId)
+            .ToListAsync();
+        return dismissed.Select(d => d.ContentItemId).ToHashSet();
     }
 
     private static bool _seeded;

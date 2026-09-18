@@ -24,6 +24,7 @@ public class RadarDatabase
     public IMongoCollection<Opportunity>   Opportunities => _db.GetCollection<Opportunity>("opportunities");
     public IMongoCollection<GrowthRoadmap> Roadmaps     => _db.GetCollection<GrowthRoadmap>("roadmaps");
     public IMongoCollection<SavedItemDoc>        SavedItems          => _db.GetCollection<SavedItemDoc>("saved_items");
+    public IMongoCollection<DismissedItemDoc>    DismissedItems      => _db.GetCollection<DismissedItemDoc>("dismissed_items");
     public IMongoCollection<SavedOpportunityDoc> SavedOpportunities  => _db.GetCollection<SavedOpportunityDoc>("saved_opportunities");
     public IMongoCollection<AppliedOpportunityDoc> AppliedOpportunities => _db.GetCollection<AppliedOpportunityDoc>("applied_opportunities");
     public IMongoCollection<ChatSession>   ChatSessions => _db.GetCollection<ChatSession>("chat_sessions");
@@ -69,6 +70,13 @@ public class RadarDatabase
                 Builders<SavedItemDoc>.IndexKeys
                     .Ascending(s => s.UserId)
                     .Ascending(s => s.ContentItemId),
+                new CreateIndexOptions { Unique = true }));
+
+        DismissedItems.Indexes.CreateOne(
+            new CreateIndexModel<DismissedItemDoc>(
+                Builders<DismissedItemDoc>.IndexKeys
+                    .Ascending(d => d.UserId)
+                    .Ascending(d => d.ContentItemId),
                 new CreateIndexOptions { Unique = true }));
 
         LibraryDocuments.Indexes.CreateOne(

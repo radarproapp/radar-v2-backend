@@ -8,6 +8,7 @@ public interface IIntelligenceFeedService
     Task<ContentItem?> GetByIdAsync(string id);
     Task SaveItemAsync(string userId, string contentItemId);
     Task UnsaveItemAsync(string userId, string contentItemId);
+    Task DismissItemAsync(string userId, string contentItemId);
     Task<List<ContentItem>> GetSavedItemsAsync(string userId);
     Task<List<ContentItem>> SearchAsync(string query, ContentType? type = null);
 }
