@@ -201,6 +201,7 @@ builder.Services.AddScoped<IPlansService, MongoPlansService>();
 builder.Services.AddScoped<ILearningMentorService, MongoLearningMentorService>();
 builder.Services.AddScoped<IAnalyticsService, MongoAnalyticsService>();
 builder.Services.AddScoped<IPersonalizedWhyService, PersonalizedWhyService>();
+builder.Services.AddScoped<IContentReportService, MongoContentReportService>();
 
 var app = builder.Build();
 

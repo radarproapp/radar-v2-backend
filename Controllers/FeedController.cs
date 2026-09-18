@@ -15,17 +15,20 @@ public class FeedController : ControllerBase
     private readonly IUserProfileService _profiles;
     private readonly IPersonalizedWhyService _why;
     private readonly IAnalyticsService _analytics;
+    private readonly IContentReportService _reports;
 
     public FeedController(
         IIntelligenceFeedService feed,
         IUserProfileService profiles,
         IPersonalizedWhyService why,
-        IAnalyticsService analytics)
+        IAnalyticsService analytics,
+        IContentReportService reports)
     {
         _feed = feed;
         _profiles = profiles;
         _why = why;
         _analytics = analytics;
+        _reports = reports;
     }
 
     [HttpGet]
@@ -149,6 +152,33 @@ public class FeedController : ControllerBase
             UserId = profile.Id,
             Type = request.Helpful ? AnalyticsEventType.WhyRatedHelpful : AnalyticsEventType.WhyRatedNotHelpful,
             ContentItemId = id,
+        });
+
+        return NoContent();
+    }
+
+    public sealed class ReportRequest
+    {
+        [Required] public ReportReason Reason { get; set; }
+        public string? Note { get; set; }
+    }
+
+    [HttpPost("{id}/report")]
+    public async Task<IActionResult> ReportAsync(string id, [FromBody] ReportRequest request)
+    {
+        var profile = await RequireProfileAsync();
+        if (profile is null) return Unauthorized();
+
+        var item = await _feed.GetByIdAsync(id);
+        if (item is null) return NotFound(new { error = "Item not found" });
+
+        await _reports.CreateReportAsync(profile.Id, item, request.Reason, request.Note);
+        await _analytics.LogEventAsync(new AnalyticsEvent
+        {
+            UserId = profile.Id,
+            Type = AnalyticsEventType.Reported,
+            ContentItemId = id,
+            Metadata = new Dictionary<string, string> { ["reason"] = request.Reason.ToString() },
         });
 
         return NoContent();

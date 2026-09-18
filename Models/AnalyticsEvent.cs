@@ -12,6 +12,7 @@ public enum AnalyticsEventType
     ClipSaved,
     WhyRatedHelpful,
     WhyRatedNotHelpful,
+    Reported,
 }
 
 /// <summary>

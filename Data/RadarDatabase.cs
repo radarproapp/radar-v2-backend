@@ -42,6 +42,7 @@ public class RadarDatabase
     public IMongoCollection<UserSubscriptionDoc> UserSubscriptions => _db.GetCollection<UserSubscriptionDoc>("user_subscriptions");
     public IMongoCollection<AnalyticsEvent> AnalyticsEvents => _db.GetCollection<AnalyticsEvent>("analytics_events");
     public IMongoCollection<UserContentWhy> UserContentWhys => _db.GetCollection<UserContentWhy>("user_content_why");
+    public IMongoCollection<ContentReport> ContentReports => _db.GetCollection<ContentReport>("content_reports");
 
     private void EnsureIndexes()
     {
@@ -170,5 +171,15 @@ public class RadarDatabase
                     .Ascending(w => w.UserId)
                     .Ascending(w => w.ContentItemId),
                 new CreateIndexOptions { Unique = true }));
+
+        ContentReports.Indexes.CreateOne(
+            new CreateIndexModel<ContentReport>(
+                Builders<ContentReport>.IndexKeys
+                    .Ascending(r => r.IsResolved)
+                    .Descending(r => r.CreatedAt)));
+
+        ContentReports.Indexes.CreateOne(
+            new CreateIndexModel<ContentReport>(
+                Builders<ContentReport>.IndexKeys.Ascending(r => r.Source)));
     }
 }
