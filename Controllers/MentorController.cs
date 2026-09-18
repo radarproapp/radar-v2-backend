@@ -1,17 +1,13 @@
 using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using RadarV2.Helpers;
 using RadarV2.Models;
 using RadarV2.Services.Interfaces;
 
 namespace RadarV2.Controllers;
 
-/// <summary>
-/// AI Learning Mentor — chat, quiz, study plan, work review. Chat is a plain request/response
-/// call for now: ILearningMentorService also exposes StreamMessageAsync (SSE-style), but wiring
-/// real-time streaming is an explicitly separate, later phase (REACT_MIGRATION.md §5 Phase 3
-/// step 5, grouped with Ask Radar's streaming) — not part of this bulk port.
-/// </summary>
+/// <summary>AI Learning Mentor — chat (streamed over SSE), quiz, study plan, work review.</summary>
 [ApiController]
 [Authorize]
 [Route("api/mentor")]
@@ -32,16 +28,17 @@ public class MentorController : ControllerBase
         public List<ChatMessage> History { get; set; } = [];
     }
 
-    [HttpPost("chat")]
-    public async Task<IActionResult> ChatAsync([FromBody] ChatRequest request)
+    [HttpPost("chat/stream")]
+    public async Task ChatStreamAsync([FromBody] ChatRequest request, CancellationToken ct)
     {
-        if (!ModelState.IsValid) return ValidationProblem();
-
         var profile = await _profiles.GetCurrentUserAsync();
-        if (profile is null) return NotFound(new { error = "Profile not found" });
+        if (profile is null)
+        {
+            Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
 
-        var response = await _mentor.SendMessageAsync(profile.Id, request.Message, request.History);
-        return Ok(response);
+        await SseWriter.WriteChatStreamAsync(Response, _mentor.StreamMessageAsync(profile.Id, request.Message, request.History, ct), ct);
     }
 
     public sealed class GenerateQuizRequest
