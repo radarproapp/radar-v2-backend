@@ -65,6 +65,25 @@ public class MongoProjectStudioService : IProjectStudioService
         await _db.UserProjects.ReplaceOneAsync(p => p.Id == projectId, project);
     }
 
+    public async Task SetVisibilityAsync(string userId, string projectId, bool isPublic)
+    {
+        var project = await _db.UserProjects
+            .Find(p => p.Id == projectId && p.UserId == userId)
+            .FirstOrDefaultAsync();
+
+        if (project is null) return;
+
+        project.IsPublic = isPublic;
+        await _db.UserProjects.ReplaceOneAsync(p => p.Id == projectId, project);
+    }
+
+    public async Task<StudioProject?> GetPublicProjectAsync(string projectId)
+    {
+        return await _db.UserProjects
+            .Find(p => p.Id == projectId && p.IsPublic)
+            .FirstOrDefaultAsync();
+    }
+
     private async Task EnsureSeededAsync()
     {
         if (_seeded) return;

@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using RadarV2.Services.Interfaces;
@@ -48,5 +49,29 @@ public class ProjectsController : ControllerBase
 
         await _projects.CompleteProjectAsync(profile.Id, projectId);
         return NoContent();
+    }
+
+    public sealed class SetVisibilityRequest
+    {
+        [Required] public bool IsPublic { get; set; }
+    }
+
+    [HttpPost("{projectId}/visibility")]
+    public async Task<IActionResult> SetVisibilityAsync(string projectId, [FromBody] SetVisibilityRequest request)
+    {
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        await _projects.SetVisibilityAsync(profile.Id, projectId, request.IsPublic);
+        return NoContent();
+    }
+
+    /// <summary>Public showcase view — no auth, only returns projects their owner made public.</summary>
+    [AllowAnonymous]
+    [HttpGet("{projectId}/public")]
+    public async Task<IActionResult> GetPublicProjectAsync(string projectId)
+    {
+        var project = await _projects.GetPublicProjectAsync(projectId);
+        return project is null ? NotFound(new { error = "Project not found" }) : Ok(project);
     }
 }
