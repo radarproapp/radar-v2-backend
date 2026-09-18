@@ -43,8 +43,10 @@ public class MongoWeeklyBriefService : IWeeklyBriefService
         var existing = await GetLatestBriefAsync(userId);
         if (existing is not null) return existing;
 
-        // Pull top content items from user's interest layers
-        var layers       = MapInterestsToLayers(profile.Interests);
+        // Pull top content items from user's interest layers — news/articles/blog posts/videos/
+        // podcasts only. No opportunities or research papers: those belong to Opportunities and
+        // Learn Hub/Library respectively, not the brief.
+        var layers       = InterestLayerMapper.MapInterestsToLayers(profile.Interests);
         var layerFilter  = layers.Count > 0
             ? Builders<ContentItem>.Filter.In(i => i.Layer, layers)
             : Builders<ContentItem>.Filter.Empty;
@@ -53,8 +55,8 @@ public class MongoWeeklyBriefService : IWeeklyBriefService
             .Find(Builders<ContentItem>.Filter.Eq(i => i.Type, ContentType.Article) & layerFilter)
             .SortByDescending(i => i.PublishedAt).Limit(5).ToListAsync();
 
-        var papers = await _db.ContentItems
-            .Find(Builders<ContentItem>.Filter.Eq(i => i.Type, ContentType.ResearchPaper) & layerFilter)
+        var blogPosts = await _db.ContentItems
+            .Find(Builders<ContentItem>.Filter.Eq(i => i.Type, ContentType.Essay) & layerFilter)
             .SortByDescending(i => i.PublishedAt).Limit(3).ToListAsync();
 
         var videos = await _db.ContentItems
@@ -66,15 +68,14 @@ public class MongoWeeklyBriefService : IWeeklyBriefService
             .SortByDescending(i => i.PublishedAt).Limit(3).ToListAsync();
 
         // Generate AI recommendation text
-        var recommendation = await GenerateRecommendationAsync(profile, articles, papers);
+        var recommendation = await GenerateRecommendationAsync(profile, articles, blogPosts);
 
         var brief = new WeeklyBrief
         {
             UserId               = userId,
             WeekOf               = CurrentWeekStart(),
             WeeklyRecommendation = recommendation,
-            TopArticles          = articles.Take(3).ToList(),
-            TopResearchPapers    = papers.Take(2).ToList(),
+            TopArticles          = [.. articles.Take(3), .. blogPosts.Take(2)],
             TopVideos            = videos.Take(2).ToList(),
             TopPodcasts          = podcasts.Take(2).ToList(),
         };
@@ -90,7 +91,7 @@ public class MongoWeeklyBriefService : IWeeklyBriefService
     private async Task<string> GenerateRecommendationAsync(
         UserProfile profile,
         List<ContentItem> articles,
-        List<ContentItem> papers)
+        List<ContentItem> blogPosts)
     {
         var apiKey = _config["OpenRouter:ApiKey"];
         if (string.IsNullOrWhiteSpace(apiKey))
@@ -104,8 +105,8 @@ public class MongoWeeklyBriefService : IWeeklyBriefService
             sb.AppendLine("Here are the top signals from this week's content:");
             foreach (var a in articles.Take(4))
                 sb.AppendLine($"- {a.Signal} ({a.Source})");
-            foreach (var p in papers.Take(2))
-                sb.AppendLine($"- [Research] {p.Signal} ({p.Journal ?? p.Source})");
+            foreach (var b in blogPosts.Take(2))
+                sb.AppendLine($"- {b.Signal} ({b.Source})");
             sb.AppendLine();
             sb.AppendLine("Write a 2-3 sentence weekly intelligence recommendation. It should: (1) connect the week's top signal to the user's goal, (2) give one concrete action they can take this week, (3) end with a short motivating thought. Write in second person, confident and direct. No bullet points — flowing prose only.");
 
@@ -155,43 +156,4 @@ public class MongoWeeklyBriefService : IWeeklyBriefService
         return today.AddDays(-diff);
     }
 
-    private static List<ContentLayer> MapInterestsToLayers(List<string> interests)
-    {
-        if (interests.Count == 0) return [];
-        var layers = new HashSet<ContentLayer>();
-        foreach (var interest in interests)
-        {
-            var norm = interest.Trim().ToLowerInvariant();
-            ContentLayer[] mapped = norm switch
-            {
-                var s when s.Contains("tech") || s.Contains("ai") || s.Contains("software")
-                    => [ContentLayer.Ideas, ContentLayer.Science],
-                var s when s.Contains("business") || s.Contains("entrepreneur") || s.Contains("startup")
-                    => [ContentLayer.Ideas, ContentLayer.Finance, ContentLayer.Career],
-                var s when s.Contains("finance") || s.Contains("invest") || s.Contains("money") || s.Contains("banking")
-                    => [ContentLayer.Finance],
-                var s when s.Contains("policy") || s.Contains("governance") || s.Contains("politi")
-                    => [ContentLayer.Policy],
-                var s when s.Contains("health") || s.Contains("medicine") || s.Contains("medical")
-                    => [ContentLayer.Medicine],
-                var s when s.Contains("climate") || s.Contains("environment") || s.Contains("green")
-                    => [ContentLayer.Environment],
-                var s when s.Contains("science") || s.Contains("research") || s.Contains("academic")
-                    => [ContentLayer.Science, ContentLayer.Academic],
-                var s when s.Contains("sport") || s.Contains("football") || s.Contains("soccer")
-                    => [ContentLayer.Sports],
-                var s when s.Contains("educat") || s.Contains("learn") || s.Contains("school") || s.Contains("university")
-                    => [ContentLayer.Education, ContentLayer.Learning],
-                var s when s.Contains("energy") || s.Contains("oil") || s.Contains("power") || s.Contains("gas")
-                    => [ContentLayer.Energy],
-                var s when s.Contains("agriculture") || s.Contains("farming") || s.Contains("food")
-                    => [ContentLayer.Agriculture],
-                var s when s.Contains("career") || s.Contains("job") || s.Contains("work")
-                    => [ContentLayer.Career],
-                _ => []
-            };
-            foreach (var l in mapped) layers.Add(l);
-        }
-        return [.. layers];
-    }
 }

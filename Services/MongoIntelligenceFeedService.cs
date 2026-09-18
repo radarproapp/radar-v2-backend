@@ -28,7 +28,7 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
             filter &= Builders<ContentItem>.Filter.Nin(i => i.Id, dismissedIds);
 
         // Narrow to user's interest layers when defined — fall back to full feed if no match
-        var interestLayers = MapInterestsToLayers(profile.Interests);
+        var interestLayers = InterestLayerMapper.MapInterestsToLayers(profile.Interests);
         if (interestLayers.Count > 0)
             filter &= Builders<ContentItem>.Filter.In(i => i.Layer, interestLayers);
 
@@ -63,80 +63,6 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
         }
 
         return items;
-    }
-
-    // Maps onboarding interest strings → ContentLayer values for personalised feed filtering.
-    // Interests come from the onboarding select list; the mapping is intentionally broad so
-    // users aren't locked out of related content.
-    private static List<ContentLayer> MapInterestsToLayers(List<string> interests)
-    {
-        if (interests.Count == 0) return [];
-
-        var layers = new HashSet<ContentLayer>();
-        foreach (var interest in interests)
-        {
-            var norm = interest.Trim().ToLowerInvariant();
-            var mapped = norm switch
-            {
-                var s when s.Contains("tech") || s.Contains("ai") || s.Contains("software")
-                    => [ContentLayer.Ideas, ContentLayer.Science],
-                var s when s.Contains("business") || s.Contains("entrepreneur") || s.Contains("startup")
-                    => [ContentLayer.Ideas, ContentLayer.Finance, ContentLayer.Career],
-                var s when s.Contains("finance") || s.Contains("invest") || s.Contains("money") || s.Contains("banking")
-                    => [ContentLayer.Finance],
-                var s when s.Contains("policy") || s.Contains("governance") || s.Contains("politi")
-                    => [ContentLayer.Policy],
-                var s when s.Contains("health") || s.Contains("medicine") || s.Contains("medical")
-                    => [ContentLayer.Medicine],
-                var s when s.Contains("climate") || s.Contains("environment") || s.Contains("green")
-                    => [ContentLayer.Environment],
-                var s when s.Contains("science") || s.Contains("research") || s.Contains("academic")
-                    => [ContentLayer.Science, ContentLayer.Academic],
-                var s when s.Contains("sport") || s.Contains("football") || s.Contains("soccer")
-                    => [ContentLayer.Sports],
-                var s when s.Contains("music") || s.Contains("afrobeat")
-                    => [ContentLayer.Music],
-                var s when s.Contains("film") || s.Contains("movie") || s.Contains("cinema") || s.Contains("tv")
-                    => [ContentLayer.Film],
-                var s when s.Contains("educat") || s.Contains("learn") || s.Contains("school") || s.Contains("university")
-                    => [ContentLayer.Education, ContentLayer.Learning],
-                var s when s.Contains("fashion") || s.Contains("style") || s.Contains("beauty")
-                    => [ContentLayer.Fashion],
-                var s when s.Contains("travel") || s.Contains("tourism")
-                    => [ContentLayer.Travel],
-                var s when s.Contains("faith") || s.Contains("religion") || s.Contains("spiritual")
-                    => [ContentLayer.Faith],
-                var s when s.Contains("philosophy") || s.Contains("ethics")
-                    => [ContentLayer.Philosophy],
-                var s when s.Contains("law") || s.Contains("legal")
-                    => [ContentLayer.Law],
-                var s when s.Contains("real estate") || s.Contains("property") || s.Contains("housing")
-                    => [ContentLayer.RealEstate],
-                var s when s.Contains("energy") || s.Contains("oil") || s.Contains("power") || s.Contains("gas")
-                    => [ContentLayer.Energy],
-                var s when s.Contains("agriculture") || s.Contains("farming") || s.Contains("food")
-                    => [ContentLayer.Agriculture],
-                var s when s.Contains("industry") || s.Contains("mining") || s.Contains("manufacturing")
-                    => [ContentLayer.Industry],
-                var s when s.Contains("career") || s.Contains("job") || s.Contains("work")
-                    => [ContentLayer.Career],
-                var s when s.Contains("art") || s.Contains("craft") || s.Contains("design")
-                    => [ContentLayer.Art],
-                var s when s.Contains("history")
-                    => [ContentLayer.History],
-                var s when s.Contains("gaming") || s.Contains("esport") || s.Contains("game")
-                    => [ContentLayer.Gaming],
-                var s when s.Contains("transport") || s.Contains("mobility") || s.Contains("logistic")
-                    => [ContentLayer.Transportation],
-                var s when s.Contains("book") || s.Contains("literature") || s.Contains("reading")
-                    => [ContentLayer.Literature],
-                var s when s.Contains("lifestyle")
-                    => [ContentLayer.Lifestyle],
-                _ => Array.Empty<ContentLayer>()
-            };
-            foreach (var l in mapped) layers.Add(l);
-        }
-        return [.. layers];
     }
 
     public async Task<ContentItem?> GetByIdAsync(string id)

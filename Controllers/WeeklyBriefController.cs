@@ -12,18 +12,15 @@ public class WeeklyBriefController : ControllerBase
 {
     private readonly IWeeklyBriefService _briefs;
     private readonly IIntelligenceFeedService _feed;
-    private readonly IOpportunityService _opportunities;
     private readonly IUserProfileService _profiles;
 
     public WeeklyBriefController(
         IWeeklyBriefService briefs,
         IIntelligenceFeedService feed,
-        IOpportunityService opportunities,
         IUserProfileService profiles)
     {
         _briefs = briefs;
         _feed = feed;
-        _opportunities = opportunities;
         _profiles = profiles;
     }
 
@@ -37,16 +34,18 @@ public class WeeklyBriefController : ControllerBase
         var brief = await _briefs.GetLatestBriefAsync(profile.Id)
             ?? await _briefs.GenerateBriefAsync(profile.Id, profile);
 
+        // News/articles/blog posts/videos/podcasts only — no opportunities or research papers
+        // (those belong to Opportunities and Learn Hub/Library respectively, not the brief).
         if (brief.TopArticles.Count == 0)
-            brief.TopArticles = await _feed.GetFeedAsync(profile, ContentType.Article, pageSize: 3);
-        if (brief.TopResearchPapers.Count == 0)
-            brief.TopResearchPapers = await _feed.GetFeedAsync(profile, ContentType.ResearchPaper, pageSize: 2);
+        {
+            var articles = await _feed.GetFeedAsync(profile, ContentType.Article, pageSize: 3);
+            var blogPosts = await _feed.GetFeedAsync(profile, ContentType.Essay, pageSize: 2);
+            brief.TopArticles = [.. articles, .. blogPosts];
+        }
         if (brief.TopVideos.Count == 0)
             brief.TopVideos = await _feed.GetFeedAsync(profile, ContentType.Video, pageSize: 2);
         if (brief.TopPodcasts.Count == 0)
             brief.TopPodcasts = await _feed.GetFeedAsync(profile, ContentType.Podcast, pageSize: 2);
-        if (brief.TopOpportunities.Count == 0)
-            brief.TopOpportunities = await _opportunities.GetOpportunitiesAsync(profile, pageSize: 3);
 
         return Ok(brief);
     }

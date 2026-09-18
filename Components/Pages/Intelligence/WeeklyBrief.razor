@@ -3,7 +3,6 @@
 @inherits RadarV2.Components.Base.SessionAwareBase
 @inject IWeeklyBriefService WeeklyBriefService
 @inject IIntelligenceFeedService FeedService
-@inject IOpportunityService OpportunityService
 
 <PageTitle>Weekly Brief — Radar</PageTitle>
 
@@ -20,7 +19,7 @@
     }
     else if (_brief is null)
     {
-        <EmptyState Icon="📋" Title="No weekly brief yet" Description="Your first weekly brief will arrive on Monday. Check back then.">
+        <EmptyState Icon="📋" Title="No weekly brief yet" Description="Your weekly brief unlocks Saturday evening. Check back then.">
             <button class="btn btn--primary btn--sm" @onclick='() => Nav.NavigateTo("/feed")'>Browse the feed</button>
         </EmptyState>
     }
@@ -44,21 +43,6 @@
             <div class="weekly-rec-text">@_brief.WeeklyRecommendation</div>
         </div>
 
-        <!-- Top Opportunities -->
-        @if (_brief.TopOpportunities.Count > 0)
-        {
-            <div class="weekly-section">
-                <div class="weekly-section-label">TOP OPPORTUNITIES</div>
-                @foreach (var opp in _brief.TopOpportunities)
-                {
-                    <button class="weekly-item" @onclick='GoToOpportunities'>
-                        <div class="weekly-item-meta">@opp.Type · @opp.DaysUntilDeadline days left · @opp.MatchScorePercent% match</div>
-                        <div class="weekly-item-title">@opp.Title — @opp.Organisation</div>
-                    </button>
-                }
-            </div>
-        }
-
         <!-- Top Articles -->
         @if (_brief.TopArticles.Count > 0)
         {
@@ -68,21 +52,6 @@
                 {
                     <button class="weekly-item" @onclick="() => GoToFeed(item.Id)">
                         <div class="weekly-item-meta">@item.Source · @item.EstimatedReadTime</div>
-                        <div class="weekly-item-title">@item.Signal</div>
-                    </button>
-                }
-            </div>
-        }
-
-        <!-- Top Research Papers -->
-        @if (_brief.TopResearchPapers.Count > 0)
-        {
-            <div class="weekly-section">
-                <div class="weekly-section-label">TOP RESEARCH PAPERS</div>
-                @foreach (var item in _brief.TopResearchPapers)
-                {
-                    <button class="weekly-item" @onclick="() => GoToFeed(item.Id)">
-                        <div class="weekly-item-meta">@item.Journal · @item.PublishedAt.ToString("yyyy")</div>
                         <div class="weekly-item-title">@item.Signal</div>
                     </button>
                 }
@@ -141,15 +110,15 @@
         if (_brief is not null)
         {
             if (_brief.TopArticles.Count == 0)
-                _brief.TopArticles = await FeedService.GetFeedAsync(Profile, ContentType.Article, pageSize: 3);
-            if (_brief.TopResearchPapers.Count == 0)
-                _brief.TopResearchPapers = await FeedService.GetFeedAsync(Profile, ContentType.ResearchPaper, pageSize: 2);
+            {
+                var articles = await FeedService.GetFeedAsync(Profile, ContentType.Article, pageSize: 3);
+                var blogPosts = await FeedService.GetFeedAsync(Profile, ContentType.Essay, pageSize: 2);
+                _brief.TopArticles = [.. articles, .. blogPosts];
+            }
             if (_brief.TopVideos.Count == 0)
                 _brief.TopVideos = await FeedService.GetFeedAsync(Profile, ContentType.Video, pageSize: 2);
             if (_brief.TopPodcasts.Count == 0)
                 _brief.TopPodcasts = await FeedService.GetFeedAsync(Profile, ContentType.Podcast, pageSize: 2);
-            if (_brief.TopOpportunities.Count == 0)
-                _brief.TopOpportunities = await OpportunityService.GetOpportunitiesAsync(Profile, pageSize: 3);
         }
         }
         catch (Exception ex)
@@ -160,5 +129,4 @@
     }
 
     private void GoToFeed(string id) => Nav.NavigateTo("/feed/" + id);
-    private void GoToOpportunities() => Nav.NavigateTo("/opportunities");
 }
