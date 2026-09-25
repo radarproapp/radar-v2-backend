@@ -5,6 +5,7 @@ public class UserProfile
     public string Id { get; set; } = Guid.NewGuid().ToString();
     public string Name { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
+    public string Role { get; set; } = "User";
     public PersonaType Persona { get; set; }
     public string PrimaryGoal { get; set; } = string.Empty;
     public List<string> Interests { get; set; } = [];

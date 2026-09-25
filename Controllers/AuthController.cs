@@ -34,7 +34,7 @@ public class AuthController : ControllerBase
         [Required] public string Password { get; set; } = string.Empty;
     }
 
-    public sealed record AuthResponse(string Token, DateTime ExpiresAtUtc, string UserId, string UserName);
+    public sealed record AuthResponse(string Token, DateTime ExpiresAtUtc, string UserId, string UserName, string Role);
 
     [HttpPost("register")]
     public async Task<IActionResult> RegisterAsync([FromBody] RegisterRequest request)
@@ -64,13 +64,14 @@ public class AuthController : ControllerBase
     {
         var expiresAt = DateTime.UtcNow.AddDays(30);
         return new AuthResponse(
-            Token: BuildToken(result.UserId!, result.UserName ?? string.Empty, expiresAt),
+            Token: BuildToken(result.UserId!, result.UserName ?? string.Empty, result.Role, expiresAt),
             ExpiresAtUtc: expiresAt,
             UserId: result.UserId!,
-            UserName: result.UserName ?? string.Empty);
+            UserName: result.UserName ?? string.Empty,
+            Role: result.Role);
     }
 
-    private string BuildToken(string userId, string userName, DateTime expiresAt)
+    private string BuildToken(string userId, string userName, string role, DateTime expiresAt)
     {
         var issuer   = _config["Auth:Jwt:Issuer"]   ?? "Radar";
         var audience = _config["Auth:Jwt:Audience"] ?? "Radar";
@@ -81,7 +82,8 @@ public class AuthController : ControllerBase
             new(JwtRegisteredClaimNames.Sub, userId),
             new(ClaimTypes.NameIdentifier, userId),
             new(JwtRegisteredClaimNames.UniqueName, userName),
-            new(ClaimTypes.Name, userName)
+            new(ClaimTypes.Name, userName),
+            new(ClaimTypes.Role, role)
         };
 
         var token = new JwtSecurityToken(

@@ -9,8 +9,13 @@ namespace RadarV2.Services;
 public class AuthService : IAuthService
 {
     private readonly RadarDatabase _db;
+    private readonly IConfiguration _config;
 
-    public AuthService(RadarDatabase db) => _db = db;
+    public AuthService(RadarDatabase db, IConfiguration config)
+    {
+        _db = db;
+        _config = config;
+    }
 
     public async Task<AuthResult> RegisterAsync(string name, string email, string password)
     {
@@ -23,6 +28,7 @@ public class AuthService : IAuthService
 
         var profileId = Guid.NewGuid().ToString();
         var userId = Guid.NewGuid().ToString();
+        var role = ResolveRole(email);
 
         var user = new UserDocument
         {
@@ -30,6 +36,7 @@ public class AuthService : IAuthService
             Email = email.ToLowerInvariant(),
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(password),
             ProfileId = profileId,
+            Role = role,
             CreatedAt = DateTime.UtcNow
         };
 
@@ -38,13 +45,14 @@ public class AuthService : IAuthService
             Id = profileId,
             Name = name,
             Email = email.ToLowerInvariant(),
+            Role = role,
             CreatedAt = DateTime.UtcNow
         };
 
         await _db.Users.InsertOneAsync(user);
         await _db.Profiles.InsertOneAsync(profile);
 
-        return new AuthResult { Success = true, UserId = userId, UserName = name };
+        return new AuthResult { Success = true, UserId = userId, UserName = name, Role = role };
     }
 
     public async Task<AuthResult> LoginAsync(string email, string password)
@@ -60,11 +68,31 @@ public class AuthService : IAuthService
             .Find(p => p.Id == user.ProfileId)
             .FirstOrDefaultAsync();
 
+        var role = ResolveRole(email, user.Role);
+        if (profile is not null && profile.Role != role)
+        {
+            profile.Role = role;
+            await _db.Profiles.ReplaceOneAsync(p => p.Id == profile.Id, profile);
+        }
+
         return new AuthResult
         {
             Success = true,
             UserId = user.Id,
-            UserName = profile?.Name ?? email
+            UserName = profile?.Name ?? email,
+            Role = role
         };
+    }
+
+    private string ResolveRole(string email, string existingRole = "User")
+    {
+        var normalized = email.Trim().ToLowerInvariant();
+        var superAdmins = _config.GetSection("Auth:SuperAdminEmails").Get<string[]>() ?? [];
+        if (superAdmins.Any(x => x.Equals(normalized, StringComparison.OrdinalIgnoreCase))) return "SuperAdmin";
+
+        var admins = _config.GetSection("Auth:AdminEmails").Get<string[]>() ?? [];
+        if (admins.Any(x => x.Equals(normalized, StringComparison.OrdinalIgnoreCase))) return "PlatformAdmin";
+
+        return existingRole is "SuperAdmin" or "PlatformAdmin" ? existingRole : "User";
     }
 }
