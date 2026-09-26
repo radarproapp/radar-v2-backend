@@ -60,6 +60,20 @@ public class AuthController : ControllerBase
         return Ok(CreateResponse(result));
     }
 
+    [HttpPost("~/api/admin/auth/login")]
+    public async Task<IActionResult> AdminLoginAsync([FromBody] LoginRequest request)
+    {
+        if (!ModelState.IsValid) return ValidationProblem();
+
+        // Use the same credential and role resolution path as regular login,
+        // but never issue an admin token for a non-admin result.
+        var result = await _auth.LoginAsync(request.Email.Trim(), request.Password);
+        if (!result.Success || result.Role is not ("PlatformAdmin" or "SuperAdmin"))
+            return Unauthorized(new { error = "Invalid email or password." });
+
+        return Ok(CreateResponse(result));
+    }
+
     private AuthResponse CreateResponse(AuthResult result)
     {
         var expiresAt = DateTime.UtcNow.AddDays(30);
