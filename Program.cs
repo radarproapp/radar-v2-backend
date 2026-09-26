@@ -86,11 +86,24 @@ builder.Services.AddAuthorization();
 // later is an env var change, not a code change + redeploy.
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
     ?? ["http://localhost:5173", "http://127.0.0.1:5173"];
+var configuredOrigins = allowedOrigins.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+static bool IsHostedSpaOrigin(string origin, ISet<string> configuredOrigins)
+{
+    if (configuredOrigins.Contains(origin)) return true;
+    if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
+        return false;
+
+    // Vercel creates a different HTTPS hostname for preview and production
+    // deployments. Both need to reach the API during frontend deployments.
+    return uri.Host.EndsWith(".vercel.app", StringComparison.OrdinalIgnoreCase)
+        || uri.Host.EndsWith(".netlify.app", StringComparison.OrdinalIgnoreCase);
+}
 
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("Spa", policy => policy
-        .WithOrigins(allowedOrigins)
+        .SetIsOriginAllowed(origin => IsHostedSpaOrigin(origin, configuredOrigins))
         .AllowAnyHeader()
         .AllowAnyMethod());
 });
