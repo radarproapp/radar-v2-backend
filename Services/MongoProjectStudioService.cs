@@ -52,6 +52,21 @@ public class MongoProjectStudioService : IProjectStudioService
         return project;
     }
 
+    public async Task<StudioProject> CreateProjectAsync(string userId, string title, string description, string category)
+    {
+        var project = new StudioProject
+        {
+            TemplateId = $"custom:{category.ToLowerInvariant().Replace(' ', '-')}",
+            Title = title.Trim(),
+            Description = description.Trim(),
+            UserId = userId,
+            CreatedAt = DateTime.UtcNow,
+        };
+
+        await _db.UserProjects.InsertOneAsync(project);
+        return project;
+    }
+
     public async Task CompleteProjectAsync(string userId, string projectId)
     {
         var project = await _db.UserProjects

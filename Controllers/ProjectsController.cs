@@ -41,6 +41,24 @@ public class ProjectsController : ControllerBase
         return Ok(project);
     }
 
+    public sealed class CreateProjectRequest
+    {
+        [Required, MinLength(2), MaxLength(160)] public string Title { get; set; } = string.Empty;
+        [Required, MinLength(2), MaxLength(4000)] public string Description { get; set; } = string.Empty;
+        [Required, MinLength(2), MaxLength(80)] public string Category { get; set; } = string.Empty;
+    }
+
+    [HttpPost]
+    public async Task<IActionResult> CreateProjectAsync([FromBody] CreateProjectRequest request)
+    {
+        if (!ModelState.IsValid) return ValidationProblem();
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        var project = await _projects.CreateProjectAsync(profile.Id, request.Title, request.Description, request.Category);
+        return CreatedAtAction(nameof(GetUserProjectsAsync), new { id = project.Id }, project);
+    }
+
     [HttpPost("{projectId}/complete")]
     public async Task<IActionResult> CompleteProjectAsync(string projectId)
     {
