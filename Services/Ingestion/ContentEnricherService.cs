@@ -4,6 +4,7 @@ using MongoDB.Driver;
 using RadarV2.Data;
 using RadarV2.Data.Documents;
 using RadarV2.Models;
+using RadarV2.Services.Interfaces;
 
 namespace RadarV2.Services.Ingestion;
 
@@ -13,17 +14,20 @@ public class ContentEnricherService
     private readonly IConfiguration     _config;
     private readonly RadarDatabase      _db;
     private readonly ILogger<ContentEnricherService> _log;
+    private readonly IAiEngine _ai;
 
     public ContentEnricherService(
         IHttpClientFactory httpFactory,
         IConfiguration config,
         RadarDatabase db,
-        ILogger<ContentEnricherService> log)
+        ILogger<ContentEnricherService> log,
+        IAiEngine ai)
     {
         _httpFactory = httpFactory;
         _config      = config;
         _db          = db;
         _log         = log;
+        _ai          = ai;
     }
 
     public async Task<ContentItem> EnrichAsync(RawFeedItem raw, CancellationToken ct)
@@ -46,11 +50,13 @@ public class ContentEnricherService
 
         try
         {
-            var prompt = BuildPrompt(raw);
-            var (result, usage) = await CallOpenRouterAsync(prompt, ct);
+            var result = await _ai.GenerateJsonAsync<EnrichmentResult>(
+                "content-enrichment",
+                "You are Radar's content intelligence engine. Return only valid JSON matching the requested schema. Choose a precise primary topic and up to four secondary topics from Finance, Law, Climate, Technology, Business, Policy, Education, Science, Health, Agriculture, Energy, Career, Arts, Sports, or Society. Tags must describe the actual subject, not merely a keyword in the source.",
+                BuildPrompt(raw),
+                ct);
             if (result != null) ApplyEnrichment(item, result);
             item.IsEnriched = result != null;
-            if (usage.HasValue) await RecordUsageAsync(usage.Value, ct);
         }
         catch (Exception ex)
         {
@@ -71,25 +77,6 @@ public class ContentEnricherService
         return doc is null || doc.SpendUsd < cap;
     }
 
-    private async Task RecordUsageAsync((long InputTokens, long OutputTokens) usage, CancellationToken ct)
-    {
-        var month = DateTime.UtcNow.ToString("yyyy-MM");
-        var id    = $"openrouter:{month}";
-        // DeepSeek pricing (approximate, update if changed): $0.27/M input, $1.10/M output
-        var spend = (usage.InputTokens / 1_000_000m * 0.27m) + (usage.OutputTokens / 1_000_000m * 1.10m);
-        var filter = Builders<IngestionQuotaDoc>.Filter.Eq(q => q.Id, id);
-        var update = Builders<IngestionQuotaDoc>.Update
-            .SetOnInsert(q => q.Service, "openrouter")
-            .SetOnInsert(q => q.Month, month)
-            .Inc(q => q.RequestCount, 1)
-            .Inc(q => q.TotalInputTokens,  usage.InputTokens)
-            .Inc(q => q.TotalOutputTokens, usage.OutputTokens)
-            .Inc(q => q.SpendUsd, spend)
-            .Set(q => q.UpdatedAt, DateTime.UtcNow);
-        await _db.IngestionQuotas.UpdateOneAsync(filter, update,
-            new UpdateOptions { IsUpsert = true }, ct);
-    }
-
     // ── Base item from raw feed ───────────────────────────────────────────────
 
     private static ContentItem BuildBaseItem(RawFeedItem raw) => new()
@@ -103,6 +90,13 @@ public class ContentEnricherService
         UrlHash           = raw.UrlHash,
         IngestionSourceId = raw.SourceId,
         CredibilityTier   = raw.Tier,
+        // The source registry curates a topic set per feed (e.g. Premium Times → Africa, Nigeria,
+        // Governance, Legal). Persist it as the item's topic set instead of discarding it: without
+        // this, an item's only visible category is its coarse source Layer ("Law"), which is why
+        // general-interest pieces were shown under the wrong heading. The first curated topic is the
+        // primary; the rest become secondary topics so the UI can render "Climate · Finance · Policy".
+        Topic             = raw.Topics.FirstOrDefault() ?? string.Empty,
+        SecondaryTopics   = raw.Topics.Skip(1).ToList(),
         Tags              = raw.Topics,
         PublishedAt       = raw.PublishedAt,
         AiSummary         = raw.Description,
@@ -277,88 +271,6 @@ public class ContentEnricherService
         }
         """;
 
-    // ── OpenRouter call ───────────────────────────────────────────────────────
-
-    private async Task<(EnrichmentResult? Result, (long Input, long Output)? Usage)> CallOpenRouterAsync(string prompt, CancellationToken ct)
-    {
-        var body = JsonSerializer.Serialize(new
-        {
-            model           = _config["OpenRouter:Model"] ?? "deepseek/deepseek-chat",
-            messages        = new[] { new { role = "user", content = prompt } },
-            response_format = new { type = "json_object" },
-            temperature     = 0.3
-        });
-
-        var client = _httpFactory.CreateClient("OpenRouter");
-        var request = new HttpRequestMessage(HttpMethod.Post, "/chat/completions")
-        {
-            Content = new StringContent(body, Encoding.UTF8, "application/json")
-        };
-
-        using var response = await client.SendAsync(request, ct);
-        if (!response.IsSuccessStatusCode) return (null, null);
-
-        var json = await response.Content.ReadAsStringAsync(ct);
-        using var doc = JsonDocument.Parse(json);
-
-        var content = doc.RootElement
-            .GetProperty("choices")[0]
-            .GetProperty("message")
-            .GetProperty("content")
-            .GetString();
-
-        // Extract token usage for spend tracking
-        (long Input, long Output)? usage = null;
-        if (doc.RootElement.TryGetProperty("usage", out var u))
-        {
-            var input  = u.TryGetProperty("prompt_tokens",     out var pt) ? pt.GetInt64() : 0L;
-            var output = u.TryGetProperty("completion_tokens", out var ct2) ? ct2.GetInt64() : 0L;
-            usage = (input, output);
-        }
-
-        if (string.IsNullOrWhiteSpace(content)) return (null, usage);
-
-        // Strip markdown code fences if model wraps output
-        content = content.Trim();
-        if (content.StartsWith("```")) content = content.Split('\n', 2)[1];
-        if (content.EndsWith("```")) content = content[..content.LastIndexOf("```")];
-
-        using var result = JsonDocument.Parse(content.Trim());
-        return (ParseEnrichmentResult(result.RootElement), usage);
-    }
-
-    private static EnrichmentResult ParseEnrichmentResult(JsonElement el)
-    {
-        static string Str(JsonElement e, string key) =>
-            e.TryGetProperty(key, out var v) ? v.GetString() ?? string.Empty : string.Empty;
-
-        static List<string> Arr(JsonElement e, string key)
-        {
-            if (!e.TryGetProperty(key, out var v) || v.ValueKind != JsonValueKind.Array) return [];
-            return v.EnumerateArray().Select(i => i.GetString() ?? string.Empty).Where(s => s.Length > 0).ToList();
-        }
-
-        static Dictionary<string, string> Dict(JsonElement e, string key)
-        {
-            if (!e.TryGetProperty(key, out var v) || v.ValueKind != JsonValueKind.Object) return [];
-            return v.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.GetString() ?? string.Empty);
-        }
-
-        return new EnrichmentResult
-        {
-            Signal             = Str(el, "signal"),
-            WhatHappened       = Str(el, "whatHappened"),
-            WhyItMatters       = Str(el, "whyItMatters"),
-            KeyInsights        = Arr(el, "keyInsights"),
-            PersonaImpact      = Dict(el, "personaImpact"),
-            Opportunities      = Arr(el, "opportunities"),
-            RecommendedActions = Arr(el, "recommendedActions"),
-            Tags               = Arr(el, "tags"),
-            WhoShouldListen    = Str(el, "whoShouldListen"),
-            KeyLessons         = Arr(el, "keyLessons"),
-        };
-    }
-
     private static void ApplyEnrichment(ContentItem item, EnrichmentResult r)
     {
         if (!string.IsNullOrWhiteSpace(r.Signal))             item.Signal             = r.Signal;
@@ -368,7 +280,13 @@ public class ContentEnricherService
         if (r.PersonaImpact.Count > 0)                        item.PersonaImpact      = r.PersonaImpact;
         if (r.Opportunities.Count > 0)                        item.Opportunities      = r.Opportunities;
         if (r.RecommendedActions.Count > 0)                   item.RecommendedActions = r.RecommendedActions;
-        if (r.Tags.Count > 0)                                 item.Tags               = r.Tags;
+        if (r.Tags.Count > 0)
+        {
+            item.Tags = r.Tags.Distinct(StringComparer.OrdinalIgnoreCase).Take(5).ToList();
+            item.Topic = item.Tags[0];
+            item.SecondaryTopics = item.Tags.Skip(1).ToList();
+            item.ClassificationConfidence = .8;
+        }
         // Podcast-specific
         if (!string.IsNullOrWhiteSpace(r.WhoShouldListen))    item.WhoShouldListen    = r.WhoShouldListen;
         if (r.KeyLessons.Count > 0)                           item.KeyLessons         = r.KeyLessons;

@@ -26,11 +26,75 @@ public class ContentIngestionService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
         _log.LogInformation("Content ingestion service started.");
+        await BackfillTopicsAsync(ct);
         await RunCycleAsync(ct);
 
         using var timer = new PeriodicTimer(RssInterval);
         while (!ct.IsCancellationRequested && await timer.WaitForNextTickAsync(ct))
             await RunCycleAsync(ct);
+    }
+
+    // ── One-time topic backfill ───────────────────────────────────────────────
+
+    /// <summary>
+    /// Items ingested before topics were persisted onto the item carry an empty Topic and only
+    /// their coarse source Layer (e.g. "Law"). Because re-ingestion dedupes on UrlHash, they would
+    /// never be repaired by the normal pipeline. This walks existing items with an empty Topic and
+    /// stamps the curated topic set of their ingestion source onto them, in one bulk update per
+    /// source. It is idempotent: once an item has a Topic it is never matched again.
+    /// </summary>
+    private async Task BackfillTopicsAsync(CancellationToken ct)
+    {
+        try
+        {
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<RadarDatabase>();
+
+            var sourcesById = SourceRegistry.All
+                .Where(s => s.Topics.Count > 0)
+                .ToDictionary(s => s.Id, s => s.Topics, StringComparer.OrdinalIgnoreCase);
+            if (sourcesById.Count == 0) return;
+
+            var untagged = Builders<ContentItem>.Filter.Or(
+                Builders<ContentItem>.Filter.Eq(c => c.Topic, string.Empty),
+                Builders<ContentItem>.Filter.Eq(c => c.Topic, null));
+
+            var pending = await db.ContentItems
+                .Find(untagged)
+                .Project(c => new { c.IngestionSourceId })
+                .ToListAsync(ct);
+
+            var sourceIds = pending
+                .Select(p => p.IngestionSourceId)
+                .OfType<string>()
+                .Where(id => sourcesById.ContainsKey(id))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (sourceIds.Count == 0) return;
+
+            long updated = 0;
+            foreach (var sourceId in sourceIds)
+            {
+                var topics = sourcesById[sourceId];
+                var filter = Builders<ContentItem>.Filter.And(
+                    untagged,
+                    Builders<ContentItem>.Filter.Eq(c => c.IngestionSourceId, sourceId));
+                var update = Builders<ContentItem>.Update
+                    .Set(c => c.Topic, topics[0])
+                    .Set(c => c.SecondaryTopics, topics.Skip(1).ToList());
+
+                var result = await db.ContentItems.UpdateManyAsync(filter, update, cancellationToken: ct);
+                updated += result.ModifiedCount;
+            }
+
+            if (updated > 0)
+                _log.LogInformation("Topic backfill: stamped curated topics onto {Count} item(s) across {Sources} source(s).", updated, sourceIds.Count);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            _log.LogWarning("Topic backfill failed (non-fatal): {Message}", ex.Message);
+        }
     }
 
     private async Task RunCycleAsync(CancellationToken ct)

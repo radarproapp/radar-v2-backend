@@ -14,17 +14,20 @@ public class OpenRouterAskRadarService : IAskRadarService
     private readonly IConfiguration _config;
     private readonly RadarDatabase _db;
     private readonly IUserSessionService _session;
+    private readonly IAiEngine _ai;
 
     public OpenRouterAskRadarService(
         IHttpClientFactory httpFactory,
         IConfiguration config,
         RadarDatabase db,
-        IUserSessionService session)
+        IUserSessionService session,
+        IAiEngine ai)
     {
         _httpFactory = httpFactory;
         _config = config;
         _db = db;
         _session = session;
+        _ai = ai;
     }
 
     public async Task<ChatMessage> SendMessageAsync(string userId, string message, List<ChatMessage> history)
@@ -43,71 +46,10 @@ public class OpenRouterAskRadarService : IAskRadarService
         [EnumeratorCancellation] CancellationToken ct = default)
     {
         var profile = await GetProfileAsync(userId);
-        var systemPrompt = BuildSystemPrompt(profile);
-
-        var messages = new List<object> { new { role = "system", content = systemPrompt } };
-        foreach (var h in history)
-            messages.Add(new { role = h.Role, content = h.Content });
-        messages.Add(new { role = "user", content = message });
-
-        var body = JsonSerializer.Serialize(new
-        {
-            model = _config["OpenRouter:Model"] ?? "deepseek/deepseek-chat",
-            messages,
-            stream = true
-        });
-
-        var client = _httpFactory.CreateClient("OpenRouter");
-        var request = new HttpRequestMessage(HttpMethod.Post, "/chat/completions")
-        {
-            Content = new StringContent(body, Encoding.UTF8, "application/json")
-        };
-
-        HttpResponseMessage? response = null;
-        string? connectionError = null;
-        try
-        {
-            response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-            response.EnsureSuccessStatusCode();
-        }
-        catch
-        {
-            connectionError = "I'm having trouble connecting right now. Please try again in a moment.";
-        }
-
-        if (connectionError != null)
-        {
-            yield return connectionError;
-            yield break;
-        }
-
-        await using var stream = await response!.Content.ReadAsStreamAsync(ct);
-        using var reader = new StreamReader(stream);
-
-        while (!ct.IsCancellationRequested)
-        {
-            var line = await reader.ReadLineAsync(ct);
-            if (line == null) break;
-            if (string.IsNullOrWhiteSpace(line) || !line.StartsWith("data: ")) continue;
-
-            var data = line["data: ".Length..];
-            if (data == "[DONE]") break;
-
-            string? chunk = null;
-            try
-            {
-                using var doc = JsonDocument.Parse(data);
-                chunk = doc.RootElement
-                    .GetProperty("choices")[0]
-                    .GetProperty("delta")
-                    .GetProperty("content")
-                    .GetString();
-            }
-            catch { }
-
-            if (!string.IsNullOrEmpty(chunk))
-                yield return chunk;
-        }
+        var messages = history.TakeLast(20).ToList();
+        messages.Add(new ChatMessage { Role = "user", Content = message });
+        await foreach (var chunk in _ai.StreamChatAsync("ask-radar", BuildSystemPrompt(profile), messages, ct))
+            yield return chunk;
     }
 
     public async Task<string> SummarizeContentAsync(string contentItemId)
@@ -156,13 +98,14 @@ public class OpenRouterAskRadarService : IAskRadarService
             - Persona: {profile.Persona}
             - Primary goal: {profile.PrimaryGoal}
             - Interests: {string.Join(", ", profile.Interests)}
+            - Interest context: {string.Join("; ", InterestPersonalization.Contexts(profile).Select(c => $"{c.Interest}: {c.Level}, goal={c.Goal}, focus={c.Lens}"))}
             - Region: {profile.City}, {profile.Region}
 
             Your role: help them learn efficiently, surface relevant opportunities, and take concrete next steps toward their goal.
 
             Guidelines:
             - Be concise, specific, and actionable
-            - Reference their goal and interests when recommending resources
+            - Reference the relevant interest context, level, goal and focus when recommending resources
             - Use markdown for structure when helpful
             - Never give generic advice — always tie it to their situation
             """;

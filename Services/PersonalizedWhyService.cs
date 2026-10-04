@@ -23,22 +23,26 @@ public class PersonalizedWhyService : IPersonalizedWhyService
     private readonly IConfiguration _config;
     private readonly RadarDatabase _db;
     private readonly ILogger<PersonalizedWhyService> _log;
+    private readonly IAiEngine _ai;
 
     public PersonalizedWhyService(
         IHttpClientFactory httpFactory,
         IConfiguration config,
         RadarDatabase db,
-        ILogger<PersonalizedWhyService> log)
+        ILogger<PersonalizedWhyService> log,
+        IAiEngine ai)
     {
         _httpFactory = httpFactory;
         _config = config;
         _db = db;
         _log = log;
+        _ai = ai;
     }
 
     public async Task<UserContentWhy?> GetOrGenerateAsync(UserProfile profile, ContentItem item, CancellationToken ct = default)
     {
         var personaSnapshot = profile.Persona.ToString();
+        var interestContextSnapshot = string.Join("|", InterestPersonalization.Contexts(profile).Select(c => $"{c.Interest}:{c.Goal}:{c.Level}:{c.Lens}"));
         var existing = await _db.UserContentWhys
             .Find(w => w.UserId == profile.Id && w.ContentItemId == item.Id)
             .FirstOrDefaultAsync(ct);
@@ -46,7 +50,8 @@ public class PersonalizedWhyService : IPersonalizedWhyService
         if (existing is not null
             && existing.IsGenerated
             && existing.GoalSnapshot == profile.PrimaryGoal
-            && existing.PersonaSnapshot == personaSnapshot)
+            && existing.PersonaSnapshot == personaSnapshot
+            && existing.InterestContextSnapshot == interestContextSnapshot)
         {
             return existing;
         }
@@ -62,6 +67,7 @@ public class PersonalizedWhyService : IPersonalizedWhyService
             WhyText = generated,
             GoalSnapshot = profile.PrimaryGoal,
             PersonaSnapshot = personaSnapshot,
+            InterestContextSnapshot = interestContextSnapshot,
             GeneratedAt = DateTime.UtcNow,
             IsGenerated = true,
             IsHelpful = existing?.IsHelpful,
@@ -115,75 +121,29 @@ public class PersonalizedWhyService : IPersonalizedWhyService
 
     private async Task<string?> GenerateAsync(UserProfile profile, ContentItem item, CancellationToken ct)
     {
-        var apiKey = _config["OpenRouter:ApiKey"];
-        if (string.IsNullOrWhiteSpace(apiKey))
-        {
-            _log.LogDebug("OpenRouter API key not set — skipping personalized why for user {UserId}", profile.Id);
-            return null;
-        }
-
-        if (!await IsWithinSpendCapAsync(ct))
-        {
-            _log.LogWarning("Personalized-why spend cap reached — skipping for user {UserId}", profile.Id);
-            return null;
-        }
-
-        try
-        {
-            var prompt = BuildPrompt(profile, item);
-            var body = JsonSerializer.Serialize(new
-            {
-                model = _config["OpenRouter:Model"] ?? "deepseek/deepseek-chat",
-                messages = new[] { new { role = "user", content = prompt } },
-                response_format = new { type = "json_object" },
-                temperature = 0.4,
-            });
-
-            var client = _httpFactory.CreateClient("OpenRouter");
-            var request = new HttpRequestMessage(HttpMethod.Post, "/chat/completions")
-            {
-                Content = new StringContent(body, Encoding.UTF8, "application/json"),
-            };
-
-            using var response = await client.SendAsync(request, ct);
-            if (!response.IsSuccessStatusCode) return null;
-
-            var json = await response.Content.ReadAsStringAsync(ct);
-            using var doc = JsonDocument.Parse(json);
-
-            var content = doc.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString();
-
-            if (doc.RootElement.TryGetProperty("usage", out var u))
-            {
-                var input = u.TryGetProperty("prompt_tokens", out var pt) ? pt.GetInt64() : 0L;
-                var output = u.TryGetProperty("completion_tokens", out var ct2) ? ct2.GetInt64() : 0L;
-                await RecordUsageAsync(input, output, ct);
-            }
-
-            if (string.IsNullOrWhiteSpace(content)) return null;
-
-            content = content.Trim();
-            if (content.StartsWith("```")) content = content.Split('\n', 2)[1];
-            if (content.EndsWith("```")) content = content[..content.LastIndexOf("```")];
-
-            using var result = JsonDocument.Parse(content.Trim());
-            var why = result.RootElement.TryGetProperty("why", out var w) ? w.GetString() : null;
-            return string.IsNullOrWhiteSpace(why) ? null : why.Trim();
-        }
-        catch (Exception ex)
-        {
-            _log.LogWarning("Personalized-why generation failed for user {UserId}: {Message}", profile.Id, ex.Message);
-            return null;
-        }
+        var result = await _ai.GenerateJsonAsync<WhyResponse>(
+            "personalized-why",
+            "You explain why content matters to one person. Return strict JSON with one string field named why.",
+            BuildPrompt(profile, item),
+            ct);
+        return string.IsNullOrWhiteSpace(result?.Why) ? null : result.Why.Trim();
     }
+
+    private sealed class WhyResponse { public string Why { get; set; } = string.Empty; }
 
     private static string BuildPrompt(UserProfile profile, ContentItem item) => $"""
         You write ONE short sentence (max 220 characters) explaining why a piece of content
         matters to a specific person. Reference their actual situation — do not use filler
-        phrases like "this is important" or "you should know this".
+        phrases like "this is important" or "you should know this". Mention the user's goal,
+        active path, level, skills or industry when genuinely relevant. Never describe why it
+        matters to a generic audience.
 
         Person: {profile.Persona} based in {profile.City}, {profile.Region}. Their stated goal:
         "{profile.PrimaryGoal}".
+        Their active interest path is {InterestPathService.Build(profile).FirstOrDefault(p => p.IsPrimary)?.Title ?? profile.PrimaryGoal}, with context:
+        {string.Join("; ", InterestPersonalization.Contexts(profile).Select(c => $"{c.Interest} ({c.Level}; focus: {c.Lens})"))}.
+        Their profile details are: {string.Join(", ", profile.PersonaDetails.Select(pair => $"{pair.Key}: {pair.Value}"))}.
+        Their current learning activity includes {profile.Stats.LessonsCompleted} completed lessons, {profile.Stats.ArticlesRead} articles and {profile.Stats.ProjectsCompleted} projects.
 
         Content: "{item.Title}"
         What happened: {item.WhatHappened}

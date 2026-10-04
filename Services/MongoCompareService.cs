@@ -15,12 +15,14 @@ public class MongoCompareService : ICompareService
     private readonly RadarDatabase _db;
     private readonly IHttpClientFactory _httpFactory;
     private readonly IConfiguration _config;
+    private readonly IAiEngine _ai;
 
-    public MongoCompareService(RadarDatabase db, IHttpClientFactory httpFactory, IConfiguration config)
+    public MongoCompareService(RadarDatabase db, IHttpClientFactory httpFactory, IConfiguration config, IAiEngine ai)
     {
         _db = db;
         _httpFactory = httpFactory;
         _config = config;
+        _ai = ai;
     }
 
     public async Task<PolicyComparison?> GetComparisonAsync(string comparisonId)
@@ -96,40 +98,6 @@ public class MongoCompareService : ICompareService
 
     private async Task<string> CallLlmAsync(string prompt)
     {
-        try
-        {
-            var body = JsonSerializer.Serialize(new
-            {
-                model = _config["OpenRouter:Model"] ?? "deepseek/deepseek-chat",
-                messages = new object[]
-                {
-                    new { role = "system", content = "You are a policy analyst. Return only valid JSON, no markdown." },
-                    new { role = "user", content = prompt }
-                },
-                stream = false
-            });
-
-            var client = _httpFactory.CreateClient("OpenRouter");
-            var request = new HttpRequestMessage(HttpMethod.Post, "/chat/completions")
-            {
-                Content = new StringContent(body, Encoding.UTF8, "application/json")
-            };
-
-            var response = await client.SendAsync(request);
-            response.EnsureSuccessStatusCode();
-
-            var json = await response.Content.ReadAsStringAsync();
-            using var doc = JsonDocument.Parse(json);
-
-            return doc.RootElement
-                .GetProperty("choices")[0]
-                .GetProperty("message")
-                .GetProperty("content")
-                .GetString() ?? "{}";
-        }
-        catch
-        {
-            return "{}";
-        }
+        return await _ai.GenerateTextAsync("policy-comparison", "You are Radar's policy analyst. Return only valid JSON, with no markdown code fences.", prompt) ?? "{}";
     }
 }

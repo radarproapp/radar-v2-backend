@@ -43,6 +43,7 @@ public class RadarDatabase
     public IMongoCollection<AnalyticsEvent> AnalyticsEvents => _db.GetCollection<AnalyticsEvent>("analytics_events");
     public IMongoCollection<UserContentWhy> UserContentWhys => _db.GetCollection<UserContentWhy>("user_content_why");
     public IMongoCollection<ContentReport> ContentReports => _db.GetCollection<ContentReport>("content_reports");
+    public IMongoCollection<BehavioralSignal> BehavioralSignals => _db.GetCollection<BehavioralSignal>("behavioral_signals");
 
     private void EnsureIndexes()
     {
@@ -65,6 +66,15 @@ public class RadarDatabase
                 Builders<ContentItem>.IndexKeys
                     .Ascending(c => c.Layer)
                     .Descending(c => c.PublishedAt)));
+
+        // Serves the feed's keyset sort — (PublishedAt desc, _id desc) — so Mongo can walk the index
+        // in order instead of materialising and sorting the collection in memory. This is what makes
+        // the cursor cheap: the predicate seeks straight to a position rather than skipping N rows.
+        ContentItems.Indexes.CreateOne(
+            new CreateIndexModel<ContentItem>(
+                Builders<ContentItem>.IndexKeys
+                    .Descending(c => c.PublishedAt)
+                    .Descending(c => c.Id)));
 
         SavedItems.Indexes.CreateOne(
             new CreateIndexModel<SavedItemDoc>(
@@ -181,5 +191,19 @@ public class RadarDatabase
         ContentReports.Indexes.CreateOne(
             new CreateIndexModel<ContentReport>(
                 Builders<ContentReport>.IndexKeys.Ascending(r => r.Source)));
+
+        BehavioralSignals.Indexes.CreateOne(
+            new CreateIndexModel<BehavioralSignal>(
+                Builders<BehavioralSignal>.IndexKeys
+                    .Ascending(s => s.UserId)
+                    .Ascending(s => s.Term)
+                    .Ascending(s => s.Source),
+                new CreateIndexOptions { Unique = true }));
+
+        BehavioralSignals.Indexes.CreateOne(
+            new CreateIndexModel<BehavioralSignal>(
+                Builders<BehavioralSignal>.IndexKeys
+                    .Ascending(s => s.UserId)
+                    .Descending(s => s.UpdatedAt)));
     }
 }

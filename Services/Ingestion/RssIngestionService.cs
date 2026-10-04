@@ -66,22 +66,36 @@ public class RssIngestionService
             .Select(item =>
             {
                 var url = item.Element("link")?.Value?.Trim() ?? string.Empty;
+                // Podcast RSS carries the audio file in <enclosure url=…>. Capture it (and the
+                // duration, when present) so the player has something to play; without it a
+                // podcast item is just a headline with no audio.
+                var enclosure = item.Elements("enclosure")
+                                    .FirstOrDefault(e => (e.Attribute("type")?.Value ?? "")
+                                        .StartsWith("audio", StringComparison.OrdinalIgnoreCase))
+                                ?? item.Element("enclosure");
+                var audioUrl  = enclosure?.Attribute("url")?.Value?.Trim();
+                var durRaw    = item.Elements().FirstOrDefault(e => e.Name.LocalName == "duration")
+                                    ?.Value;
+                var duration  = ParseDuration(durRaw);
+
                 return new RawFeedItem
                 {
-                    SourceId      = source.Id,
-                    SourceName    = source.Name,
-                    Layer         = source.Layer,
-                    Tier          = source.Tier,
-                    DefaultType   = source.DefaultContentType,
-                    Topics        = source.Topics,
-                    Title         = item.Element("title")?.Value?.Trim() ?? string.Empty,
-                    Url           = url,
-                    UrlHash       = HashUrl(url),
-                    Description   = StripHtml(item.Element("description")?.Value ?? string.Empty),
-                    PublishedAt   = ParseDate(item.Element("pubDate")?.Value
+                    SourceId        = source.Id,
+                    SourceName      = source.Name,
+                    Layer           = source.Layer,
+                    Tier            = source.Tier,
+                    DefaultType     = source.DefaultContentType,
+                    Topics          = source.Topics,
+                    Title           = item.Element("title")?.Value?.Trim() ?? string.Empty,
+                    Url             = url,
+                    UrlHash         = HashUrl(url),
+                    Description     = StripHtml(item.Element("description")?.Value ?? string.Empty),
+                    PublishedAt     = ParseDate(item.Element("pubDate")?.Value
                                           ?? item.Element(Dc + "date")?.Value),
-                    Author        = item.Element("author")?.Value?.Trim()
-                                 ?? item.Element(Dc + "creator")?.Value?.Trim(),
+                    Author          = item.Element("author")?.Value?.Trim()
+                                   ?? item.Element(Dc + "creator")?.Value?.Trim(),
+                    AudioUrl        = string.IsNullOrWhiteSpace(audioUrl) ? null : audioUrl,
+                    DurationSeconds = duration,
                 };
             })
             .Where(i => !string.IsNullOrWhiteSpace(i.Url))
@@ -193,6 +207,22 @@ public class RssIngestionService
     {
         if (string.IsNullOrWhiteSpace(raw)) return DateTime.UtcNow;
         return DateTime.TryParse(raw, out var d) ? d.ToUniversalTime() : DateTime.UtcNow;
+    }
+
+    // itunes:duration comes as "3721", "62:01" or "1:02:01" depending on the publisher.
+    private static int? ParseDuration(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+        raw = raw.Trim();
+        if (int.TryParse(raw, out var secs)) return secs;
+        var parts = raw.Split(':');
+        if (parts.Length is 2 or 3 && parts.All(p => int.TryParse(p, out _)))
+        {
+            var nums = parts.Select(p => int.Parse(p)).ToArray();
+            return nums.Length == 2 ? nums[0] * 60 + nums[1]
+                                   : nums[0] * 3600 + nums[1] * 60 + nums[2];
+        }
+        return null;
     }
 
     private static string StripHtml(string html)

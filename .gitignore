@@ -14,6 +14,9 @@ publish/
 .DS_Store
 Thumbs.db
 
+# Nested clone of the separate frontend repo (radar-v2-frontend) — never stage it here
+radar-v2-frontend/
+
 # Secrets / local overrides — never commit real credentials
 appsettings.*.local.json
 .env

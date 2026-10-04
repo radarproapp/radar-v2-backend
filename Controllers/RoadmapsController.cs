@@ -39,6 +39,20 @@ public class RoadmapsController : ControllerBase
         return NoContent();
     }
 
+    /// <summary>
+    /// Replaces the user's active roadmap with an AI-built learning pathway tailored to their
+    /// profile and stated level. Falls back to the deterministic template pathway when the AI
+    /// engine is unavailable, so this always returns a usable roadmap.
+    /// </summary>
+    [HttpPost("generate")]
+    public async Task<IActionResult> GenerateAsync()
+    {
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        return Ok(await _roadmaps.CreateAiRoadmapAsync(profile.Id, profile));
+    }
+
     [HttpGet]
     public async Task<IActionResult> GetAllAsync()
     {

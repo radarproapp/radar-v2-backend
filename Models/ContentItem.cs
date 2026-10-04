@@ -15,6 +15,8 @@ public class ContentItem
     public List<string> KeyInsights { get; set; } = [];
     public string WhyItMatters { get; set; } = string.Empty;
     public List<string> Tags { get; set; } = [];
+    public List<string> SecondaryTopics { get; set; } = [];
+    public double ClassificationConfidence { get; set; }
     public DateTime PublishedAt { get; set; }
     public string? EstimatedReadTime { get; set; }
     public string? EstimatedWatchTime { get; set; }
@@ -54,6 +56,11 @@ public class ContentItem
     public Dictionary<string, string> PersonaImpact { get; set; } = [];
     public List<string> Opportunities { get; set; } = [];
     public List<string> RecommendedActions { get; set; } = [];
+    public string? PersonalizedWhy { get; set; }
+    public double RelevanceScore { get; set; }
+    public double RelevanceConfidence { get; set; }
+    public List<string> MatchedSignals { get; set; } = [];
+    public string? NextMove { get; set; }
 }
 
 public class ChapterBreakdown

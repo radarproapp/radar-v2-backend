@@ -1,3 +1,4 @@
+using System.Text;
 using MongoDB.Driver;
 using RadarV2.Data;
 using RadarV2.Models;
@@ -8,8 +9,15 @@ namespace RadarV2.Services;
 public class MongoRoadmapService : IRoadmapService
 {
     private readonly RadarDatabase _db;
+    private readonly IAiEngine _ai;
+    private readonly ILogger<MongoRoadmapService> _log;
 
-    public MongoRoadmapService(RadarDatabase db) => _db = db;
+    public MongoRoadmapService(RadarDatabase db, IAiEngine ai, ILogger<MongoRoadmapService> log)
+    {
+        _db = db;
+        _ai = ai;
+        _log = log;
+    }
 
     public async Task<List<GrowthRoadmap>> GetUserRoadmapsAsync(string userId)
     {
@@ -31,7 +39,22 @@ public class MongoRoadmapService : IRoadmapService
         var profile = await _db.Profiles.Find(p => p.Id == userId).FirstOrDefaultAsync();
         if (profile is null) return null;
 
-        return await CreateRoadmapAsync(userId, profile.PrimaryGoal);
+        var primaryInterests = InterestPathService.ActiveInterests(profile);
+        var context = InterestPersonalization.Contexts(profile).FirstOrDefault(c => primaryInterests.Contains(c.Interest, StringComparer.OrdinalIgnoreCase))
+            ?? InterestPersonalization.Contexts(profile).FirstOrDefault();
+        var path = profile.InterestPaths.FirstOrDefault(p => p.IsPrimary);
+        var roadmapGoal = path is null ? profile.PrimaryGoal : $"{profile.PrimaryGoal} {path.Title}";
+        var createdRoadmap = await CreateRoadmapAsync(userId, roadmapGoal);
+        createdRoadmap.Goal = profile.PrimaryGoal;
+        if (context is not null)
+        {
+            createdRoadmap.Interest = context.Interest;
+            createdRoadmap.Level = context.Level;
+            createdRoadmap.Interest = path?.Title ?? context.Interest;
+            createdRoadmap.Title = $"{createdRoadmap.Interest}: {profile.PrimaryGoal}";
+            await _db.Roadmaps.ReplaceOneAsync(r => r.Id == createdRoadmap.Id, createdRoadmap);
+        }
+        return createdRoadmap;
     }
 
     public async Task<GrowthRoadmap> CreateRoadmapAsync(string userId, string goal)
@@ -43,6 +66,119 @@ public class MongoRoadmapService : IRoadmapService
         var roadmap = BuildFromTemplate(userId, goal);
         await _db.Roadmaps.InsertOneAsync(roadmap);
         return roadmap;
+    }
+
+    public async Task<GrowthRoadmap> CreateAiRoadmapAsync(string userId, UserProfile profile, CancellationToken ct = default)
+    {
+        var context  = InterestPersonalization.Contexts(profile).FirstOrDefault();
+        var path     = profile.InterestPaths.FirstOrDefault(p => p.IsPrimary);
+        var interest = path?.Title ?? context?.Interest ?? profile.Interests.FirstOrDefault() ?? profile.PrimaryGoal;
+        var level    = context?.Level ?? "Beginner";
+
+        var modules = await BuildAiModulesAsync(profile, interest, level, ct);
+
+        var roadmap = modules is { Count: > 0 }
+            ? new GrowthRoadmap
+            {
+                UserId   = userId,
+                Title    = $"{interest}: {profile.PrimaryGoal}",
+                Goal     = profile.PrimaryGoal,
+                Interest = interest,
+                Level    = level,
+                IsActive = true,
+                Modules  = modules,
+            }
+            // Degrade to the deterministic template rather than handing back an empty pathway.
+            : BuildFromTemplate(userId, profile.PrimaryGoal);
+
+        roadmap.Interest = interest;
+        roadmap.Level    = level;
+
+        var deactivate = Builders<GrowthRoadmap>.Update.Set(r => r.IsActive, false);
+        await _db.Roadmaps.UpdateManyAsync(r => r.UserId == userId && r.IsActive, deactivate, cancellationToken: ct);
+        await _db.Roadmaps.InsertOneAsync(roadmap, cancellationToken: ct);
+        return roadmap;
+    }
+
+    /// <summary>
+    /// Asks the shared AI engine for a pathway tailored to this profile. Returns null on any
+    /// failure (no key, budget cap, unparseable JSON) so the caller can fall back to a template.
+    /// </summary>
+    private async Task<List<RoadmapModule>?> BuildAiModulesAsync(UserProfile profile, string interest, string level, CancellationToken ct)
+    {
+        try
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine($"Build a learning pathway for this person on: {interest}");
+            sb.AppendLine();
+            sb.AppendLine("About them:");
+            sb.AppendLine($"persona: {profile.Persona}");
+            sb.AppendLine($"career goal: {profile.PrimaryGoal}");
+            sb.AppendLine($"starting level: {level}");
+            sb.AppendLine($"other interests: {string.Join(", ", profile.Interests.Where(i => !i.Equals(interest, StringComparison.OrdinalIgnoreCase)))}");
+            if (profile.InterestContexts.Count > 0)
+                sb.AppendLine($"their own words: {string.Join("; ", profile.InterestContexts.Select(c => $"{c.Interest} — {c.Goal}"))}");
+            sb.AppendLine($"region: {profile.City}, {profile.Region}");
+            sb.AppendLine();
+            sb.AppendLine("Order the pathway so each step is only attempted once the previous one makes sense.");
+            sb.AppendLine("Lessons must be things the person can actually do alone, and should reference the African context where it genuinely matters.");
+            sb.AppendLine("Never invent facts about them, and do not reference any underlying AI provider or model.");
+            sb.AppendLine("Return strict JSON with exactly this shape:");
+            sb.AppendLine("{ \"modules\": [ { \"title\": \"...\", \"description\": \"why this stage matters\",");
+            sb.AppendLine("  \"lessons\": [ { \"title\": \"...\", \"body\": \"one or two sentences on what to do\", \"estimatedTime\": \"e.g. 25 min\" } ] } ] }");
+            sb.AppendLine("Give 4 to 6 modules with 3 to 5 lessons each.");
+
+            var result = await _ai.GenerateJsonAsync<PathwayResult>(
+                "learning-pathway",
+                "You are Radar's learning architect. You design practical, ordered learning pathways for ambitious young Africans.",
+                sb.ToString(),
+                ct);
+
+            var modules = result?.Modules
+                ?.Where(m => !string.IsNullOrWhiteSpace(m.Title))
+                .Select((m, index) => new RoadmapModule
+                {
+                    Title       = m.Title!,
+                    Description = m.Description ?? string.Empty,
+                    Order       = index + 1,
+                    IsLocked    = index > 0,
+                    Lessons     = (m.Lessons ?? [])
+                        .Where(l => !string.IsNullOrWhiteSpace(l.Title))
+                        .Select((l, lessonIndex) => new RoadmapLesson
+                        {
+                            Title         = l.Title!,
+                            Body          = l.Body ?? string.Empty,
+                            Order         = lessonIndex + 1,
+                            EstimatedTime = l.EstimatedTime ?? string.Empty,
+                        })
+                        .ToList(),
+                })
+                .Where(m => m.Lessons.Count > 0)
+                .ToList();
+
+            return modules is { Count: > 0 } ? modules : null;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _log.LogWarning(ex, "Learning pathway generation failed for user {UserId}", profile.Id);
+            return null;
+        }
+    }
+
+    private sealed class PathwayResult { public List<ModuleResult>? Modules { get; set; } }
+
+    private sealed class ModuleResult
+    {
+        public string? Title { get; set; }
+        public string? Description { get; set; }
+        public List<LessonResult>? Lessons { get; set; }
+    }
+
+    private sealed class LessonResult
+    {
+        public string? Title { get; set; }
+        public string? Body { get; set; }
+        public string? EstimatedTime { get; set; }
     }
 
     public async Task CompleteLessonAsync(string userId, string roadmapId, string moduleId, string lessonId)

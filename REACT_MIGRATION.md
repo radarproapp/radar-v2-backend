@@ -200,11 +200,16 @@ previous:
 pages still run side-by-side behind a flag for comparison.
 
 ### Phase 4 — Cutover & deployment
-- [ ] Retire Blazor UI entry (`MapRazorComponents` → API-only host; delete Razor pages
-  once feature parity confirmed).
+- [x] Retire Blazor UI entry (`MapRazorComponents` → API-only host; Razor pages
+  deleted). ✅ done — `Program.cs` no longer registers Razor/antiforgery, the whole
+  `Components/` tree (48 pages) is gone, and unmatched/error responses return a JSON
+  envelope via `UseStatusCodePages`. Build is 0 warnings / 0 errors; E2E 65/65.
 - [ ] Static hosting for `web/dist` (CDN / Azure Static Web Apps) + API deployment
-  (App Service / Container Apps) + env keys.
-- [ ] Update `Dockerfile`/`AZURE_DEPLOY.md` for the new topology.
+  + env keys. *(Backend deploys on **Railway**; frontend deploys separately —
+  Netlify/Vercel — by explicit decision. The .NET host is API-only and does not serve
+  the SPA bundle. See `RAILWAY_DEPLOY.md`.)*
+- [x] Update `Dockerfile` for the new topology. ✅ `Dockerfile` is API-only and binds
+  `${PORT}` (Railway); `AZURE_DEPLOY.md` was replaced by `RAILWAY_DEPLOY.md`.
 - [ ] E2E pass on every route, auth flows (refresh, expired token, onboarding bounce),
   and the ingestion worker still populating the same Mongo.
 
@@ -314,7 +319,7 @@ JSON snapshots — they are the source of truth.
 - **Per section (Phase 3):** interaction pass — save toggles, filters, debounced
   search, quiz flow, note CRUD.
 - **Cutover (Phase 4):** route-by-route checklist from §7 plus ingestion worker still
-  publishing to the same Mongo, and `AZURE_DEPLOY.md` updated.
+  publishing to the same Mongo, and `RAILWAY_DEPLOY.md` verified against the live host.
 
 ## 10. Immediate next step
 

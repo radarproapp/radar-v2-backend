@@ -1,11 +1,12 @@
 using System.IdentityModel.Tokens.Jwt;
+using System.IO.Compression;
 using System.Security.Claims;
 using System.Text;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.IdentityModel.Tokens;
-using RadarV2.Components;
 using RadarV2.Data;
 using RadarV2.Services;
 using RadarV2.Services.Ingestion;
@@ -13,8 +14,23 @@ using RadarV2.Services.Interfaces;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddRazorComponents()
-    .AddInteractiveServerComponents();
+// Compress text payloads (JSON, HTML, CSS, JS) before they leave the process. On Railway and
+// Azure this also covers the proxy hop, since TLS terminates at their edge and the internal
+// request is plain HTTP — but EnableForHttps is on anyway so a direct HTTPS hit to Kestrel is
+// compressed too. Brotli first: better ratio, and every browser that can reach this app
+// negotiates it; Gzip stays as the fallback.
+//
+// text/event-stream is deliberately absent from the MIME list: buffering an SSE response in order
+// to compress it would destroy chat streaming (see Helpers/SseWriter). ResponseCompression already
+// skips that content type, and the default list does not include it either.
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+    options.Providers.Add<BrotliCompressionProvider>();
+    options.Providers.Add<GzipCompressionProvider>();
+});
+builder.Services.Configure<BrotliCompressionProviderOptions>(options => options.Level = CompressionLevel.Fastest);
+builder.Services.Configure<GzipCompressionProviderOptions>(options => options.Level = CompressionLevel.Fastest);
 
 // ── JSON API (React SPA backend) ────────────────────────────────────────────
 builder.Services.AddControllers()
@@ -58,8 +74,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ClockSkew = TimeSpan.FromMinutes(5)
         };
 
-        // Return clean JSON for failed API auth instead of letting the
-        // Blazor /not-found status page re-execute swallow the response.
+        // Return clean JSON for failed API auth rather than a redirect or HTML.
         options.Events = new JwtBearerEvents
         {
             OnChallenge = async context =>
@@ -79,6 +94,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 
 builder.Services.AddAuthorization();
+builder.Services.AddMemoryCache();
 
 // CORS for the React SPA (separate origin in dev and once deployed).
 // JWT bearer auth means no cookies cross the origin, so no AllowCredentials needed.
@@ -195,6 +211,7 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserProfileService, MongoUserProfileService>();
 builder.Services.AddScoped<IIntelligenceFeedService, MongoIntelligenceFeedService>();
 builder.Services.AddScoped<IAskRadarService, OpenRouterAskRadarService>();
+builder.Services.AddSingleton<IAiEngine, OpenRouterAiEngine>();
 builder.Services.AddScoped<ILibraryService, MongoLibraryService>();
 
 // Remaining stub services (replace as backend expands)
@@ -215,6 +232,9 @@ builder.Services.AddScoped<ILearningMentorService, MongoLearningMentorService>()
 builder.Services.AddScoped<IAnalyticsService, MongoAnalyticsService>();
 builder.Services.AddScoped<IPersonalizedWhyService, PersonalizedWhyService>();
 builder.Services.AddScoped<IContentReportService, MongoContentReportService>();
+builder.Services.AddScoped<IBehavioralSignalService, BehavioralSignalService>();
+builder.Services.AddScoped<AiRelevanceService>();
+builder.Services.AddScoped<AiOpportunityMatchService>();
 
 var app = builder.Build();
 
@@ -226,9 +246,12 @@ var forwardedHeadersOptions = new ForwardedHeadersOptions
 {
     ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
 };
-forwardedHeadersOptions.KnownNetworks.Clear();
+forwardedHeadersOptions.KnownIPNetworks.Clear();
 forwardedHeadersOptions.KnownProxies.Clear();
 app.UseForwardedHeaders(forwardedHeadersOptions);
+
+// Must sit before anything that writes a response body (static assets, controllers, Blazor).
+app.UseResponseCompression();
 
 if (!app.Environment.IsDevelopment())
 {
@@ -242,8 +265,8 @@ app.UseHttpsRedirection();
 app.UseCors("Spa");
 
 // API auth: authenticate the JWT, then seed the scoped user session from the
-// token claims so the existing Blazor-era services (IUserProfileService etc.)
-// resolve the current user exactly as they did per-circuit.
+// token claims so the existing services (IUserProfileService etc.) resolve the
+// current user for the request.
 app.UseAuthentication();
 app.Use(async (context, next) =>
 {
@@ -261,28 +284,28 @@ app.Use(async (context, next) =>
     await next(context);
 });
 app.UseAuthorization();
-app.UseAntiforgery();
 
 app.MapStaticAssets();
 app.MapControllers();
-app.MapRazorComponents<App>()
-    .AddInteractiveServerRenderMode();
 
-// Unmatched /api routes get a JSON 404 (the Blazor status-page re-execute above
-// would otherwise return an HTML page to API clients).
-app.Use(async (context, next) =>
+// The Razor UI has been retired: this host is API-only and the React SPA is
+// deployed separately. Any response that carries an error status but no body
+// (unmatched route, auth failure that didn't already write JSON, etc.) gets a
+// JSON envelope instead of the HTML page a browser would expect.
+app.UseStatusCodePages(async statusCodeContext =>
 {
-    if (context.Request.Path.StartsWithSegments("/api")
-        && context.Response.StatusCode == StatusCodes.Status404NotFound
-        && !context.Response.HasStarted)
+    var response = statusCodeContext.HttpContext.Response;
+    if (response.HasStarted) return;
+
+    response.ContentType = "application/json";
+    var message = response.StatusCode switch
     {
-        context.Response.ContentType = "application/json";
-        await context.Response.WriteAsync("{\"error\":\"Not Found\"}");
-    }
-    else
-    {
-        await next(context);
-    }
+        StatusCodes.Status401Unauthorized => "Unauthorized",
+        StatusCodes.Status403Forbidden    => "Forbidden",
+        StatusCodes.Status404NotFound     => "Not Found",
+        _                                 => "Error"
+    };
+    await response.WriteAsync($"{{\"error\":\"{message}\"}}");
 });
 
 app.Run();

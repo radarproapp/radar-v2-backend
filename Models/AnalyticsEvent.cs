@@ -13,6 +13,12 @@ public enum AnalyticsEventType
     WhyRatedHelpful,
     WhyRatedNotHelpful,
     Reported,
+    MoreLikeThis,
+    LessLikeThis,
+    Search,
+    Read,
+    Complete,
+    Applied,
 }
 
 /// <summary>

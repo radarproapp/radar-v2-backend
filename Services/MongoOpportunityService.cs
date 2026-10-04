@@ -9,10 +9,15 @@ namespace RadarV2.Services;
 public class MongoOpportunityService : IOpportunityService
 {
     private readonly RadarDatabase _db;
+    private readonly AiOpportunityMatchService _aiMatch;
     private static bool _seeded;
     private static readonly SemaphoreSlim _seedLock = new(1, 1);
 
-    public MongoOpportunityService(RadarDatabase db) => _db = db;
+    public MongoOpportunityService(RadarDatabase db, AiOpportunityMatchService aiMatch)
+    {
+        _db = db;
+        _aiMatch = aiMatch;
+    }
 
     public async Task<List<Opportunity>> GetOpportunitiesAsync(
         UserProfile profile, OpportunityType? filterType = null, int page = 1, int pageSize = 20)
@@ -37,10 +42,13 @@ public class MongoOpportunityService : IOpportunityService
         foreach (var opp in all)
         {
             opp.MatchScorePercent = ComputeMatchScore(opp, profile);
+            opp.MatchScorePercent = Math.Min(99, opp.MatchScorePercent + InterestPersonalization.OpportunityScore(opp, profile));
             opp.IsSaved           = savedIds.Contains(opp.Id);
         }
 
-        // Sort by match score descending after personalisation
+        await _aiMatch.ApplyAsync(profile, all);
+
+        // Sort by match score descending after AI personalisation
         all.Sort((a, b) => b.MatchScorePercent.CompareTo(a.MatchScorePercent));
         return all;
     }
@@ -197,7 +205,7 @@ public class MongoOpportunityService : IOpportunityService
             Deadline = DateTime.UtcNow.AddMonths(2),
             Requirements = ["African nationality", "Undergraduate or postgraduate applicant", "Demonstrated financial need", "Academic excellence (top 10% of class)", "Leadership and community involvement"],
             MatchScorePercent = 70,
-            Url = "#",
+            Url = "https://mastercardfdn.org/en/what-we-do/our-programs/mastercard-foundation-scholars-program/",
             IsRemote = false,
             Location = "Various — Partner Universities Worldwide"
         },
@@ -211,7 +219,7 @@ public class MongoOpportunityService : IOpportunityService
             Deadline = DateTime.UtcNow.AddMonths(3),
             Requirements = ["Bachelor's degree", "Under 29 years old", "Evidence of leadership", "English proficiency", "Academic excellence"],
             MatchScorePercent = 65,
-            Url = "#",
+            Url = "https://www.schwarzmanscholars.org/admissions/",
             IsRemote = false,
             Location = "Beijing, China"
         },
@@ -225,7 +233,7 @@ public class MongoOpportunityService : IOpportunityService
             Deadline = DateTime.UtcNow.AddMonths(4),
             Requirements = ["Citizen of a Chevening-eligible country", "2+ years work experience", "Bachelor's degree", "Leadership potential", "Return to home country for 2 years after study"],
             MatchScorePercent = 72,
-            Url = "#",
+            Url = "https://www.chevening.org/apply/",
             IsRemote = false,
             Location = "United Kingdom"
         },
@@ -239,7 +247,7 @@ public class MongoOpportunityService : IOpportunityService
             Deadline = DateTime.UtcNow.AddMonths(1),
             Requirements = ["African nationality", "Early-stage business (0–3 years)", "Registered business or business idea", "Full-time commitment to business"],
             MatchScorePercent = 68,
-            Url = "#",
+            Url = "https://www.tonyelumelufoundation.org/tef-entrepreneurship-programme",
             IsRemote = true,
             Location = "Pan-African (Remote training)"
         },
@@ -253,7 +261,7 @@ public class MongoOpportunityService : IOpportunityService
             Deadline = DateTime.UtcNow.AddMonths(5),
             Requirements = ["African citizen", "Under 30 years old", "Outstanding academic record", "Evidence of community leadership", "South African university postgrad application"],
             MatchScorePercent = 71,
-            Url = "#",
+            Url = "https://www.mandelarhodes.org/scholarship/apply/",
             IsRemote = false,
             Location = "South Africa"
         },
@@ -267,7 +275,7 @@ public class MongoOpportunityService : IOpportunityService
             Deadline = DateTime.UtcNow.AddDays(21),
             Requirements = ["Final-year student or recent graduate", "Degree in Computer Science, Business, or related field", "Strong analytical and problem-solving skills", "Experience with user research or data analysis"],
             MatchScorePercent = 79,
-            Url = "#",
+            Url = "https://www.google.com/about/careers/applications/programs/apm/",
             IsRemote = false,
             Location = "London, UK / Dublin, Ireland"
         },
@@ -281,7 +289,7 @@ public class MongoOpportunityService : IOpportunityService
             Deadline = DateTime.UtcNow.AddMonths(2),
             Requirements = ["Enrolled in graduate program (PhD or Masters)", "Background in machine learning, HCI, or systems", "Research experience or publications preferred", "Strong programming skills"],
             MatchScorePercent = 73,
-            Url = "#",
+            Url = "https://www.microsoft.com/en-us/research/lab/microsoft-research-lab-africa-nairobi/",
             IsRemote = false,
             Location = "Nairobi, Kenya"
         },
@@ -295,7 +303,7 @@ public class MongoOpportunityService : IOpportunityService
             Deadline = DateTime.UtcNow.AddDays(28),
             Requirements = ["Python or R proficiency", "SQL intermediate-advanced", "1+ year experience or strong portfolio", "Experience with dbt or Looker a plus", "Self-directed working style"],
             MatchScorePercent = 77,
-            Url = "#",
+            Url = "https://stripe.com/careers/search",
             IsRemote = true,
             Location = "Remote — EMEA"
         },
@@ -309,7 +317,7 @@ public class MongoOpportunityService : IOpportunityService
             Deadline = DateTime.UtcNow.AddMonths(3),
             Requirements = ["Technical co-founder or strong technical ability", "Working prototype or MVP", "Team of 1–4 founders", "Full-time commitment during batch"],
             MatchScorePercent = 60,
-            Url = "#",
+            Url = "https://www.ycombinator.com/apply",
             IsRemote = false,
             Location = "San Francisco, CA"
         },
@@ -323,7 +331,7 @@ public class MongoOpportunityService : IOpportunityService
             Deadline = DateTime.UtcNow.AddMonths(6),
             Requirements = ["Citizen of a developing country", "Bachelor's degree with above-average results", "2+ years professional experience", "Under 36 years old at time of application", "English or German proficiency"],
             MatchScorePercent = 66,
-            Url = "#",
+            Url = "https://www.daad.de/en/information-services-for-higher-education-institutions/further-information-on-daad-programmes/epos/",
             IsRemote = false,
             Location = "Germany"
         },
@@ -337,7 +345,7 @@ public class MongoOpportunityService : IOpportunityService
             Deadline = DateTime.UtcNow.AddDays(45),
             Requirements = ["Penultimate year undergraduate or postgraduate", "Strong academic record", "Analytical and problem-solving orientation", "Business, Economics, or STEM background preferred"],
             MatchScorePercent = 74,
-            Url = "#",
+            Url = "https://careers.bcg.com/global/en/locations/nigeria",
             IsRemote = false,
             Location = "Lagos, Nigeria"
         },
@@ -351,7 +359,7 @@ public class MongoOpportunityService : IOpportunityService
             Deadline = DateTime.UtcNow.AddMonths(4),
             Requirements = ["Bachelor's degree", "Apply to a Stanford graduate program simultaneously", "Demonstrated leadership impact", "Civic orientation and collaborative mindset"],
             MatchScorePercent = 63,
-            Url = "#",
+            Url = "https://knight-hennessy.stanford.edu/admission",
             IsRemote = false,
             Location = "Stanford, California"
         },

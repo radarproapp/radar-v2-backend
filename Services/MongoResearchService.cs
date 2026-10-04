@@ -15,15 +15,18 @@ public class MongoResearchService : IResearchService
     private readonly OpenAlexClient _openAlex;
     private readonly IHttpClientFactory _httpFactory;
     private readonly IConfiguration _config;
+    private readonly IAiEngine _ai;
 
     public MongoResearchService(
         OpenAlexClient openAlex,
         IHttpClientFactory httpFactory,
-        IConfiguration config)
+        IConfiguration config,
+        IAiEngine ai)
     {
         _openAlex = openAlex;
         _httpFactory = httpFactory;
         _config = config;
+        _ai = ai;
     }
 
     public async Task<List<ContentItem>> SearchPapersAsync(string query, int yearFrom = 0, int page = 1, int pageSize = 20)
@@ -100,40 +103,7 @@ public class MongoResearchService : IResearchService
 
     private async Task<string> CallLlmAsync(string prompt)
     {
-        try
-        {
-            var body = JsonSerializer.Serialize(new
-            {
-                model = _config["OpenRouter:Model"] ?? "deepseek/deepseek-chat",
-                messages = new object[]
-                {
-                    new { role = "system", content = "You are a research assistant. Be clear, concise, and helpful. Use markdown for structure." },
-                    new { role = "user", content = prompt }
-                },
-                stream = false
-            });
-
-            var client = _httpFactory.CreateClient("OpenRouter");
-            var request = new HttpRequestMessage(HttpMethod.Post, "/chat/completions")
-            {
-                Content = new StringContent(body, Encoding.UTF8, "application/json")
-            };
-
-            var response = await client.SendAsync(request);
-            response.EnsureSuccessStatusCode();
-
-            var json = await response.Content.ReadAsStringAsync();
-            using var doc = JsonDocument.Parse(json);
-
-            return doc.RootElement
-                .GetProperty("choices")[0]
-                .GetProperty("message")
-                .GetProperty("content")
-                .GetString() ?? "No response generated.";
-        }
-        catch (Exception ex)
-        {
-            return $"Unable to generate analysis right now. Please try again later. ({ex.Message})";
-        }
+        return await _ai.GenerateTextAsync("research-analysis", "You are Radar's research assistant. Be clear, concise, evidence-aware and helpful. Use markdown for structure.", prompt)
+            ?? "Unable to generate analysis right now. Please try again later.";
     }
 }

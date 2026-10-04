@@ -17,12 +17,14 @@ public class MongoLearningMentorService : ILearningMentorService
     private readonly IHttpClientFactory _httpFactory;
     private readonly IConfiguration _config;
     private readonly RadarDatabase _db;
+    private readonly IAiEngine _ai;
 
-    public MongoLearningMentorService(IHttpClientFactory httpFactory, IConfiguration config, RadarDatabase db)
+    public MongoLearningMentorService(IHttpClientFactory httpFactory, IConfiguration config, RadarDatabase db, IAiEngine ai)
     {
         _httpFactory = httpFactory;
         _config = config;
         _db = db;
+        _ai = ai;
     }
 
     // ── Chat ───────────────────────────────────────────────────────────────
@@ -43,71 +45,10 @@ public class MongoLearningMentorService : ILearningMentorService
         [EnumeratorCancellation] CancellationToken ct = default)
     {
         var profile = await GetProfileAsync(userId);
-        var systemPrompt = BuildSystemPrompt(profile);
-
-        var messages = new List<object> { new { role = "system", content = systemPrompt } };
-        foreach (var h in history.TakeLast(20))
-            messages.Add(new { role = h.Role, content = h.Content });
-        messages.Add(new { role = "user", content = message });
-
-        var body = JsonSerializer.Serialize(new
-        {
-            model = _config["OpenRouter:Model"] ?? "deepseek/deepseek-chat",
-            messages,
-            stream = true
-        });
-
-        var client = _httpFactory.CreateClient("OpenRouter");
-        var request = new HttpRequestMessage(HttpMethod.Post, "/chat/completions")
-        {
-            Content = new StringContent(body, Encoding.UTF8, "application/json")
-        };
-
-        HttpResponseMessage? response = null;
-        string? connectionError = null;
-        try
-        {
-            response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-            response.EnsureSuccessStatusCode();
-        }
-        catch
-        {
-            connectionError = "I'm having trouble connecting right now. Please try again in a moment.";
-        }
-
-        if (connectionError != null)
-        {
-            yield return connectionError;
-            yield break;
-        }
-
-        await using var stream = await response!.Content.ReadAsStreamAsync(ct);
-        using var reader = new StreamReader(stream);
-
-        while (!ct.IsCancellationRequested)
-        {
-            var line = await reader.ReadLineAsync(ct);
-            if (line == null) break;
-            if (string.IsNullOrWhiteSpace(line) || !line.StartsWith("data: ")) continue;
-
-            var data = line["data: ".Length..];
-            if (data == "[DONE]") break;
-
-            string? chunk = null;
-            try
-            {
-                using var doc = JsonDocument.Parse(data);
-                chunk = doc.RootElement
-                    .GetProperty("choices")[0]
-                    .GetProperty("delta")
-                    .GetProperty("content")
-                    .GetString();
-            }
-            catch { }
-
-            if (!string.IsNullOrEmpty(chunk))
-                yield return chunk;
-        }
+        var messages = history.TakeLast(20).ToList();
+        messages.Add(new ChatMessage { Role = "user", Content = message });
+        await foreach (var chunk in _ai.StreamChatAsync("mentor-chat", BuildSystemPrompt(profile), messages, ct))
+            yield return chunk;
     }
 
     // ── Quiz ───────────────────────────────────────────────────────────────
@@ -299,41 +240,7 @@ public class MongoLearningMentorService : ILearningMentorService
 
     private async Task<string> CallLlmAsync(string prompt)
     {
-        try
-        {
-            var body = JsonSerializer.Serialize(new
-            {
-                model = _config["OpenRouter:Model"] ?? "deepseek/deepseek-chat",
-                messages = new object[]
-                {
-                    new { role = "system", content = "You are a learning mentor. Return only valid JSON when requested, no markdown code blocks." },
-                    new { role = "user", content = prompt }
-                },
-                stream = false
-            });
-
-            var client = _httpFactory.CreateClient("OpenRouter");
-            var request = new HttpRequestMessage(HttpMethod.Post, "/chat/completions")
-            {
-                Content = new StringContent(body, Encoding.UTF8, "application/json")
-            };
-
-            var response = await client.SendAsync(request);
-            response.EnsureSuccessStatusCode();
-
-            var json = await response.Content.ReadAsStringAsync();
-            using var doc = JsonDocument.Parse(json);
-
-            return doc.RootElement
-                .GetProperty("choices")[0]
-                .GetProperty("message")
-                .GetProperty("content")
-                .GetString() ?? "{}";
-        }
-        catch
-        {
-            return "{}";
-        }
+        return await _ai.GenerateTextAsync("mentor-generation", "You are Radar's learning mentor. Return only valid JSON when requested, with no markdown code fences.", prompt) ?? "{}";
     }
 
     private async Task<UserProfile?> GetProfileAsync(string userId)

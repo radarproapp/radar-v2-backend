@@ -16,6 +16,7 @@ public class UserContentWhy
     /// <summary>Profile fields the sentence was generated against — used to detect staleness.</summary>
     public string GoalSnapshot { get; set; } = string.Empty;
     public string PersonaSnapshot { get; set; } = string.Empty;
+    public string InterestContextSnapshot { get; set; } = string.Empty;
 
     public DateTime GeneratedAt { get; set; } = DateTime.UtcNow;
     public bool? IsHelpful { get; set; }

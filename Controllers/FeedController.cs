@@ -1,8 +1,10 @@
 using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using RadarV2.Helpers;
 using RadarV2.Models;
 using RadarV2.Services.Interfaces;
+using RadarV2.Services;
 
 namespace RadarV2.Controllers;
 
@@ -31,17 +33,70 @@ public class FeedController : ControllerBase
         _reports = reports;
     }
 
+    /// <summary>
+    /// Fields a caller may request via <c>?fields=</c>. An explicit whitelist rather than reflection:
+    /// it documents the public shape of a feed item, and keeps a client from being able to enumerate
+    /// fields we never meant to expose.
+    /// </summary>
+    private static readonly Dictionary<string, Func<ContentItem, object?>> FeedFieldProjectors = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["id"] = i => i.Id,
+        ["type"] = i => i.Type,
+        ["title"] = i => i.Title,
+        ["signal"] = i => i.Signal,
+        ["topic"] = i => i.Topic,
+        ["secondaryTopics"] = i => i.SecondaryTopics,
+        ["source"] = i => i.Source,
+        ["sourceLogoUrl"] = i => i.SourceLogoUrl,
+        ["url"] = i => i.Url,
+        ["thumbnailUrl"] = i => i.ThumbnailUrl,
+        ["publishedAt"] = i => i.PublishedAt,
+        ["whyItMatters"] = i => i.WhyItMatters,
+        ["aiSummary"] = i => i.AiSummary,
+        ["whatHappened"] = i => i.WhatHappened,
+        ["personalizedWhy"] = i => i.PersonalizedWhy,
+        ["nextMove"] = i => i.NextMove,
+        ["matchedSignals"] = i => i.MatchedSignals,
+        ["relevanceScore"] = i => i.RelevanceScore,
+        ["layer"] = i => i.Layer,
+        ["credibilityTier"] = i => i.CredibilityTier,
+        ["isSaved"] = i => i.IsSaved,
+        ["tags"] = i => i.Tags,
+        ["keyInsights"] = i => i.KeyInsights,
+        ["opportunities"] = i => i.Opportunities,
+        ["estimatedReadTime"] = i => i.EstimatedReadTime,
+        ["estimatedWatchTime"] = i => i.EstimatedWatchTime,
+        ["audioUrl"] = i => i.AudioUrl,
+        ["durationSeconds"] = i => i.DurationSeconds,
+        ["authors"] = i => i.Authors,
+        ["journal"] = i => i.Journal,
+        ["hasSummary"] = i => i.IsEnriched,
+    };
+
+    /// <summary>
+    /// The intelligence feed, keyset-paginated. Pass the returned <c>nextCursor</c> back as
+    /// <c>?cursor=</c> to fetch the following page; <c>nextCursor</c> is null on the last page.
+    ///
+    /// A cursor rather than a page number because the feed grows while it is being read: with an
+    /// offset, anything ingested between two requests shifts the window and the reader silently sees
+    /// duplicate or skipped items. <c>page</c>/<c>pageSize</c> are intentionally gone — they were
+    /// exactly the shifting window this replaces.
+    /// </summary>
     [HttpGet]
     public async Task<IActionResult> GetFeedAsync(
         [FromQuery] string? type = null,
-        [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 20)
+        [FromQuery] string? cursor = null,
+        [FromQuery] int limit = 20,
+        [FromQuery] string? fields = null)
     {
         var profile = await RequireProfileAsync();
         if (profile is null) return Unauthorized();
 
-        var items = await _feed.GetFeedAsync(profile, ParseType(type), Math.Max(1, page), Math.Clamp(pageSize, 1, 50));
-        return Ok(items);
+        if (!FieldSet.TryParse(fields, FeedFieldProjectors.Keys.ToList(), out var fieldSet, out var fieldError))
+            return BadRequest(new { error = fieldError });
+
+        var page = await _feed.GetFeedPageAsync(profile, ParseType(type), cursor, limit);
+        return Ok(fieldSet.ProjectPage(page, FeedFieldProjectors));
     }
 
     [HttpGet("saved")]
@@ -130,7 +185,12 @@ public class FeedController : ControllerBase
         var personalized = await _why.GetOrGenerateAsync(profile, item);
         return Ok(new
         {
-            text = personalized?.WhyText ?? item.WhyItMatters,
+            text = personalized?.WhyText ?? InterestPersonalization.BuildWhy(profile, item),
+            whatToKnow = InterestPersonalization.WhatToKnow(item),
+            nextMove = item.NextMove ?? InterestPersonalization.NextMove(item),
+            relevanceScore = item.RelevanceScore,
+            relevanceConfidence = item.RelevanceConfidence,
+            matchedSignals = item.MatchedSignals,
             isPersonalized = personalized?.IsGenerated ?? false,
             isHelpful = personalized?.IsHelpful,
         });
@@ -146,7 +206,7 @@ public class FeedController : ControllerBase
         if (item is null) return NotFound(new { error = "Item not found" });
 
         var personalized = await _why.GetOrGenerateAsync(profile, item);
-        await _why.RateAsync(profile.Id, id, personalized?.WhyText ?? item.WhyItMatters, request.Helpful);
+        await _why.RateAsync(profile.Id, id, personalized?.WhyText ?? InterestPersonalization.BuildWhy(profile, item), request.Helpful);
         await _analytics.LogEventAsync(new AnalyticsEvent
         {
             UserId = profile.Id,

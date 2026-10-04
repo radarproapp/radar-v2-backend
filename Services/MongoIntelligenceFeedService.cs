@@ -9,8 +9,13 @@ namespace RadarV2.Services;
 public class MongoIntelligenceFeedService : IIntelligenceFeedService
 {
     private readonly RadarDatabase _db;
+    private readonly AiRelevanceService _aiRelevance;
 
-    public MongoIntelligenceFeedService(RadarDatabase db) => _db = db;
+    public MongoIntelligenceFeedService(RadarDatabase db, AiRelevanceService aiRelevance)
+    {
+        _db = db;
+        _aiRelevance = aiRelevance;
+    }
 
     public async Task<List<ContentItem>> GetFeedAsync(UserProfile profile, ContentType? filterType = null, int page = 1, int pageSize = 20)
     {
@@ -20,40 +25,110 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
             ? await GetDismissedItemIdsAsync(profile.Id)
             : [];
 
-        // Build base filter
-        var filter = filterType.HasValue
-            ? Builders<ContentItem>.Filter.Eq(i => i.Type, filterType.Value)
-            : Builders<ContentItem>.Filter.Empty;
-        if (dismissedIds.Count > 0)
-            filter &= Builders<ContentItem>.Filter.Nin(i => i.Id, dismissedIds);
-
-        // Narrow to user's interest layers when defined — fall back to full feed if no match
-        var interestLayers = InterestLayerMapper.MapInterestsToLayers(profile.Interests);
-        if (interestLayers.Count > 0)
-            filter &= Builders<ContentItem>.Filter.In(i => i.Layer, interestLayers);
+        var filter = await BuildFeedFilterAsync(profile, filterType, dismissedIds);
 
         var items = await _db.ContentItems
             .Find(filter)
             .SortByDescending(i => i.PublishedAt)
-            .Skip((page - 1) * pageSize)
-            .Limit(pageSize)
+            .Limit(page * pageSize * 3)
             .ToListAsync();
 
-        // Fall back to un-filtered page if interests returned nothing
-        if (items.Count == 0 && interestLayers.Count > 0)
+        RankByInterest(profile, items);
+        items = items.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+
+        await DecorateAsync(profile, items);
+        return items;
+    }
+
+    public async Task<PagedResult<ContentItem>> GetFeedPageAsync(UserProfile profile, ContentType? filterType, string? cursor, int limit, CancellationToken ct = default)
+    {
+        await EnsureSeedDataAsync();
+        limit = Math.Clamp(limit, 1, 50);
+
+        var dismissedIds = !string.IsNullOrEmpty(profile.Id)
+            ? await GetDismissedItemIdsAsync(profile.Id)
+            : [];
+
+        var filter = await BuildFeedFilterAsync(profile, filterType, dismissedIds);
+
+        if (Cursor.TryDecode(cursor, out var sortKey, out var lastId))
         {
-            var fallbackFilter = filterType.HasValue
-                ? Builders<ContentItem>.Filter.Eq(i => i.Type, filterType.Value)
-                : Builders<ContentItem>.Filter.Empty;
-            if (dismissedIds.Count > 0)
-                fallbackFilter &= Builders<ContentItem>.Filter.Nin(i => i.Id, dismissedIds);
-            items = await _db.ContentItems
-                .Find(fallbackFilter)
-                .SortByDescending(i => i.PublishedAt)
-                .Skip((page - 1) * pageSize)
-                .Limit(pageSize)
-                .ToListAsync();
+            // Resume strictly *after* the last row of the previous page. Ordering is
+            // (PublishedAt desc, Id desc), so "after" means an older timestamp — or the same
+            // timestamp with a smaller id, which is what keeps ties from repeating or skipping.
+            filter &= Builders<ContentItem>.Filter.Lt(i => i.PublishedAt, sortKey)
+                | (Builders<ContentItem>.Filter.Eq(i => i.PublishedAt, sortKey)
+                   & Builders<ContentItem>.Filter.Lt(i => i.Id, lastId));
         }
+
+        // Fetch one row beyond the page. Arriving means there is more; dropping it means we never
+        // need a second count query just to decide whether to hand out a cursor.
+        var batch = await _db.ContentItems
+            .Find(filter)
+            .SortByDescending(i => i.PublishedAt)
+            .ThenByDescending(i => i.Id)
+            .Limit(limit + 1)
+            .ToListAsync(ct);
+
+        var hasMore = batch.Count > limit;
+        if (hasMore) batch.RemoveAt(batch.Count - 1);
+
+        // Take the cursor from the keyset position *before* anything re-ranks the page: relevance
+        // scores are recomputed per request and are not a stable, indexable sort key.
+        var nextCursor = hasMore && batch.Count > 0
+            ? Cursor.Encode(batch[^1].PublishedAt, batch[^1].Id)
+            : null;
+
+        RankByInterest(profile, batch);
+        await DecorateAsync(profile, batch);
+
+        return new PagedResult<ContentItem> { Items = batch, NextCursor = nextCursor, HasMore = hasMore };
+    }
+
+    /// <summary>
+    /// The filter every page of a feed request is built from: content type, the user's dismissals,
+    /// and their interest layers.
+    ///
+    /// The interest-layer narrowing is dropped when nothing exists inside those layers, which matches
+    /// the original fallback behaviour — but the decision is made from an existence check rather than
+    /// from whatever the current page happened to contain, so every page of a cursor chain is built
+    /// from the same filter instead of changing shape mid-pagination.
+    /// </summary>
+    private async Task<FilterDefinition<ContentItem>> BuildFeedFilterAsync(
+        UserProfile profile,
+        ContentType? filterType,
+        IReadOnlyCollection<string> dismissedIds)
+    {
+        var filter = filterType.HasValue
+            ? Builders<ContentItem>.Filter.Eq(i => i.Type, filterType.Value)
+            : Builders<ContentItem>.Filter.Empty;
+
+        if (dismissedIds.Count > 0)
+            filter &= Builders<ContentItem>.Filter.Nin(i => i.Id, dismissedIds);
+
+        var interestLayers = InterestLayerMapper.MapInterestsToLayers(profile.Interests);
+        if (interestLayers.Count > 0)
+        {
+            var layered = filter & Builders<ContentItem>.Filter.In(i => i.Layer, interestLayers);
+            if (await _db.ContentItems.Find(layered).Limit(1).AnyAsync()) return layered;
+        }
+
+        return filter;
+    }
+
+    /// <summary>Cheap in-memory interest ranking, used before paging the fetch window.</summary>
+    private static void RankByInterest(UserProfile profile, List<ContentItem> items) =>
+        items.Sort((a, b) => InterestPersonalization.ContentScore(b, profile)
+            .CompareTo(InterestPersonalization.ContentScore(a, profile)));
+
+    /// <summary>
+    /// Per-user decoration applied after the page is chosen: AI relevance ranking, then the saved
+    /// flag and a personalised reason. Deliberately separate from page selection so it can never
+    /// influence which items land on a page.
+    /// </summary>
+    private async Task DecorateAsync(UserProfile profile, List<ContentItem> items)
+    {
+        await _aiRelevance.ApplyAsync(profile, items);
 
         if (!string.IsNullOrEmpty(profile.Id))
         {
@@ -62,7 +137,8 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
                 item.IsSaved = savedIds.Contains(item.Id);
         }
 
-        return items;
+        foreach (var item in items)
+            item.PersonalizedWhy ??= InterestPersonalization.BuildWhy(profile, item);
     }
 
     public async Task<ContentItem?> GetByIdAsync(string id)
@@ -173,6 +249,7 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
             Title = "A new reasoning framework for multi-step agent tasks",
             Topic = "AI Fundamentals",
             Source = "OpenAI",
+            Url = "https://openai.com/research/",
             WhatHappened = "OpenAI describes a training approach where models decompose a task into verifiable sub-steps before acting, then check each result against the original goal. On long-horizon benchmarks it cuts compounding errors substantially compared with single-pass prompting.",
             AiSummary = "This is the concept behind most AI product roles you will interview for. Understanding it puts you ahead of coursework.",
             WhyItMatters = "Verification between steps matters more than a larger model. Long tasks fail by accumulating small errors, not by one big mistake.",
@@ -189,6 +266,7 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
             Title = "What actually breaks when you scale payments across borders",
             Topic = "Payments Infrastructure",
             Source = "Stripe",
+            Url = "https://stripe.com/blog/engineering",
             WhatHappened = "Stripe's engineering team walks through the failure modes of cross-border payment flows.",
             AiSummary = "If money moves through your product, this is the article that saves you a quarter.",
             WhyItMatters = "Most cross-border failures are reconciliation problems, not network problems.",
@@ -205,6 +283,7 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
             Title = "Digital public infrastructure and the sequencing problem",
             Topic = "Public Policy",
             Source = "World Bank",
+            Url = "https://www.worldbank.org/en/topic/digitaldevelopment",
             WhatHappened = "A comparative look at why identity-first rollouts outperform payments-first ones.",
             AiSummary = "Tells you which rails will exist in three years, and which will not.",
             WhyItMatters = "Identity first, then payments, then consent-based data sharing.",
@@ -221,6 +300,7 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
             Title = "Building great product teams",
             Topic = "Product Management",
             Source = "Lenny's Podcast",
+            Url = "https://www.lennyspodcast.com/",
             WhatHappened = "A working conversation on how strong product teams actually operate day to day.",
             AiSummary = "The clearest description of the PM job you are working toward.",
             WhyItMatters = "Strong teams are defined by decision speed, not by process quality.",
@@ -238,6 +318,7 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
             Title = "The economics of network businesses",
             Topic = "Business Strategy",
             Source = "Acquired",
+            Url = "https://www.acquired.fm/",
             WhatHappened = "A long-form history of how network effects compound, and the conditions under which they fail to.",
             AiSummary = "This is your market structure. Worth the full two hours.",
             WhyItMatters = "Network effects need a reason for the first side to show up alone.",
@@ -255,6 +336,7 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
             Title = "Machine Learning Fundamentals — full lecture",
             Topic = "Machine Learning",
             Source = "MIT OpenCourseWare",
+            Url = "https://ocw.mit.edu/courses/6-036-introduction-to-machine-learning-fall-2020/",
             WhatHappened = "A complete introductory lecture covering supervised learning, loss functions, and generalisation.",
             AiSummary = "Next item on your roadmap, and the shortest route to real understanding.",
             WhyItMatters = "Generalisation, not accuracy, is the thing you are actually optimising.",
@@ -274,6 +356,7 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
             Authors = ["Dr. Amara Diallo", "Prof. Chidi Okonkwo"],
             Journal = "Journal of African Business",
             Doi = "10.1080/15228916.2024.001",
+            Url = "https://doi.org/10.1080/15228916.2024.001",
             WhatHappened = "Examines the barriers and enablers of AI adoption in SMEs across Sub-Saharan Africa, surveying 500 firms across 12 countries.",
             AiSummary = "Foundational study for anyone researching AI policy or entrepreneurship in Africa.",
             WhyItMatters = "SMEs cite cost and talent shortage as the top two barriers. Government-backed digital hubs show 3x higher adoption rates.",

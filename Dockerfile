@@ -10,6 +10,8 @@ COPY . ./
 RUN dotnet publish -c Release -o /app/publish /p:UseAppHost=false
 
 # Runtime image
+# API-only host: the React SPA is built and deployed separately (Vercel/Netlify) and
+# reaches this container cross-origin, so nothing from web/dist is copied in here.
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 COPY --from=build /app/publish .

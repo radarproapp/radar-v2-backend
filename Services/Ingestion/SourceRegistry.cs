@@ -25,7 +25,10 @@ public static class SourceRegistry
             .. FashionLifestyleSources, .. FaithPhilosophySources,
             // New sector layers
             .. EnergySources, .. FinanceSources, .. AgricultureSources,
-            .. IndustrySources, .. CareerSources
+            .. IndustrySources, .. CareerSources,
+            // Media types with no API key required (RSS/Atom), so the feed's Podcasts and
+            // Videos filters have real inventory instead of relying on empty PodcastIndex keys.
+            .. PodcastSources, .. VideoSources
         ]).AsReadOnly();
     }
 
@@ -423,6 +426,32 @@ public static class SourceRegistry
         new() { Id = "the-muse",                 Name = "The Muse",                    Url = "https://www.themuse.com/advice/rss",                    Layer = ContentLayer.Career, DefaultContentType = ContentType.Article, Tier = 2, Topics = ["Career", "Job Search", "Workplace", "Growth"] },
         new() { Id = "hbr-careers",              Name = "Harvard Business Review",     Url = "https://feeds.hbr.org/harvardbusiness",                 Layer = ContentLayer.Career, DefaultContentType = ContentType.Article, Tier = 1, Topics = ["Leadership", "Management", "Career", "Strategy"] },
         new() { Id = "fast-company-work",        Name = "Fast Company",                Url = "https://www.fastcompany.com/latest/rss",                Layer = ContentLayer.Career, DefaultContentType = ContentType.Article, Tier = 1, Topics = ["Innovation", "Future of Work", "Design", "Tech"] },
+    ];
+
+    // ── Podcasts (key-free RSS) ───────────────────────────────────────────────
+    // The PodcastIndex/Taddy integrations need API keys and return nothing without them, which is
+    // why the Podcasts filter was empty. These public RSS feeds need no key, and RssIngestionService
+    // captures their <enclosure> audio so episodes are playable.
+
+    private static readonly FeedSource[] PodcastSources =
+    [
+        new() { Id = "pod-99pi",             Name = "99% Invisible",              Url = "https://feeds.simplecast.com/BqbsxVfO",      Layer = ContentLayer.Ideas,   DefaultContentType = ContentType.Podcast, Tier = 1, Topics = ["Design", "Culture", "Society", "Cities"] },
+        new() { Id = "pod-hard-fork",        Name = "Hard Fork",                  Url = "https://feeds.simplecast.com/l2i9YnTd",      Layer = ContentLayer.Ideas,   DefaultContentType = ContentType.Podcast, Tier = 1, Topics = ["Technology", "AI", "Business", "Society"] },
+        new() { Id = "pod-the-daily",        Name = "The Daily",                  Url = "https://feeds.simplecast.com/54nAGcIl",      Layer = ContentLayer.Policy,  DefaultContentType = ContentType.Podcast, Tier = 1, Topics = ["News", "Politics", "World", "Analysis"] },
+        new() { Id = "pod-think-big-africa", Name = "Think BIG for Africa",        Url = "https://feeds.buzzsprout.com/1709230.rss",   Layer = ContentLayer.Ideas,   DefaultContentType = ContentType.Podcast, Tier = 2, Topics = ["Africa", "Business", "Entrepreneurship", "Nigeria"] },
+        new() { Id = "pod-accelerate",       Name = "Accelerate (Nneka Nwobi)",    Url = "https://nnekanwobi.podbean.com/feed.xml",    Layer = ContentLayer.Career,  DefaultContentType = ContentType.Podcast, Tier = 2, Topics = ["Africa", "Founders", "Leadership", "Career"] },
+        new() { Id = "pod-venture-valley",   Name = "Venture Valley",             Url = "https://anchor.fm/s/ee0bc798/podcast/rss",   Layer = ContentLayer.Finance, DefaultContentType = ContentType.Podcast, Tier = 2, Topics = ["Nigeria", "Business", "Finance", "Entrepreneurship"] },
+        new() { Id = "pod-ignition-zone",    Name = "The Ignition Zone",          Url = "https://feeds.buzzsprout.com/2396708.rss",   Layer = ContentLayer.Policy,  DefaultContentType = ContentType.Podcast, Tier = 2, Topics = ["Africa", "Economy", "Trade", "Business"] },
+    ];
+
+    // ── Video (YouTube channel Atom feeds) ────────────────────────────────────
+    // YouTube publishes a key-free Atom feed per channel; no Data API key is needed.
+
+    private static readonly FeedSource[] VideoSources =
+    [
+        new() { Id = "yt-ted",         Name = "TED",                Url = "https://www.youtube.com/feeds/videos.xml?channel_id=UCAuUUnT6oDeKwE6v1NGQxug", Layer = ContentLayer.Ideas,    DefaultContentType = ContentType.Video, Tier = 1, Topics = ["Ideas", "Talks", "Innovation", "Society"],      SourceType = FeedSourceType.Atom },
+        new() { Id = "yt-mitocw",      Name = "MIT OpenCourseWare", Url = "https://www.youtube.com/feeds/videos.xml?channel_id=UCEBb1b_L6zDS3xTUrIALZOw", Layer = ContentLayer.Learning, DefaultContentType = ContentType.Video, Tier = 1, Topics = ["Education", "Science", "Engineering", "Learning"], SourceType = FeedSourceType.Atom },
+        new() { Id = "yt-ycombinator", Name = "Y Combinator",       Url = "https://www.youtube.com/feeds/videos.xml?channel_id=UCcefcZRL2oaA_uBNeo5UOWg", Layer = ContentLayer.Ideas,    DefaultContentType = ContentType.Video, Tier = 1, Topics = ["Startups", "Business", "Entrepreneurship"],        SourceType = FeedSourceType.Atom },
     ];
 
     // ── Layer 2: Academic — OpenAlex API (/works with topics filter) ──────────

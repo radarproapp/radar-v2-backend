@@ -13,17 +13,20 @@ public class MongoWeeklyBriefService : IWeeklyBriefService
     private readonly IHttpClientFactory _http;
     private readonly IConfiguration _config;
     private readonly ILogger<MongoWeeklyBriefService> _log;
+    private readonly IAiEngine _ai;
 
     public MongoWeeklyBriefService(
         RadarDatabase db,
         IHttpClientFactory http,
         IConfiguration config,
-        ILogger<MongoWeeklyBriefService> log)
+        ILogger<MongoWeeklyBriefService> log,
+        IAiEngine ai)
     {
         _db     = db;
         _http   = http;
         _config = config;
         _log    = log;
+        _ai     = ai;
     }
 
     public async Task<WeeklyBrief?> GetLatestBriefAsync(string userId)
@@ -93,14 +96,11 @@ public class MongoWeeklyBriefService : IWeeklyBriefService
         List<ContentItem> articles,
         List<ContentItem> blogPosts)
     {
-        var apiKey = _config["OpenRouter:ApiKey"];
-        if (string.IsNullOrWhiteSpace(apiKey))
-            return FallbackRecommendation(profile);
-
         try
         {
             var sb = new StringBuilder();
-            sb.AppendLine($"You are Radar, an intelligence platform for ambitious young Africans. The user's primary goal is: \"{profile.PrimaryGoal}\". Their interests: {string.Join(", ", profile.Interests.Take(4))}.");
+            var activePath = InterestPathService.Build(profile).FirstOrDefault(p => p.IsPrimary)?.Title ?? profile.PrimaryGoal;
+            sb.AppendLine($"You are Radar, an intelligence platform for ambitious young Africans. The user's primary goal is: \"{profile.PrimaryGoal}\". Their active direction is \"{activePath}\". Their interests: {string.Join(", ", profile.Interests.Take(4))}.");
             sb.AppendLine();
             sb.AppendLine("Here are the top signals from this week's content:");
             foreach (var a in articles.Take(4))
@@ -110,27 +110,10 @@ public class MongoWeeklyBriefService : IWeeklyBriefService
             sb.AppendLine();
             sb.AppendLine("Write a 2-3 sentence weekly intelligence recommendation. It should: (1) connect the week's top signal to the user's goal, (2) give one concrete action they can take this week, (3) end with a short motivating thought. Write in second person, confident and direct. No bullet points — flowing prose only.");
 
-            var client = _http.CreateClient("OpenRouter");
-            var payload = new
-            {
-                model = _config["OpenRouter:Model"] ?? "deepseek/deepseek-chat",
-                messages = new[] { new { role = "user", content = sb.ToString() } },
-                max_tokens = 200,
-                temperature = 0.7
-            };
-
-            using var response = await client.PostAsync("chat/completions",
-                new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json"));
-
-            if (!response.IsSuccessStatusCode) return FallbackRecommendation(profile);
-
-            var json = await response.Content.ReadAsStringAsync();
-            using var doc = JsonDocument.Parse(json);
-            var text = doc.RootElement
-                .GetProperty("choices")[0]
-                .GetProperty("message")
-                .GetProperty("content")
-                .GetString();
+            var text = await _ai.GenerateTextAsync(
+                "weekly-brief",
+                "You are Radar's weekly intelligence editor. Write concise, direct, personalized prose. Never reference any underlying AI provider or model.",
+                sb.ToString());
 
             return text?.Trim() ?? FallbackRecommendation(profile);
         }

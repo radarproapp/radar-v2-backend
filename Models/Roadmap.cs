@@ -6,6 +6,8 @@ public class GrowthRoadmap
     public string UserId { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
     public string Goal { get; set; } = string.Empty;
+    public string Interest { get; set; } = string.Empty;
+    public string Level { get; set; } = "Beginner";
     public List<RoadmapModule> Modules { get; set; } = [];
     public int ProgressPercent { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

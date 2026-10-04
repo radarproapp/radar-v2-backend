@@ -40,12 +40,13 @@ public class OpenAlexClient
         var json = await response.Content.ReadAsStringAsync();
         using var doc = JsonDocument.Parse(json);
 
-        if (!doc.RootElement.TryGetProperty("results", out var results))
+        if (ArrayProperty(doc.RootElement, "results") is not { } results)
             return [];
 
         var items = new List<ContentItem>();
         foreach (var work in results.EnumerateArray())
         {
+            if (work.ValueKind != JsonValueKind.Object) continue;
             items.Add(MapWorkToContentItem(work));
         }
         return items;
@@ -87,12 +88,13 @@ public class OpenAlexClient
         var json = await response.Content.ReadAsStringAsync();
         using var doc = JsonDocument.Parse(json);
 
-        if (!doc.RootElement.TryGetProperty("results", out var results))
+        if (ArrayProperty(doc.RootElement, "results") is not { } results)
             return [];
 
         var items = new List<ContentItem>();
         foreach (var item in results.EnumerateArray())
         {
+            if (item.ValueKind != JsonValueKind.Object) continue;
             var mapped = MapWorkToContentItem(item);
             if (mapped.Id != openAlexId)
                 items.Add(mapped);
@@ -145,20 +147,22 @@ public class OpenAlexClient
             : DateTime.UtcNow;
 
         var journal = "";
-        if (work.TryGetProperty("primary_location", out var loc) &&
-            loc.TryGetProperty("source", out var source) &&
+        if (ObjectProperty(work, "primary_location") is { } loc &&
+            ObjectProperty(loc, "source") is { } source &&
             source.TryGetProperty("display_name", out var srcName))
         {
             journal = srcName.GetString() ?? "";
         }
 
-        // Extract authors from authorships
+        // Extract authors from authorships. OpenAlex sends an explicit null for missing nested
+        // objects (and null elements inside these arrays), so every level is checked first —
+        // TryGetProperty/EnumerateArray throw on a Null element rather than returning false.
         var authors = new List<string>();
-        if (work.TryGetProperty("authorships", out var authorships))
+        if (ArrayProperty(work, "authorships") is { } authorships)
         {
             foreach (var authorship in authorships.EnumerateArray())
             {
-                if (authorship.TryGetProperty("author", out var author) &&
+                if (ObjectProperty(authorship, "author") is { } author &&
                     author.TryGetProperty("display_name", out var name))
                 {
                     authors.Add(name.GetString() ?? "");
@@ -168,11 +172,12 @@ public class OpenAlexClient
 
         // Extract topics
         var tags = new List<string>();
-        if (work.TryGetProperty("topics", out var topics))
+        if (ArrayProperty(work, "topics") is { } topics)
         {
             foreach (var topic in topics.EnumerateArray())
             {
-                if (topic.TryGetProperty("display_name", out var topicName))
+                if (topic.ValueKind == JsonValueKind.Object &&
+                    topic.TryGetProperty("display_name", out var topicName))
                 {
                     tags.Add(topicName.GetString() ?? "");
                 }
@@ -181,8 +186,7 @@ public class OpenAlexClient
 
         // Abstract from inverted index (OpenAlex stores abstracts as inverted index)
         var abstractText = "";
-        if (work.TryGetProperty("abstract_inverted_index", out var absIndex) &&
-            absIndex.ValueKind == JsonValueKind.Object)
+        if (ObjectProperty(work, "abstract_inverted_index") is { } absIndex)
         {
             abstractText = ReconstructAbstract(absIndex);
         }
@@ -204,6 +208,26 @@ public class OpenAlexClient
             WhyItMatters = $"Cited {citedByCount} times. Published in {journal}.",
         };
     }
+
+    /// <summary>
+    /// Reads a nested property only when the parent really is a JSON object. OpenAlex returns an
+    /// explicit null for missing nested objects, and reading through that throws
+    /// InvalidOperationException instead of returning false — which used to 500 the search API.
+    /// </summary>
+    private static JsonElement? ObjectProperty(JsonElement parent, string name) =>
+        parent.ValueKind == JsonValueKind.Object &&
+        parent.TryGetProperty(name, out var value) &&
+        value.ValueKind == JsonValueKind.Object
+            ? value
+            : null;
+
+    /// <summary>Same guard as <see cref="ObjectProperty"/>, for arrays (absent or null).</summary>
+    private static JsonElement? ArrayProperty(JsonElement parent, string name) =>
+        parent.ValueKind == JsonValueKind.Object &&
+        parent.TryGetProperty(name, out var value) &&
+        value.ValueKind == JsonValueKind.Array
+            ? value
+            : null;
 
     /// <summary>
     /// Reconstruct readable text from OpenAlex's inverted index format.

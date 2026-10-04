@@ -40,11 +40,12 @@ public class MongoNavigatorService : INavigatorService
 
     private async Task<NavigatorFocus> BuildFocusAsync(UserProfile profile)
     {
-        var layers = InterestLayerMapper.MapInterestsToLayers(profile.Interests);
+        var activeInterests = InterestPathService.ActiveInterests(profile);
+        var layers = InterestLayerMapper.MapInterestsToLayers(activeInterests.Count > 0 ? activeInterests.ToList() : profile.Interests);
 
-        var readTask   = PickBestItemAsync(layers, ContentType.Article, ContentType.ResearchPaper);
-        var watchTask  = PickBestItemAsync(layers, ContentType.Video);
-        var listenTask = PickBestItemAsync(layers, ContentType.Podcast);
+        var readTask   = PickBestItemAsync(profile, layers, ContentType.Article, ContentType.ResearchPaper);
+        var watchTask  = PickBestItemAsync(profile, layers, ContentType.Video);
+        var listenTask = PickBestItemAsync(profile, layers, ContentType.Podcast);
         var oppTask    = _opportunities.GetOpportunitiesAsync(profile, null, 1, 1);
 
         await Task.WhenAll(readTask, watchTask, listenTask, oppTask);
@@ -67,7 +68,7 @@ public class MongoNavigatorService : INavigatorService
 
     // ── Content item selection ────────────────────────────────────────────────
 
-    private async Task<ContentItem?> PickBestItemAsync(List<ContentLayer> layers, params ContentType[] types)
+    private async Task<ContentItem?> PickBestItemAsync(UserProfile profile, List<ContentLayer> layers, params ContentType[] types)
     {
         var typeFilter = Builders<ContentItem>.Filter.In(i => i.Type, types);
 
@@ -75,12 +76,13 @@ public class MongoNavigatorService : INavigatorService
         if (layers.Count > 0)
         {
             var layerFilter = Builders<ContentItem>.Filter.In(i => i.Layer, layers);
-            var item = await _db.ContentItems
+            var items = await _db.ContentItems
                 .Find(typeFilter & layerFilter)
                 .SortBy(i => i.CredibilityTier)
                 .ThenByDescending(i => i.PublishedAt)
-                .Limit(1)
-                .FirstOrDefaultAsync();
+                .Limit(20)
+                .ToListAsync();
+            var item = items.OrderByDescending(i => InterestPersonalization.ContentScore(i, profile)).FirstOrDefault();
             if (item is not null) return item;
         }
 

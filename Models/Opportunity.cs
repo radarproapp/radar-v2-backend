@@ -15,6 +15,9 @@ public class Opportunity
     public string? Location { get; set; }
     public bool IsRemote { get; set; }
     public bool IsSaved { get; set; }
+    public string? WhyItFits { get; set; }
+    public double MatchConfidence { get; set; }
+    public List<string> PreparationSteps { get; set; } = [];
     public DateTime DiscoveredAt { get; set; } = DateTime.UtcNow;
 
     public int DaysUntilDeadline =>

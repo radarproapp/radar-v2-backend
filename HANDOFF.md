@@ -23,8 +23,9 @@ separate thread, don't conflate).
 
 > ✅ **Git repo initialized 2026-09-11** at the workspace root (`C:\Users\ACER\RiderProjects\RadarV2\`,
 > one level above `RadarV2/`), baseline commit `52ec3f3`. Along the way the committed
-> production MongoDB Atlas credential was stripped from `appsettings.json` and
-> `AZURE_DEPLOY.md` before it entered history — **still needs rotating in the Atlas
+> production MongoDB Atlas credential was stripped from `appsettings.json` (and the
+> deploy doc, then `AZURE_DEPLOY.md`, since replaced by `RAILWAY_DEPLOY.md`) before it
+> entered history — **still needs rotating in the Atlas
 > dashboard**, since it was previously exposed in plaintext.
 
 ## 2. The active mission: React frontend, .NET backend
@@ -149,23 +150,23 @@ All green. Test server + container cleaned up.
   no DB), `/notifications` (hard-coded list), `/entry` (design "Reference" gallery),
   Compare loads canned `cmp1`, marketing pages (`/landing`, `/product`,
   `/how-it-works`, `/institutions`) are static, Google/Apple auth buttons decorative.
-- **Shared UI:** `app.css` (~2,160 lines, one-file design system of CSS vars — Space
-  Grotesk + DM Sans fonts), `Components/UI/{LoadingSkeleton,EmptyState,ErrorState}.razor`,
-  `Helpers/DateHelper.Humanize`. Razor-only: `ReconnectModal`, SignalR circuit, default
-  template `NavMenu.razor` (dead boilerplate — ignore).
-- **Routes live in Razor `@page` directives** (see REACT_MIGRATION.md §7 table for the
-  full route→component map). The React app (`web/`) now covers `/`, `/feed`,
-  `/feed/:itemId`, `/saved`, `/login`, `/onboarding` — everything else is still
-  Blazor-only until Phase 3.
+- **Shared UI:** `wwwroot/app.css` (~2,160 lines, one-file design system of CSS vars —
+  Space Grotesk + DM Sans fonts) and `Helpers/DateHelper.Humanize` remain. The Razor-only
+  bits (`Components/UI/*`, `ReconnectModal`, SignalR circuit, `NavMenu.razor`) were removed
+  with the Razor retirement below.
+- **The Razor UI has been retired** — the .NET host is API-only and `RadarV2/Components/`
+  (48 `.razor` pages) is deleted. The React app (`web/`) is the sole frontend and is
+  deployed separately (Vercel/Netlify); the host does not serve the SPA bundle.
 
 ## 6. Known issues / open items
 
-- **Unmatched `/api/*` URLs** (typos) return the Blazor HTML not-found page (correct
-  404 status, wrong body). Real endpoints return JSON. Cosmetic; fix cleanly when the
-  Blazor UI is retired. (A terminal middleware was attempted; razor status-page
-  re-execute wins — revisit then.)
+- ~~**Unmatched `/api/*` URLs** (typos) return the Blazor HTML not-found page~~
+  **Resolved** with the Razor retirement: unmatched routes, `/api/*` typos, and auth
+  failures now all return a JSON envelope (`{"error":"..."}`) with the correct status
+  via `UseStatusCodePages`. The Razor status-page re-execute and the old trailing
+  `/api` 404 middleware are gone.
 - **⚠️ Security:** production MongoDB Atlas credentials were committed in
-  `appsettings.json` and `AZURE_DEPLOY.md` — stripped from both files in the baseline
+  `appsettings.json` and the deploy doc — stripped from both files in the baseline
   commit (2026-09-11), but the credential itself is still live until **you rotate it
   in the Atlas dashboard** (not something an agent can do) and set the new connection
   string via the `MongoDB__ConnectionString` env var.

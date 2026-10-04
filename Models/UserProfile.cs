@@ -12,10 +12,36 @@ public class UserProfile
     public string Region { get; set; } = string.Empty;
     public string City { get; set; } = string.Empty;
     public Dictionary<string, string> PersonaDetails { get; set; } = [];
+    public List<UserInterestContext> InterestContexts { get; set; } = [];
+    public List<string> DominantInterests { get; set; } = [];
+    public List<InterestPath> InterestPaths { get; set; } = [];
+    public Dictionary<string, int> InterestActivityScores { get; set; } = [];
     public NotificationPrefs Notifications { get; set; } = new();
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public bool OnboardingComplete { get; set; }
     public UserStats Stats { get; set; } = new();
+}
+
+/// <summary>
+/// The user's intent for one interest. The same interest can therefore produce
+/// different content, opportunities and actions for different people.
+/// </summary>
+public class UserInterestContext
+{
+    public string Interest { get; set; } = string.Empty;
+    public string Goal { get; set; } = string.Empty;
+    public string Level { get; set; } = "Beginner";
+    public string Lens { get; set; } = string.Empty;
+}
+
+public class InterestPath
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string Title { get; set; } = string.Empty;
+    public List<string> Interests { get; set; } = [];
+    public int RelationshipStrength { get; set; }
+    public bool IsPrimary { get; set; }
+    public string Priority { get; set; } = "Explore occasionally";
 }
 
 public class NotificationPrefs
