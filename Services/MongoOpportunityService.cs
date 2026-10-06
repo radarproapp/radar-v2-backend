@@ -188,6 +188,24 @@ public class MongoOpportunityService : IOpportunityService
             var count = await _db.Opportunities.CountDocumentsAsync(Builders<Opportunity>.Filter.Empty);
             if (count == 0)
                 await _db.Opportunities.InsertManyAsync(SeedData);
+
+            // Repair opportunities seeded by an earlier build whose Url was a placeholder ("#"), so
+            // the Apply button actually has somewhere to go. Matched by Id and only touches
+            // placeholder links, so any real data added later is left alone.
+            foreach (var seed in SeedData)
+            {
+                var placeholder = Builders<Opportunity>.Filter.And(
+                    Builders<Opportunity>.Filter.Eq(o => o.Id, seed.Id),
+                    Builders<Opportunity>.Filter.Or(
+                        Builders<Opportunity>.Filter.Eq(o => o.Url, "#"),
+                        Builders<Opportunity>.Filter.Eq(o => o.Url, string.Empty)));
+                var repair = Builders<Opportunity>.Update
+                    .Set(o => o.Url, seed.Url)
+                    .Set(o => o.Location, seed.Location)
+                    .Set(o => o.Requirements, seed.Requirements);
+                await _db.Opportunities.UpdateManyAsync(placeholder, repair);
+            }
+
             _seeded = true;
         }
         finally { _seedLock.Release(); }
