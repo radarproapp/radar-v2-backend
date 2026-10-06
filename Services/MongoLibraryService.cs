@@ -65,11 +65,36 @@ public class MongoLibraryService : ILibraryService
         try
         {
             if (_seeded) return;
-            var count = await _db.LibraryDocuments.CountDocumentsAsync(Builders<LibraryDocument>.Filter.Empty);
-            if (count == 0)
+
+            // Upsert by (Title, Category) rather than "insert only when empty": the curated registry
+            // grows over time, and an existing database must pick up new documents (and edits) on
+            // deploy without duplicating the ones already there.
+            var existing = await _db.LibraryDocuments
+                .Find(Builders<LibraryDocument>.Filter.Empty)
+                .Project(d => new { d.Id, d.Title, d.Category })
+                .ToListAsync();
+            var byKey = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var doc in existing)
+                byKey[Key(doc.Title, doc.Category)] = doc.Id;
+
+            var writes = new List<WriteModel<LibraryDocument>>();
+            foreach (var document in LibraryRegistry.All)
             {
-                await _db.LibraryDocuments.InsertManyAsync(LibraryRegistry.All);
+                var key = Key(document.Title, document.Category);
+                if (byKey.TryGetValue(key, out var id))
+                {
+                    document.Id = id;
+                    writes.Add(new ReplaceOneModel<LibraryDocument>(Builders<LibraryDocument>.Filter.Eq(d => d.Id, id), document));
+                }
+                else
+                {
+                    writes.Add(new InsertOneModel<LibraryDocument>(document));
+                }
             }
+
+            if (writes.Count > 0)
+                await _db.LibraryDocuments.BulkWriteAsync(writes, new BulkWriteOptions { IsOrdered = false });
+
             _seeded = true;
         }
         finally
@@ -77,4 +102,6 @@ public class MongoLibraryService : ILibraryService
             _seedLock.Release();
         }
     }
+
+    private static string Key(string title, string category) => $"{title.Trim()}|{category.Trim()}";
 }
