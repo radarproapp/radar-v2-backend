@@ -26,8 +26,9 @@ public class ContentIngestionService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
         _log.LogInformation("Content ingestion service started.");
-        await BackfillTopicsAsync(ct);
-        await RunCycleAsync(ct);
+            await BackfillTopicsAsync(ct);
+            await ReconcileLayersAsync(ct);
+            await RunCycleAsync(ct);
 
         using var timer = new PeriodicTimer(RssInterval);
         while (!ct.IsCancellationRequested && await timer.WaitForNextTickAsync(ct))
@@ -94,6 +95,52 @@ public class ContentIngestionService : BackgroundService
         catch (Exception ex)
         {
             _log.LogWarning("Topic backfill failed (non-fatal): {Message}", ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Re-derives each item's layer from its own text, so existing items that inherited a general
+    /// outlet's layer (e.g. every Premium Times article shown as "Law") are corrected without
+    /// waiting for re-ingestion. Idempotent: items already matching their detected layer are skipped.
+    /// </summary>
+    private async Task ReconcileLayersAsync(CancellationToken ct)
+    {
+        try
+        {
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<RadarDatabase>();
+
+            var items = await db.ContentItems
+                .Find(FilterDefinition<ContentItem>.Empty)
+                .Project(c => new { c.Id, c.Layer, c.Title, c.Signal, c.AiSummary, c.WhatHappened })
+                .Limit(5000)
+                .ToListAsync(ct);
+
+            var updatesByLayer = new Dictionary<ContentLayer, List<string>>();
+            foreach (var item in items)
+            {
+                var detected = ContentClassifier.DetectLayer($"{item.Title} {item.Signal} {item.AiSummary} {item.WhatHappened}");
+                if (detected is null || detected == item.Layer) continue;
+                if (!updatesByLayer.TryGetValue(detected.Value, out var ids))
+                    updatesByLayer[detected.Value] = ids = [];
+                ids.Add(item.Id);
+            }
+
+            long updated = 0;
+            foreach (var (layer, ids) in updatesByLayer)
+            {
+                var filter = Builders<ContentItem>.Filter.In(c => c.Id, ids);
+                var update = Builders<ContentItem>.Update.Set(c => c.Layer, layer);
+                updated += (await db.ContentItems.UpdateManyAsync(filter, update, cancellationToken: ct)).ModifiedCount;
+            }
+
+            if (updated > 0)
+                _log.LogInformation("Layer reconcile: re-labelled {Count} item(s) from their content.", updated);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            _log.LogWarning("Layer reconcile failed (non-fatal): {Message}", ex.Message);
         }
     }
 

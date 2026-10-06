@@ -182,15 +182,16 @@ public class FeedController : ControllerBase
         var item = await _feed.GetByIdAsync(id);
         if (item is null) return NotFound(new { error = "Item not found" });
 
+        var deterministic = InterestPersonalization.Explain(profile, item);
         var personalized = await _why.GetOrGenerateAsync(profile, item);
         return Ok(new
         {
-            text = personalized?.WhyText ?? InterestPersonalization.BuildWhy(profile, item),
+            text = personalized?.WhyText ?? deterministic.Why,
             whatToKnow = InterestPersonalization.WhatToKnow(item),
-            nextMove = item.NextMove ?? InterestPersonalization.NextMove(item),
+            nextMove = item.NextMove ?? deterministic.NextMove,
             relevanceScore = item.RelevanceScore,
             relevanceConfidence = item.RelevanceConfidence,
-            matchedSignals = item.MatchedSignals,
+            matchedSignals = item.MatchedSignals.Count > 0 ? item.MatchedSignals : deterministic.MatchedSignals,
             isPersonalized = personalized?.IsGenerated ?? false,
             isHelpful = personalized?.IsHelpful,
         });

@@ -34,6 +34,14 @@ public class MeController : ControllerBase
         public List<string>? Interests { get; set; }
         public List<UserInterestContext>? InterestContexts { get; set; }
         public List<string>? DominantInterests { get; set; }
+        public List<string>? Problems { get; set; }
+        public string? CurrentIntent { get; set; }
+        public string? TargetRole { get; set; }
+        public string? TargetIndustry { get; set; }
+        public List<string>? Capabilities { get; set; }
+        public List<string>? OpportunityPreferences { get; set; }
+        public List<string>? Geography { get; set; }
+        public List<string>? DecisionNeeds { get; set; }
         public Dictionary<string, string>? PersonaDetails { get; set; }
         public NotificationPrefs? Notifications { get; set; }
     }
@@ -198,6 +206,16 @@ public class MeController : ControllerBase
         if (request.DominantInterests is not null)
             profile.DominantInterests = request.DominantInterests.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
+        if (request.Problems is not null)
+            profile.Problems = Clean(request.Problems);
+        if (!string.IsNullOrWhiteSpace(request.CurrentIntent))   profile.CurrentIntent = request.CurrentIntent.Trim();
+        if (!string.IsNullOrWhiteSpace(request.TargetRole))      profile.TargetRole = request.TargetRole.Trim();
+        if (!string.IsNullOrWhiteSpace(request.TargetIndustry))  profile.TargetIndustry = request.TargetIndustry.Trim();
+        if (request.Capabilities is not null)                    profile.Capabilities = Clean(request.Capabilities);
+        if (request.OpportunityPreferences is not null)          profile.OpportunityPreferences = Clean(request.OpportunityPreferences);
+        if (request.Geography is not null)                       profile.Geography = Clean(request.Geography);
+        if (request.DecisionNeeds is not null)                   profile.DecisionNeeds = Clean(request.DecisionNeeds);
+
         profile.InterestPaths = InterestPathService.Build(profile);
         if (request.PersonaDetails is not null)                  profile.PersonaDetails = request.PersonaDetails;
         if (request.Notifications is not null)                   profile.Notifications = request.Notifications;
@@ -205,4 +223,10 @@ public class MeController : ControllerBase
         if (Enum.TryParse<PersonaType>(request.Persona, ignoreCase: true, out var persona))
             profile.Persona = persona;
     }
+
+    private static List<string> Clean(IEnumerable<string> values) =>
+        values.Where(v => !string.IsNullOrWhiteSpace(v))
+              .Select(v => v.Trim())
+              .Distinct(StringComparer.OrdinalIgnoreCase)
+              .ToList();
 }

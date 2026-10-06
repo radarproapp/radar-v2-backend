@@ -83,7 +83,11 @@ public class ContentEnricherService
     {
         Id                = Guid.NewGuid().ToString(),
         Type              = raw.DefaultType,
-        Layer             = raw.Layer,
+        // Prefer a layer derived from the item's own text, then from its topics, and only fall back
+        // to the source's layer when neither maps to a known domain.
+        Layer             = ContentClassifier.DetectLayer($"{raw.Title} {raw.Description}")
+                            ?? TopicLayerMapper.Map(raw.Topics)
+                            ?? raw.Layer,
         Title             = raw.Title,
         Source            = raw.SourceName,
         Url               = raw.Url,
@@ -285,6 +289,9 @@ public class ContentEnricherService
             item.Tags = r.Tags.Distinct(StringComparer.OrdinalIgnoreCase).Take(5).ToList();
             item.Topic = item.Tags[0];
             item.SecondaryTopics = item.Tags.Skip(1).ToList();
+            // Once the model has told us the real subjects, the layer follows the content — not the
+            // source list it happened to be imported from.
+            item.Layer = TopicLayerMapper.Map(item.Tags) ?? item.Layer;
             item.ClassificationConfidence = .8;
         }
         // Podcast-specific

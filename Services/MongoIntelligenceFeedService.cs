@@ -138,7 +138,15 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
         }
 
         foreach (var item in items)
-            item.PersonalizedWhy ??= InterestPersonalization.BuildWhy(profile, item);
+        {
+            // AI relevance (when a key is configured) fills these first; the deterministic engine
+            // then fills whatever is still empty so the UI always has a grounded reason and action.
+            var explanation = InterestPersonalization.Explain(profile, item);
+            item.PersonalizedWhy ??= explanation.Why;
+            item.NextMove ??= explanation.NextMove;
+            if (item.MatchedSignals.Count == 0)
+                item.MatchedSignals = explanation.MatchedSignals.ToList();
+        }
     }
 
     public async Task<ContentItem?> GetByIdAsync(string id)

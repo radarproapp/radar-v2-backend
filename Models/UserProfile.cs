@@ -11,6 +11,18 @@ public class UserProfile
     public List<string> Interests { get; set; } = [];
     public string Region { get; set; } = string.Empty;
     public string City { get; set; } = string.Empty;
+
+    // Layer 1 of the personalization model: the situation that makes an item relevant beyond the
+    // raw interests. All optional, captured progressively (onboarding, Edit Profile, follow-ups).
+    public List<string> Problems { get; set; } = [];
+    public string CurrentIntent { get; set; } = string.Empty;
+    public string TargetRole { get; set; } = string.Empty;
+    public string TargetIndustry { get; set; } = string.Empty;
+    public List<string> Capabilities { get; set; } = [];
+    public List<string> OpportunityPreferences { get; set; } = [];
+    public List<string> Geography { get; set; } = [];
+    public List<string> DecisionNeeds { get; set; } = [];
+
     public Dictionary<string, string> PersonaDetails { get; set; } = [];
     public List<UserInterestContext> InterestContexts { get; set; } = [];
     public List<string> DominantInterests { get; set; } = [];
