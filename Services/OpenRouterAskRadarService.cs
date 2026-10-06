@@ -86,6 +86,41 @@ public class OpenRouterAskRadarService : IAskRadarService
         return await _db.Profiles.Find(p => p.Id == user.ProfileId).FirstOrDefaultAsync();
     }
 
+    public async Task<List<ChatMessage>> GetHistoryAsync(string userId, int limit = 60)
+    {
+        if (string.IsNullOrEmpty(userId)) return [];
+        var session = await _db.ChatSessions.Find(s => s.UserId == userId).FirstOrDefaultAsync();
+        if (session?.Messages is null || session.Messages.Count == 0) return [];
+        return session.Messages.Count <= limit ? session.Messages : session.Messages[^limit..];
+    }
+
+    public async Task AppendAsync(string userId, IReadOnlyList<ChatMessage> messages)
+    {
+        if (string.IsNullOrEmpty(userId) || messages.Count == 0) return;
+
+        var filter = Builders<ChatSession>.Filter.Eq(s => s.UserId, userId);
+        var session = await _db.ChatSessions.Find(filter).FirstOrDefaultAsync();
+        if (session is null)
+        {
+            await _db.ChatSessions.InsertOneAsync(new ChatSession { UserId = userId, Messages = [.. messages] });
+            return;
+        }
+
+        session.Messages ??= [];
+        session.Messages.AddRange(messages);
+        // Keep a bounded rolling window so a conversation can't grow without limit.
+        const int maxMessages = 200;
+        if (session.Messages.Count > maxMessages)
+            session.Messages = session.Messages[^maxMessages..];
+        await _db.ChatSessions.ReplaceOneAsync(filter, session);
+    }
+
+    public async Task ClearHistoryAsync(string userId)
+    {
+        if (string.IsNullOrEmpty(userId)) return;
+        await _db.ChatSessions.DeleteManyAsync(s => s.UserId == userId);
+    }
+
     private static string BuildSystemPrompt(UserProfile? profile)
     {
         if (profile == null)
@@ -106,7 +141,8 @@ public class OpenRouterAskRadarService : IAskRadarService
             Guidelines:
             - Be concise, specific, and actionable
             - Reference the relevant interest context, level, goal and focus when recommending resources
-            - Use markdown for structure when helpful
+            - Write in clean, plain text. Do NOT use markdown: no # headings, no **bold**, no *italics*, no backticks. For lists, start each line with "• ". For sections, put a short title on its own line followed by a colon.
+            - Keep formatting simple so answers read naturally in a chat bubble
             - Never give generic advice — always tie it to their situation
             """;
     }

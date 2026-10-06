@@ -1,4 +1,6 @@
 using System.ComponentModel.DataAnnotations;
+using System.Runtime.CompilerServices;
+using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -44,7 +46,33 @@ public class AskRadarController : ControllerBase
         if (profile is null) return NotFound(new { error = "Profile not found" });
 
         var response = await _ask.SendMessageAsync(profile.Id, request.Message, request.History);
+        await _ask.AppendAsync(profile.Id,
+        [
+            new ChatMessage { Role = "user", Content = request.Message },
+            new ChatMessage { Role = "assistant", Content = response.Content },
+        ]);
         return Ok(response);
+    }
+
+    /// <summary>The user's saved Ask Radar conversation, oldest first.</summary>
+    [HttpGet("history")]
+    public async Task<IActionResult> GetHistoryAsync([FromQuery] int limit = 60)
+    {
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        return Ok(await _ask.GetHistoryAsync(profile.Id, Math.Clamp(limit, 1, 200)));
+    }
+
+    /// <summary>Starts a new conversation by clearing the saved history.</summary>
+    [HttpDelete("history")]
+    public async Task<IActionResult> ClearHistoryAsync()
+    {
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        await _ask.ClearHistoryAsync(profile.Id);
+        return NoContent();
     }
 
     [HttpPost("chat/stream")]
@@ -57,7 +85,32 @@ public class AskRadarController : ControllerBase
             return;
         }
 
-        await SseWriter.WriteChatStreamAsync(Response, _ask.StreamMessageAsync(profile.Id, request.Message, request.History, ct), ct);
+        // Accumulate the streamed reply so it can be saved once streaming finishes; the client
+        // still receives each chunk live through the tee.
+        var reply = new StringBuilder();
+
+        async IAsyncEnumerable<string> Tapped(CancellationToken token)
+        {
+            await foreach (var chunk in _ask.StreamMessageAsync(profile.Id, request.Message, request.History, token))
+            {
+                reply.Append(chunk);
+                yield return chunk;
+            }
+        }
+
+        try
+        {
+            await SseWriter.WriteChatStreamAsync(Response, Tapped(ct), ct);
+        }
+        finally
+        {
+            if (reply.Length > 0)
+                await _ask.AppendAsync(profile.Id,
+                [
+                    new ChatMessage { Role = "user", Content = request.Message },
+                    new ChatMessage { Role = "assistant", Content = reply.ToString() },
+                ]);
+        }
     }
 
     public sealed class LinkRequest
@@ -99,6 +152,11 @@ public class AskRadarController : ControllerBase
 
         var reply = await _ask.SendMessageAsync(profile.Id,
             $"Summarize this webpage for me in a few tight paragraphs: what happened, why it matters to my goals, and my next move. Infer two or three topic tags.\n\nURL: {uri}\n\n{text}", []);
+        await _ask.AppendAsync(profile.Id,
+        [
+            new ChatMessage { Role = "user", Content = $"Summarize link: {request.Url}" },
+            new ChatMessage { Role = "assistant", Content = reply.Content },
+        ]);
         return Ok(new { summary = reply.Content });
     }
 
@@ -130,6 +188,11 @@ public class AskRadarController : ControllerBase
 
         var reply = await _ask.SendMessageAsync(profile.Id,
             $"Summarize this document for me. Key points, why they matter to my goals, and my next move.\n\nFile: {file.FileName}\n\n{text}", []);
+        await _ask.AppendAsync(profile.Id,
+        [
+            new ChatMessage { Role = "user", Content = $"Summarize file: {file.FileName}" },
+            new ChatMessage { Role = "assistant", Content = reply.Content },
+        ]);
         return Ok(new { summary = reply.Content });
     }
 
