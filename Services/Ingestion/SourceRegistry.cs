@@ -28,7 +28,9 @@ public static class SourceRegistry
             .. IndustrySources, .. CareerSources,
             // Media types with no API key required (RSS/Atom), so the feed's Podcasts and
             // Videos filters have real inventory instead of relying on empty PodcastIndex keys.
-            .. PodcastSources, .. VideoSources
+            .. PodcastSources, .. VideoSources,
+            // Additional verified public-RSS sources (July 2026 additions).
+            .. AdditionalSources
         ]).AsReadOnly();
     }
 
@@ -472,5 +474,21 @@ public static class SourceRegistry
         new() { Id = "openalex-urbanisation", Name = "OpenAlex — Urban Development",  Url = "https://api.openalex.org/works?filter=title_and_abstract.search:Urban%20Development,open_access.is_oa:true&sort=publication_date:desc&per_page=10",         Layer = ContentLayer.RealEstate, DefaultContentType = ContentType.ResearchPaper, Tier = 1, Topics = ["Urban", "Real Estate", "Housing"],    SourceType = FeedSourceType.OpenAlexApi },
         new() { Id = "openalex-education",    Name = "OpenAlex — Education Africa",   Url = "https://api.openalex.org/works?filter=title_and_abstract.search:Education%20in%20Africa,open_access.is_oa:true&sort=publication_date:desc&per_page=10",     Layer = ContentLayer.Education, DefaultContentType = ContentType.ResearchPaper, Tier = 1, Topics = ["Education", "Africa", "Learning"],    SourceType = FeedSourceType.OpenAlexApi },
         new() { Id = "openalex-law-govern",   Name = "OpenAlex — Law & Governance",   Url = "https://api.openalex.org/works?filter=title_and_abstract.search:Law%20and%20Governance,open_access.is_oa:true&sort=publication_date:desc&per_page=10",      Layer = ContentLayer.Law,       DefaultContentType = ContentType.ResearchPaper, Tier = 1, Topics = ["Law", "Governance", "Policy"],         SourceType = FeedSourceType.OpenAlexApi },
+    ];
+
+    // ── Additional sources (verified public RSS, July 2026) ────────────────────
+
+    private static readonly FeedSource[] AdditionalSources =
+    [
+        new() { Id = "climate-home-news",     Name = "Climate Home News",       Url = "https://www.climatechangenews.com/feed/",        Layer = ContentLayer.Environment, DefaultContentType = ContentType.Article, Tier = 2, Topics = ["Climate", "Policy", "Finance"] },
+        new() { Id = "inside-climate-news",   Name = "Inside Climate News",     Url = "https://insideclimatenews.org/feed/",            Layer = ContentLayer.Environment, DefaultContentType = ContentType.Article, Tier = 2, Topics = ["Climate", "Environment", "Policy"] },
+        new() { Id = "techcentral",           Name = "TechCentral",             Url = "https://techcentral.co.za/feed/",                Layer = ContentLayer.Ideas,       DefaultContentType = ContentType.Article, Tier = 2, Topics = ["Africa", "Technology", "Business"] },
+        new() { Id = "techcrunch",            Name = "TechCrunch",              Url = "https://techcrunch.com/feed/",                   Layer = ContentLayer.Ideas,       DefaultContentType = ContentType.Article, Tier = 1, Topics = ["Technology", "Startups", "Venture Capital"] },
+        new() { Id = "africa-report",         Name = "The Africa Report",       Url = "https://www.theafricareport.com/feed/",          Layer = ContentLayer.Finance,     DefaultContentType = ContentType.Article, Tier = 2, Topics = ["Africa", "Business", "Politics"] },
+        new() { Id = "how-we-made-it",        Name = "How We Made It In Africa", Url = "https://www.howwemadeitinafrica.com/feed/",     Layer = ContentLayer.Finance,     DefaultContentType = ContentType.Article, Tier = 2, Topics = ["Africa", "Entrepreneurship", "Business"] },
+        new() { Id = "espn",                  Name = "ESPN",                    Url = "https://www.espn.com/espn/rss/news",             Layer = ContentLayer.Sports,      DefaultContentType = ContentType.Article, Tier = 2, Topics = ["Sports", "Football", "Analysis"] },
+        new() { Id = "muslim-news-ng",        Name = "Muslim News Nigeria",     Url = "https://muslimnews.com.ng/feed/",                Layer = ContentLayer.Faith,       DefaultContentType = ContentType.Article, Tier = 2, Topics = ["Nigeria", "Religion", "Society"] },
+        new() { Id = "fmafs",                 Name = "Federal Ministry of Agriculture (Nigeria)", Url = "https://agriculture.gov.ng/feed/", Layer = ContentLayer.Agriculture, DefaultContentType = ContentType.PolicyPaper, Tier = 1, Topics = ["Nigeria", "Agriculture", "Food Security"] },
+        new() { Id = "ign",                   Name = "IGN",                     Url = "https://feeds.ign.com/ign/all",                  Layer = ContentLayer.Gaming,      DefaultContentType = ContentType.Article, Tier = 1, Topics = ["Gaming", "Reviews", "Industry"] },
     ];
 }
