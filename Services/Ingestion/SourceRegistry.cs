@@ -121,6 +121,7 @@ public static class SourceRegistry
         new() { Id = "smart-cities-transport", Name = "Smart Cities Dive",      Url = "https://www.smartcitiesdive.com/feeds/news/",                     Layer = ContentLayer.Transportation, DefaultContentType = ContentType.Article, Tier = 2, Topics = ["Smart Cities", "Urban Mobility", "Transport", "Logistics"] },
         new() { Id = "ttnews",               Name = "Transport Topics",         Url = "https://www.ttnews.com/rss",                                      Layer = ContentLayer.Transportation, DefaultContentType = ContentType.Article, Tier = 2, Topics = ["Trucking", "Freight", "Logistics", "Supply Chain"] },
         new() { Id = "businessday-transport", Name = "BusinessDay Transport",   Url = "https://businessday.ng/feed/",                                    Layer = ContentLayer.Transportation, DefaultContentType = ContentType.Article, Tier = 2, Topics = ["Africa", "Nigeria", "Transport", "Infrastructure"] },
+        new() { Id = "freightwaves",         Name = "FreightWaves",             Url = "https://www.freightwaves.com/feed",                               Layer = ContentLayer.Transportation, DefaultContentType = ContentType.Article, Tier = 2, Topics = ["Freight", "Logistics", "Supply Chain", "Transport"] },
     ];
 
     // ── Gaming & Esports ──────────────────────────────────────────────────────
