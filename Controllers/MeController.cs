@@ -74,6 +74,21 @@ public class MeController : ControllerBase
     }
 
     /// <summary>
+    /// Progressive follow-up questions Radar can ask when there is a reason — an inferred interest
+    /// it hasn't confirmed, a shift in focus, or a profile gap that would sharpen personalization.
+    /// </summary>
+    [HttpGet("follow-ups")]
+    public async Task<IActionResult> GetFollowUpsAsync()
+    {
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        var top = await _signals.GetTopSignalsAsync(profile.Id, 12);
+        var all = await _signals.GetSignalsAsync(profile.Id);
+        return Ok(FollowUpService.Suggest(profile, top, all));
+    }
+
+    /// <summary>
     /// What Radar has learned about this user: top signals by recency-decayed strength, plus the
     /// overall confidence in the model. Declared and inferred signals are reported separately so the
     /// client can distinguish what the user told us from what we inferred from their behaviour.

@@ -96,6 +96,7 @@ public class RssIngestionService
                                    ?? item.Element(Dc + "creator")?.Value?.Trim(),
                     AudioUrl        = string.IsNullOrWhiteSpace(audioUrl) ? null : audioUrl,
                     DurationSeconds = duration,
+                    ThumbnailUrl    = ExtractThumbnail(item),
                 };
             })
             .Where(i => !string.IsNullOrWhiteSpace(i.Url))
@@ -128,6 +129,7 @@ public class RssIngestionService
                     PublishedAt = ParseDate(entry.Element(Atom + "published")?.Value
                                          ?? entry.Element(Atom + "updated")?.Value),
                     Author      = entry.Element(Atom + "author")?.Element(Atom + "name")?.Value?.Trim(),
+                    ThumbnailUrl = ExtractThumbnail(entry),
                 };
             })
             .Where(i => !string.IsNullOrWhiteSpace(i.Url))
@@ -203,6 +205,35 @@ public class RssIngestionService
         return Convert.ToHexString(bytes)[..16];
     }
 
+    /// <summary>
+    /// Pulls a representative image from an RSS/Atom entry. Checks media:thumbnail, media:content
+    /// (image), and image enclosures — matched by local name so it works regardless of prefix.
+    /// </summary>
+    private static string? ExtractThumbnail(XElement entry)
+    {
+        var thumbnail = entry.Elements()
+            .FirstOrDefault(e => e.Name.LocalName == "thumbnail" && e.Attribute("url") is not null)
+            ?.Attribute("url")?.Value;
+        if (!string.IsNullOrWhiteSpace(thumbnail)) return thumbnail.Trim();
+
+        foreach (var content in entry.Elements().Where(e => e.Name.LocalName == "content"))
+        {
+            var url = content.Attribute("url")?.Value;
+            var type = content.Attribute("type")?.Value ?? string.Empty;
+            var medium = content.Attribute("medium")?.Value ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(url) &&
+                (medium.Equals("image", StringComparison.OrdinalIgnoreCase) ||
+                 type.StartsWith("image", StringComparison.OrdinalIgnoreCase)))
+                return url.Trim();
+        }
+
+        var enclosure = entry.Elements()
+            .FirstOrDefault(e => e.Name.LocalName == "enclosure" &&
+                (e.Attribute("type")?.Value ?? string.Empty).StartsWith("image", StringComparison.OrdinalIgnoreCase))
+            ?.Attribute("url")?.Value;
+        return string.IsNullOrWhiteSpace(enclosure) ? null : enclosure.Trim();
+    }
+
     private static DateTime ParseDate(string? raw)
     {
         if (string.IsNullOrWhiteSpace(raw)) return DateTime.UtcNow;
@@ -264,4 +295,5 @@ public class RawFeedItem
     public string? TranscriptText { get; set; }
     public int? DurationSeconds { get; set; }
     public string? PodcastFeedId { get; set; }
+    public string? ThumbnailUrl { get; set; }
 }

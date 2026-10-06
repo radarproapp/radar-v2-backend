@@ -108,6 +108,7 @@ public class ContentEnricherService
         WhatHappened      = raw.Description,
         Author            = raw.Author,
         Authors           = raw.Authors,
+        ThumbnailUrl      = raw.ThumbnailUrl,
         AudioUrl          = raw.AudioUrl,
         TranscriptText    = raw.TranscriptText,
         DurationSeconds   = raw.DurationSeconds,
