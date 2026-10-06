@@ -131,7 +131,10 @@ builder.Services.AddSingleton<RadarDatabase>();
 builder.Services.AddHttpClient("OpenRouter", (sp, client) =>
 {
     var config = sp.GetRequiredService<IConfiguration>();
-    client.BaseAddress = new Uri(config["OpenRouter:BaseUrl"] ?? "https://openrouter.ai/api/v1");
+    // Ensure a trailing slash: requests use a relative path ("chat/completions"), and without it
+    // HttpClient drops the last base segment ("/v1") and hits the wrong URL.
+    var baseUrl = (config["OpenRouter:BaseUrl"] ?? "https://openrouter.ai/api/v1").TrimEnd('/') + "/";
+    client.BaseAddress = new Uri(baseUrl);
     var apiKey = config["OpenRouter:ApiKey"] ?? string.Empty;
     client.DefaultRequestHeaders.Authorization =
         new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);

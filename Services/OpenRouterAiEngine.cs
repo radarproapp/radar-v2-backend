@@ -46,7 +46,7 @@ public sealed class OpenRouterAiEngine : IAiEngine
         {
             try
             {
-                using var request = new HttpRequestMessage(HttpMethod.Post, "/chat/completions") { Content = new StringContent(body, Encoding.UTF8, "application/json") };
+                using var request = new HttpRequestMessage(HttpMethod.Post, "chat/completions") { Content = new StringContent(body, Encoding.UTF8, "application/json") };
                 using var response = await _httpFactory.CreateClient("OpenRouter").SendAsync(request, ct);
                 if (!response.IsSuccessStatusCode)
                 {
@@ -93,7 +93,7 @@ public sealed class OpenRouterAiEngine : IAiEngine
         });
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Post, "/chat/completions") { Content = new StringContent(body, Encoding.UTF8, "application/json") };
+            using var request = new HttpRequestMessage(HttpMethod.Post, "chat/completions") { Content = new StringContent(body, Encoding.UTF8, "application/json") };
             using var response = await _httpFactory.CreateClient("OpenRouter").SendAsync(request, ct);
             if (!response.IsSuccessStatusCode) return null;
             var json = await response.Content.ReadAsStringAsync(ct);
@@ -120,7 +120,7 @@ public sealed class OpenRouterAiEngine : IAiEngine
         var promptMessages = new List<object> { new { role = "system", content = systemPrompt } };
         promptMessages.AddRange(messages.TakeLast(20).Select(m => new { role = m.Role, content = m.Content }));
         var body = JsonSerializer.Serialize(new { model = _config["OpenRouter:Model"] ?? "deepseek/deepseek-chat", messages = promptMessages, stream = true });
-        using var request = new HttpRequestMessage(HttpMethod.Post, "/chat/completions") { Content = new StringContent(body, Encoding.UTF8, "application/json") };
+        using var request = new HttpRequestMessage(HttpMethod.Post, "chat/completions") { Content = new StringContent(body, Encoding.UTF8, "application/json") };
         HttpResponseMessage? response = null;
         var connectionFailed = false;
         try
