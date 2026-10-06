@@ -131,20 +131,21 @@ public static class InterestPersonalization
 
     private static string BuildWhy(UserProfile profile, List<DimensionMatch> matches)
     {
-        var goal = matches.FirstOrDefault(m => m.Dimension == "Goal")?.Phrase
-            ?? (string.IsNullOrWhiteSpace(profile.PrimaryGoal) ? null : profile.PrimaryGoal);
+        var goal = matches.FirstOrDefault(m => m.Dimension == "Goal")?.Phrase;
         var capability = matches.FirstOrDefault(m => m.Dimension == "Capability")?.Phrase;
         var interest = matches.FirstOrDefault(m => m.Dimension == "Interest")?.Phrase;
         var problem = matches.FirstOrDefault(m => m.Dimension == "Problem")?.Phrase;
+        var intent = matches.FirstOrDefault(m => m.Dimension == "Intent")?.Phrase;
 
         var parts = new List<string>();
         if (!string.IsNullOrWhiteSpace(goal)) parts.Add($"your goal to {Lower(goal)}");
         if (!string.IsNullOrWhiteSpace(problem)) parts.Add($"the challenge you flagged ({Lower(problem)})");
+        if (!string.IsNullOrWhiteSpace(intent)) parts.Add($"what you're trying to do now ({Lower(intent)})");
         if (!string.IsNullOrWhiteSpace(capability)) parts.Add($"building {Lower(capability)}");
         if (!string.IsNullOrWhiteSpace(interest)) parts.Add($"your interest in {Lower(interest)}");
 
         if (parts.Count == 0)
-            return "Techs and trends in your fields — read it, decide if it's relevant, and keep or dismiss it so Radar learns.";
+            return "This sits in a field you track. Read it, then keep or dismiss it so Radar learns what actually matters to you.";
 
         return $"This matters to you because it connects to {string.Join(" and ", parts)}.";
     }
