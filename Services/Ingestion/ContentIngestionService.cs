@@ -192,6 +192,11 @@ public class ContentIngestionService : BackgroundService
             var podcastIndex  = sp.GetRequiredService<PodcastIndexIngestionService>();
             var taddy         = sp.GetRequiredService<TaddyClient>();
             var groqWhisper   = sp.GetRequiredService<GroqWhisperClient>();
+            var youtube       = sp.GetRequiredService<YouTubeIngestionService>();
+
+            // YouTube channels (public Atom feeds; first run resolves and caches channel ids).
+            var youtubeItems = await youtube.FetchAllAsync(ct);
+            totalNew += await RunFetchBatchAsync(db, enricher, youtubeItems, ct);
 
             var mediastackItems = await mediastack.FetchAllClustersAsync(ct);
             totalNew += await RunFetchBatchAsync(db, enricher, mediastackItems, ct);

@@ -197,6 +197,16 @@ builder.Services.AddHttpClient("OpenAlex", client =>
 });
 builder.Services.AddScoped<OpenAlexClient>();
 
+// YouTube — channel pages and public Atom feeds need a browser-like User-Agent.
+builder.Services.AddHttpClient("YouTube", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(30);
+    client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36");
+    client.DefaultRequestHeaders.Add("Accept-Language", "en-US,en;q=0.9");
+});
+builder.Services.AddScoped<YouTubeClient>();
+builder.Services.AddScoped<YouTubeIngestionService>();
+
 // Ingestion services
 builder.Services.AddScoped<RssIngestionService>();
 builder.Services.AddScoped<ContentEnricherService>();
