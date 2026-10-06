@@ -1,0 +1,14 @@
+# Railway cron container for scheduled ingestion.
+#
+# This image is not the app — it is a tiny client the Railway cron service starts on schedule.
+# It calls the API's protected jobs endpoint (fire-and-forget mode) and exits, so the cron
+# container never has to stay alive for the whole ingestion cycle.
+#
+# Railway service settings:
+#   - Dockerfile path: RadarV2/Dockerfile.cron
+#   - Cron schedule:   0 */6 * * *        (every 6 hours)
+#   - Variables:       API_BASE_URL = https://<your-api-host>
+#                      CRON_KEY     = <same value as Jobs__CronKey on the API service>
+FROM curlimages/curl:latest
+
+CMD ["sh", "-c", "curl -fsS -X POST \"${API_BASE_URL}/api/jobs/ingestion?async=true\" -H \"X-Cron-Key: ${CRON_KEY}\" -w \"\\nHTTP %{http_code}\\n\" --max-time 120"]

@@ -17,6 +17,9 @@ public class ContentIngestionService : BackgroundService
 
     private DateTime _lastSlowCycle = DateTime.MinValue;
 
+    // Serialises the periodic timer and on-demand (cron) triggers so cycles never overlap.
+    private static readonly SemaphoreSlim _cycleLock = new(1, 1);
+
     public ContentIngestionService(IServiceScopeFactory scopeFactory, ILogger<ContentIngestionService> log)
     {
         _scopeFactory = scopeFactory;
@@ -28,11 +31,33 @@ public class ContentIngestionService : BackgroundService
         _log.LogInformation("Content ingestion service started.");
             await BackfillTopicsAsync(ct);
             await ReconcileLayersAsync(ct);
-            await RunCycleAsync(ct);
+            await RunCycleOnceAsync(ct);
 
         using var timer = new PeriodicTimer(RssInterval);
         while (!ct.IsCancellationRequested && await timer.WaitForNextTickAsync(ct))
-            await RunCycleAsync(ct);
+            await RunCycleOnceAsync(ct);
+    }
+
+    /// <summary>
+    /// Runs one ingestion cycle on demand — used by the scheduled cron job (and at startup). Skips
+    /// if a cycle is already in flight so the timer and an external trigger can't run at once.
+    /// </summary>
+    public async Task<bool> RunCycleOnceAsync(CancellationToken ct = default)
+    {
+        if (!await _cycleLock.WaitAsync(0, ct))
+        {
+            _log.LogInformation("Ingestion cycle already running; skipping this trigger.");
+            return false;
+        }
+        try
+        {
+            await RunCycleCoreAsync(ct);
+            return true;
+        }
+        finally
+        {
+            _cycleLock.Release();
+        }
     }
 
     // ── One-time topic backfill ───────────────────────────────────────────────
@@ -144,7 +169,7 @@ public class ContentIngestionService : BackgroundService
         }
     }
 
-    private async Task RunCycleAsync(CancellationToken ct)
+    private async Task RunCycleCoreAsync(CancellationToken ct)
     {
         _log.LogInformation("Ingestion cycle starting at {Time}", DateTime.UtcNow);
         var totalNew = 0;

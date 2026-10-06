@@ -204,7 +204,10 @@ builder.Services.AddScoped<MediastackIngestionService>();
 builder.Services.AddScoped<PodcastIndexIngestionService>();
 builder.Services.AddScoped<TaddyClient>();
 builder.Services.AddScoped<GroqWhisperClient>();
-builder.Services.AddHostedService<ContentIngestionService>();
+// Registered as a singleton so the scheduled-jobs endpoint can trigger a cycle on demand, and
+// hosted (same instance) so it also runs on the in-process 6h timer.
+builder.Services.AddSingleton<ContentIngestionService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ContentIngestionService>());
 
 // Auth + session
 builder.Services.AddScoped<IUserSessionService, UserSessionService>();

@@ -82,6 +82,50 @@ The frontend is its own build and its own host:
 
 ---
 
+## Step 5: Scheduled ingestion (Railway cron)
+
+Ingestion also runs on an in-process 6h timer, but a Railway cron guarantees it happens even if
+the service restarts, idles, or you want a fixed wall-clock schedule. It works by calling a small
+protected endpoint on the API.
+
+**1. Set the shared secret on the API service** (the same service from Step 1):
+
+| Name | Value |
+|---|---|
+| `Jobs__CronKey` | a long random secret |
+
+The endpoint refuses to run until this is set (`503`), so it can never be triggered accidentally.
+
+**2. Create a second Railway service in the same project** for the cron container:
+
+- **New Service → Deploy from the same GitHub repo**
+- **Settings → Build → Dockerfile path**: `RadarV2/Dockerfile.cron`
+- **Settings → Deploy → Cron Schedule**: `0 */6 * * *` (every 6 hours)
+- **Variables**:
+
+| Name | Value |
+|---|---|
+| `API_BASE_URL` | your API host, e.g. `https://radar-v2-backend-production.up.railway.app` |
+| `CRON_KEY` | the **same** value as `Jobs__CronKey` above |
+
+Railway starts the container on schedule; it POSTs to `/api/jobs/ingestion?async=true` and exits
+immediately (the API carries the cycle on in the background, so the cron container never has to
+stay alive for the whole run).
+
+**Manual check** (also useful for debugging):
+```bash
+curl -X POST https://<railway-url>/api/jobs/ingestion \
+  -H "X-Cron-Key: <your CronKey>" -w "\nHTTP %{http_code}\n"
+# → 200 {"ran":true,...}          (ran one cycle)
+#   ?async=true → 202 {"started":true,"mode":"async"}
+#   401 invalid key · 503 Jobs__CronKey not set
+```
+
+Adjust the schedule to taste, e.g. `0 */3 * * *` (3-hourly) or `30 23 * * 6` (Saturdays for a
+weekly brief). DST/UTC: Railway cron uses UTC.
+
+---
+
 ## Troubleshooting
 
 - **Deploy fails / app exits at boot**: most likely `Auth__Jwt__Key` is missing — the app
