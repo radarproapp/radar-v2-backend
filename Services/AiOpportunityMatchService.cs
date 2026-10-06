@@ -16,22 +16,32 @@ public sealed class AiOpportunityMatchService
         var prompt = $@"Profile:
 persona: {profile.Persona}
 goal: {profile.PrimaryGoal}
+problems: {string.Join(", ", profile.Problems)}
+current intent: {profile.CurrentIntent}
+target role: {profile.TargetRole}
+target industry: {profile.TargetIndustry}
+capabilities: {string.Join(", ", profile.Capabilities)}
 interests: {string.Join(", ", profile.Interests)}
-capabilities: {string.Join(", ", profile.InterestContexts.Select(c => c.Lens).Where(x => !string.IsNullOrWhiteSpace(x)))}
+preferred opportunity types: {string.Join(", ", profile.OpportunityPreferences)}
+open to: {string.Join(", ", profile.Geography)}
 region: {profile.City}, {profile.Region}
 
 Opportunities:
 {System.Text.Json.JsonSerializer.Serialize(candidates)}
 
-For each opportunity, estimate fit using the stated goal and current situation. Do not reward generic interest matches over direct goal alignment. Return strict JSON: {{ ""matches"": [{{""id"":""..."",""score"":0,""confidence"":0,""whyItFits"":""..."",""preparationSteps"":[]}}] }}";
+For each opportunity, estimate fit as a decimal from 0.0 (no fit) to 1.0 (perfect fit) using the stated goal, problems and current situation. Do not reward generic interest matches over direct goal alignment. Every opportunity in the list must appear, even with a low score. Return strict JSON: {{ ""matches"": [{{""id"":""..."",""score"":0.0,""confidence"":0.0,""whyItFits"":""..."",""preparationSteps"":[]}}] }}";
         var result = await _ai.GenerateJsonAsync<MatchResult>("opportunity-matching", "You are Radar's opportunity matching engine. Be conservative and never invent eligibility facts.", prompt, ct);
         if (result?.Matches is null) return;
         var byId = result.Matches.ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
         foreach (var opportunity in opportunities)
         {
             if (!byId.TryGetValue(opportunity.Id, out var match)) continue;
-            opportunity.MatchScorePercent = Math.Clamp((int)Math.Round(match.Score * 100), 0, 99);
-            opportunity.MatchConfidence = Math.Clamp(match.Confidence, 0, 1);
+            // Accept either 0..1 or 0..100 from the model so a scale mismatch can't saturate every
+            // opportunity at the ceiling.
+            var fraction = match.Score > 1 ? match.Score / 100.0 : match.Score;
+            var confidence = match.Confidence > 1 ? match.Confidence / 100.0 : match.Confidence;
+            opportunity.MatchScorePercent = Math.Clamp((int)Math.Round(fraction * 100), 0, 99);
+            opportunity.MatchConfidence = Math.Clamp(confidence, 0, 1);
             opportunity.WhyItFits = match.WhyItFits;
             opportunity.PreparationSteps = match.PreparationSteps ?? [];
         }

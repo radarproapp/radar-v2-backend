@@ -32,6 +32,11 @@ public sealed class AiRelevanceService
         var request = $@"User profile:
 persona: {profile.Persona}
 goal: {profile.PrimaryGoal}
+problems: {string.Join(", ", profile.Problems)}
+current intent: {profile.CurrentIntent}
+target role: {profile.TargetRole}
+target industry: {profile.TargetIndustry}
+capabilities: {string.Join(", ", profile.Capabilities)}
 interests: {string.Join(", ", profile.Interests)}
 dominant interests: {string.Join(", ", profile.DominantInterests)}
 context: {string.Join("; ", profile.InterestContexts.Select(c => $"{c.Interest}: {c.Goal}; {c.Lens}"))}
@@ -41,7 +46,7 @@ behavioural signals (recency-decayed): {signalContext}
 Candidates:
 {System.Text.Json.JsonSerializer.Serialize(candidates)}
 
-Rank candidates for this person. Goal and current context must outrank generic interest matches.
+Rank candidates for this person. Goal, problem and current intent must outrank generic interest matches.
 Do not invent facts. Return strict JSON with this shape:
 {{ ""rankings"": [{{""id"":""..."",""score"":0.0,""confidence"":0.0,""matchedSignals"":[],""whyShown"":""..."",""nextMove"":""...""}}] }}";
         var result = await _ai.GenerateJsonAsync<RelevanceResult>("feed-relevance", "You are Radar's relevance ranking engine. Be conservative, specific and evidence-based.", request, ct);
