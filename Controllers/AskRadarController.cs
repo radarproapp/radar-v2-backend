@@ -108,7 +108,7 @@ public class AskRadarController : ControllerBase
                 await _ask.AppendAsync(profile.Id,
                 [
                     new ChatMessage { Role = "user", Content = request.Message },
-                    new ChatMessage { Role = "assistant", Content = reply.ToString() },
+                    new ChatMessage { Role = "assistant", Content = PlainText.Clean(reply.ToString()) },
                 ]);
         }
     }

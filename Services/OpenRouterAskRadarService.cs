@@ -36,7 +36,7 @@ public class OpenRouterAskRadarService : IAskRadarService
         await foreach (var chunk in StreamMessageAsync(userId, message, history))
             fullResponse.Append(chunk);
 
-        return new ChatMessage { Role = "assistant", Content = fullResponse.ToString() };
+        return new ChatMessage { Role = "assistant", Content = RadarV2.Helpers.PlainText.Clean(fullResponse.ToString()) };
     }
 
     public async IAsyncEnumerable<string> StreamMessageAsync(
