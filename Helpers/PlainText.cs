@@ -18,6 +18,7 @@ public static class PlainText
         text = Regex.Replace(text, @"__([^_]+)__", "$1");                                    // __bold__
         text = Regex.Replace(text, @"`{1,3}([^`]*?)`{1,3}", "$1", RegexOptions.Singleline);  // `code`
         text = Regex.Replace(text, @"^[ \t]{0,3}#{1,6}[ \t]*", "", RegexOptions.Multiline);  // ### Heading
+        text = Regex.Replace(text, @"^[ \t]*([-*_]){3,}[ \t]*$", "", RegexOptions.Multiline); // --- horizontal rule
         text = Regex.Replace(text, @"^[ \t]*[-*+][ \t]+", "• ", RegexOptions.Multiline);     // - item -> • item
         text = Regex.Replace(text, @"[*#_`]", "");                                           // stray symbols
         text = Regex.Replace(text, @"[ \t]+$", "", RegexOptions.Multiline);                  // trailing spaces
