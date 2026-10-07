@@ -10,8 +10,7 @@ public interface ILearningMentorService
 
     // Quiz
     Task<MentorQuiz> GenerateQuizAsync(string userId, string topic, int questionCount = 5);
-    Task<MentorQuiz> SubmitAnswerAsync(string quizId, int questionIndex, int answerIndex);
-
+    Task<MentorQuiz?> SubmitAnswerAsync(string userId, string quizId, int questionIndex, int answerIndex);
     // Study Plan
     Task<MentorStudyPlan> CreateStudyPlanAsync(string userId, string topic, string goal);
     Task<MentorStudyPlan?> GetActiveStudyPlanAsync(string userId);

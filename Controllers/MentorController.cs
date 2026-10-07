@@ -70,8 +70,11 @@ public class MentorController : ControllerBase
     {
         if (!ModelState.IsValid) return ValidationProblem();
 
-        var quiz = await _mentor.SubmitAnswerAsync(quizId, request.QuestionIndex, request.AnswerIndex);
-        return Ok(quiz);
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        var quiz = await _mentor.SubmitAnswerAsync(profile.Id, quizId, request.QuestionIndex, request.AnswerIndex);
+        return quiz is null ? NotFound(new { error = "Quiz not found" }) : Ok(quiz);
     }
 
     public sealed class CreateStudyPlanRequest

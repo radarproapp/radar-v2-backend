@@ -11,6 +11,7 @@ public enum MentorMode
 public class MentorQuiz
 {
     public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string UserId { get; set; } = string.Empty;
     public string Topic { get; set; } = string.Empty;
     public List<MentorQuizQuestion> Questions { get; set; } = [];
     public int CurrentQuestionIndex { get; set; }
@@ -32,6 +33,7 @@ public class MentorQuizQuestion
 public class MentorStudyPlan
 {
     public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string UserId { get; set; } = string.Empty;
     public string Topic { get; set; } = string.Empty;
     public string Goal { get; set; } = string.Empty;
     public List<MentorStudyWeek> Weeks { get; set; } = [];

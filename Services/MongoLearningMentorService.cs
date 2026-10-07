@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using MongoDB.Driver;
 using RadarV2.Data;
+using RadarV2.Helpers;
 using RadarV2.Models;
 using RadarV2.Services.Interfaces;
 
@@ -63,6 +64,7 @@ public class MongoLearningMentorService : ILearningMentorService
 
         var quiz = new MentorQuiz
         {
+            UserId = userId,
             Topic = topic,
             Questions = [],
         };
@@ -78,7 +80,7 @@ public class MongoLearningMentorService : ILearningMentorService
                     {
                         Question = q.TryGetProperty("question", out var qText) ? qText.GetString() ?? "" : "",
                         CorrectIndex = q.TryGetProperty("correctIndex", out var ci) ? ci.GetInt32() : 0,
-                        Explanation = q.TryGetProperty("explanation", out var exp) ? exp.GetString() ?? "" : "",
+                        Explanation = q.TryGetProperty("explanation", out var exp) ? PlainText.Clean(exp.GetString()) : "",
                     };
 
                     if (q.TryGetProperty("options", out var opts))
@@ -102,24 +104,27 @@ public class MongoLearningMentorService : ILearningMentorService
             });
         }
 
+        await _db.MentorQuizzes.InsertOneAsync(quiz);
         return quiz;
     }
 
-    public Task<MentorQuiz> SubmitAnswerAsync(string quizId, int questionIndex, int answerIndex)
+    public async Task<MentorQuiz?> SubmitAnswerAsync(string userId, string quizId, int questionIndex, int answerIndex)
     {
-        var quiz = new MentorQuiz { Id = quizId };
-        if (questionIndex < quiz.Questions.Count)
-        {
-            var q = quiz.Questions[questionIndex];
-            q.UserAnswerIndex = answerIndex;
-            q.UserAnswered = true;
-            if (answerIndex == q.CorrectIndex)
-                quiz.Score++;
-            quiz.CurrentQuestionIndex = questionIndex + 1;
-            if (quiz.CurrentQuestionIndex >= quiz.Questions.Count)
-                quiz.IsComplete = true;
-        }
-        return Task.FromResult(quiz);
+        var quiz = await _db.MentorQuizzes.Find(q => q.Id == quizId && q.UserId == userId).FirstOrDefaultAsync();
+        if (quiz is null) return null;
+        if (questionIndex < 0 || questionIndex >= quiz.Questions.Count) return quiz;
+
+        var question = quiz.Questions[questionIndex];
+        if (question.UserAnswered == true) return quiz; // already answered — idempotent
+
+        question.UserAnswerIndex = answerIndex;
+        question.UserAnswered = true;
+        if (answerIndex == question.CorrectIndex) quiz.Score++;
+        quiz.CurrentQuestionIndex = Math.Max(quiz.CurrentQuestionIndex, questionIndex + 1);
+        if (quiz.CurrentQuestionIndex >= quiz.Questions.Count) quiz.IsComplete = true;
+
+        await _db.MentorQuizzes.ReplaceOneAsync(q => q.Id == quizId, quiz);
+        return quiz;
     }
 
     // ── Study Plan ─────────────────────────────────────────────────────────
@@ -134,6 +139,7 @@ public class MongoLearningMentorService : ILearningMentorService
 
         var plan = new MentorStudyPlan
         {
+            UserId = userId,
             Topic = topic,
             Goal = goal,
         };
@@ -182,12 +188,17 @@ public class MongoLearningMentorService : ILearningMentorService
             }).ToList();
         }
 
+        await _db.MentorStudyPlans.InsertOneAsync(plan);
         return plan;
     }
 
-    public Task<MentorStudyPlan?> GetActiveStudyPlanAsync(string userId)
+    public async Task<MentorStudyPlan?> GetActiveStudyPlanAsync(string userId)
     {
-        return Task.FromResult<MentorStudyPlan?>(null);
+        if (string.IsNullOrEmpty(userId)) return null;
+        return await _db.MentorStudyPlans
+            .Find(p => p.UserId == userId)
+            .SortByDescending(p => p.CreatedAt)
+            .FirstOrDefaultAsync();
     }
 
     // ── Work Review ────────────────────────────────────────────────────────
@@ -233,6 +244,12 @@ public class MongoLearningMentorService : ILearningMentorService
             review.Suggestions = ["Look at related research", "Add more specific examples"];
         }
 
+        // Mentor answers should read as clean text, not markdown.
+        review.Feedback = PlainText.Clean(review.Feedback);
+        review.Strengths = review.Strengths.Select(PlainText.Clean).Where(s => s.Length > 0).ToList();
+        review.Improvements = review.Improvements.Select(PlainText.Clean).Where(s => s.Length > 0).ToList();
+        review.Suggestions = review.Suggestions.Select(PlainText.Clean).Where(s => s.Length > 0).ToList();
+
         return review;
     }
 
@@ -254,7 +271,7 @@ public class MongoLearningMentorService : ILearningMentorService
     private static string BuildSystemPrompt(UserProfile? profile)
     {
         if (profile == null)
-            return "You are a learning mentor for Radar. Help learners understand concepts, prepare for quizzes, create study plans, and review their work. Be encouraging, specific, and actionable. Use markdown for structure.";
+            return "You are a learning mentor for Radar. Help learners understand concepts, prepare for quizzes, create study plans, and review their work. Be encouraging, specific, and actionable. Write in clean plain text — no markdown symbols (no #, **, *, or backticks); use '• ' for lists.";
 
         return "You are a learning mentor for " + profile.Name + ".\n\n" +
             "Their profile:\n" +
@@ -265,7 +282,7 @@ public class MongoLearningMentorService : ILearningMentorService
             "Guidelines:\n" +
             "- Be encouraging but honest\n" +
             "- Reference their goal when suggesting resources\n" +
-            "- Use markdown for structure (headers, lists, bold)\n" +
+            "- Write in clean plain text: no markdown (no # headings, ** bold, * italics or backticks). Use '• ' for lists.\n" +
             "- When generating quizzes, make questions practical and relevant\n" +
             "- When reviewing work, be specific about what to improve\n" +
             "- Keep responses focused and actionable";
