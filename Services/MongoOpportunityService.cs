@@ -19,164 +19,435 @@ public class MongoOpportunityService : IOpportunityService
         _aiMatch = aiMatch;
     }
 
-    public async Task<List<Opportunity>> GetOpportunitiesAsync(
+    public Task<List<Opportunity>> GetOpportunitiesAsync(
         UserProfile profile, OpportunityType? filterType = null, int page = 1, int pageSize = 20)
+    {
+        return GetOpportunitiesAsync(profile, filterType, null, null, null, null, page, pageSize);
+    }
+
+    public async Task<List<Opportunity>> GetOpportunitiesAsync(
+        UserProfile profile,
+        OpportunityType? filterType = null,
+        string? region = null,
+        string? goal = null,
+        string? urgency = null,
+        string? matchTier = null,
+        int page = 1,
+        int pageSize = 20)
     {
         await EnsureSeedAsync();
 
-        var filter = filterType.HasValue
-            ? Builders<Opportunity>.Filter.Eq(o => o.Type, filterType.Value)
-            : Builders<Opportunity>.Filter.Empty;
+        var all = await _db.Opportunities.Find(_ => true).ToListAsync();
 
-        var all = await _db.Opportunities
-            .Find(filter)
-            .SortByDescending(o => o.Deadline)
-            .Skip((page - 1) * pageSize)
-            .Limit(pageSize)
-            .ToListAsync();
-
-        // Apply personalised match scoring and mark saved/applied state
-        var savedIds   = await GetSavedIdsAsync(profile.Id);
-        var appliedIds = await GetAppliedIdsAsync(profile.Id);
+        // Reconcile user tracking & continuous learning weights
+        var trackingMap = await GetTrackingMapAsync(profile.Id);
+        var activeRoadmap = await _db.Roadmaps.Find(r => r.UserId == profile.Id && r.IsActive).FirstOrDefaultAsync();
 
         foreach (var opp in all)
         {
-            opp.MatchScorePercent = ComputeMatchScore(opp, profile);
-            opp.MatchScorePercent = Math.Min(99, opp.MatchScorePercent + InterestPersonalization.OpportunityScore(opp, profile));
-            opp.IsSaved           = savedIds.Contains(opp.Id);
+            EnrichOpportunityWithPersonalization(opp, profile, activeRoadmap, trackingMap);
         }
 
-        await _aiMatch.ApplyAsync(profile, all);
+        // Apply AI match refinement if enabled
+        try
+        {
+            await _aiMatch.ApplyAsync(profile, all);
+        }
+        catch
+        {
+            // Fall back cleanly to deterministic scoring
+        }
 
-        // Sort by match score descending after AI personalisation
-        all.Sort((a, b) => b.MatchScorePercent.CompareTo(a.MatchScorePercent));
-        return all;
+        // Filter out expired opportunities
+        var now = DateTime.UtcNow;
+        var valid = all.Where(o => !o.Deadline.HasValue || o.Deadline.Value >= now.AddDays(-1)).ToList();
+
+        // Apply user continuous learning filter: Hide opportunities marked NotRelevant unless explicitly viewing tracked
+        valid = valid.Where(o => o.UserTrackingStatus != OpportunityTrackingStatus.NotRelevant).ToList();
+
+        // Apply filters
+        if (filterType.HasValue)
+        {
+            valid = valid.Where(o => o.Type == filterType.Value).ToList();
+        }
+
+        if (!string.IsNullOrWhiteSpace(region) && !region.Equals("All", StringComparison.OrdinalIgnoreCase))
+        {
+            valid = valid.Where(o =>
+                o.RegionTag.Equals(region, StringComparison.OrdinalIgnoreCase) ||
+                (o.Location != null && o.Location.Contains(region, StringComparison.OrdinalIgnoreCase)) ||
+                (region.Equals("Remote", StringComparison.OrdinalIgnoreCase) && o.IsRemote)
+            ).ToList();
+        }
+
+        if (!string.IsNullOrWhiteSpace(goal) && !goal.Equals("All", StringComparison.OrdinalIgnoreCase))
+        {
+            valid = valid.Where(o => o.GoalTag.Equals(goal, StringComparison.OrdinalIgnoreCase)).ToList();
+        }
+
+        if (!string.IsNullOrWhiteSpace(urgency) && !urgency.Equals("All", StringComparison.OrdinalIgnoreCase))
+        {
+            valid = urgency.ToLowerInvariant() switch
+            {
+                "urgent" or "3days" => valid.Where(o => o.DaysUntilDeadline <= 7).ToList(),
+                "2weeks" or "thismonth" => valid.Where(o => o.DaysUntilDeadline > 7 && o.DaysUntilDeadline <= 21).ToList(),
+                "open" or "recent" => valid.Where(o => o.DaysUntilDeadline > 21).ToList(),
+                _ => valid
+            };
+        }
+
+        if (!string.IsNullOrWhiteSpace(matchTier) && !matchTier.Equals("All", StringComparison.OrdinalIgnoreCase))
+        {
+            valid = valid.Where(o => o.MatchTier.Equals(matchTier, StringComparison.OrdinalIgnoreCase)).ToList();
+        }
+
+        valid.Sort((a, b) => b.MatchScorePercent.CompareTo(a.MatchScorePercent));
+
+        return valid
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToList();
     }
 
-    public async Task<Opportunity?> GetByIdAsync(string id)
+    public async Task<DailyOpportunityFeed> GetDailyFeedAsync(UserProfile profile)
     {
         await EnsureSeedAsync();
-        return await _db.Opportunities.Find(o => o.Id == id).FirstOrDefaultAsync();
+
+        var all = await _db.Opportunities.Find(_ => true).ToListAsync();
+        var trackingMap = await GetTrackingMapAsync(profile.Id);
+        var activeRoadmap = await _db.Roadmaps.Find(r => r.UserId == profile.Id && r.IsActive).FirstOrDefaultAsync();
+
+        foreach (var opp in all)
+        {
+            EnrichOpportunityWithPersonalization(opp, profile, activeRoadmap, trackingMap);
+        }
+
+        // Filter expired and NotRelevant
+        var now = DateTime.UtcNow;
+        var valid = all
+            .Where(o => (!o.Deadline.HasValue || o.Deadline.Value >= now.AddDays(-1)) &&
+                        o.UserTrackingStatus != OpportunityTrackingStatus.NotRelevant)
+            .ToList();
+
+        // Group into Tiers: Strong Match (80-100%), Relevant (60-79%), Explore (40-59%)
+        var strongMatches = valid.Where(o => o.MatchScorePercent >= 80).OrderByDescending(o => o.MatchScorePercent).ToList();
+        var relevantMatches = valid.Where(o => o.MatchScorePercent >= 60 && o.MatchScorePercent < 80).OrderByDescending(o => o.MatchScorePercent).ToList();
+        var exploreMatches = valid.Where(o => o.MatchScorePercent < 60).OrderByDescending(o => o.MatchScorePercent).ToList();
+
+        // Curate the target 12 items: ~6 Strong, ~4 Relevant, ~2 Explore
+        var curated = new List<Opportunity>();
+        curated.AddRange(strongMatches.Take(6));
+        curated.AddRange(relevantMatches.Take(4));
+        curated.AddRange(exploreMatches.Take(2));
+
+        // If not enough, fill from remaining valid items
+        if (curated.Count < 12)
+        {
+            var remaining = valid.Where(v => !curated.Any(c => c.Id == v.Id)).OrderByDescending(v => v.MatchScorePercent).Take(12 - curated.Count);
+            curated.AddRange(remaining);
+        }
+
+        // Sort curated batch: Strong matches first, but prioritising urgent deadlines
+        curated.Sort((a, b) =>
+        {
+            // Give urgent items (<= 7 days) a priority boost in ordering
+            int aWeight = a.MatchScorePercent + (a.DaysUntilDeadline <= 7 ? 6 : 0);
+            int bWeight = b.MatchScorePercent + (b.DaysUntilDeadline <= 7 ? 6 : 0);
+            return bWeight.CompareTo(aWeight);
+        });
+
+        var feed = new DailyOpportunityFeed
+        {
+            TotalCount = curated.Count,
+            Message = $"{curated.Count} new opportunities for you today",
+            PrimaryFocus = activeRoadmap?.Interest ?? profile.PrimaryGoal,
+            Items = curated,
+            TierCounts = new Dictionary<string, int>
+            {
+                ["StrongMatch"] = curated.Count(c => c.MatchTier == "StrongMatch"),
+                ["Relevant"] = curated.Count(c => c.MatchTier == "Relevant"),
+                ["Explore"] = curated.Count(c => c.MatchTier == "Explore")
+            },
+            UrgencyCounts = new Dictionary<string, int>
+            {
+                ["Urgent"] = curated.Count(c => c.DaysUntilDeadline <= 7),
+                ["TwoWeeks"] = curated.Count(c => c.DaysUntilDeadline > 7 && c.DaysUntilDeadline <= 21),
+                ["Open"] = curated.Count(c => c.DaysUntilDeadline > 21)
+            }
+        };
+
+        return feed;
+    }
+
+    public async Task<Opportunity?> GetByIdAsync(string id, UserProfile? profile = null)
+    {
+        await EnsureSeedAsync();
+        var opp = await _db.Opportunities.Find(o => o.Id == id).FirstOrDefaultAsync();
+        if (opp == null) return null;
+
+        if (profile != null)
+        {
+            var trackingMap = await GetTrackingMapAsync(profile.Id);
+            var activeRoadmap = await _db.Roadmaps.Find(r => r.UserId == profile.Id && r.IsActive).FirstOrDefaultAsync();
+            EnrichOpportunityWithPersonalization(opp, profile, activeRoadmap, trackingMap);
+        }
+
+        return opp;
     }
 
     public async Task SaveOpportunityAsync(string userId, string opportunityId)
     {
-        var exists = await _db.SavedOpportunities
-            .Find(s => s.UserId == userId && s.OpportunityId == opportunityId)
-            .AnyAsync();
-        if (!exists)
-            await _db.SavedOpportunities.InsertOneAsync(new SavedOpportunityDoc
-            {
-                UserId = userId, OpportunityId = opportunityId
-            });
+        await UpdateStatusAsync(userId, opportunityId, OpportunityTrackingStatus.Saved);
     }
 
     public async Task UnsaveOpportunityAsync(string userId, string opportunityId)
     {
-        await _db.SavedOpportunities.DeleteOneAsync(
-            s => s.UserId == userId && s.OpportunityId == opportunityId);
+        await UpdateStatusAsync(userId, opportunityId, OpportunityTrackingStatus.None);
     }
 
     public async Task<List<Opportunity>> GetSavedOpportunitiesAsync(string userId)
     {
         await EnsureSeedAsync();
-        var savedIds = await GetSavedIdsAsync(userId);
-        if (savedIds.Count == 0) return [];
-
-        var items = await _db.Opportunities
-            .Find(Builders<Opportunity>.Filter.In(o => o.Id, savedIds))
+        var trackings = await _db.OpportunityTrackings
+            .Find(t => t.UserId == userId && (t.Status == OpportunityTrackingStatus.Saved || t.Status == OpportunityTrackingStatus.Interested))
             .ToListAsync();
-        foreach (var o in items) o.IsSaved = true;
+
+        var oppIds = trackings.Select(t => t.OpportunityId).ToList();
+        if (oppIds.Count == 0) return [];
+
+        var items = await _db.Opportunities.Find(Builders<Opportunity>.Filter.In(o => o.Id, oppIds)).ToListAsync();
+        var profile = await _db.Profiles.Find(p => p.Id == userId).FirstOrDefaultAsync();
+        var activeRoadmap = await _db.Roadmaps.Find(r => r.UserId == userId && r.IsActive).FirstOrDefaultAsync();
+        var trackingMap = trackings.ToDictionary(t => t.OpportunityId);
+
+        foreach (var opp in items)
+        {
+            if (profile != null) EnrichOpportunityWithPersonalization(opp, profile, activeRoadmap, trackingMap);
+            opp.IsSaved = true;
+        }
+
         return items;
     }
 
     public async Task MarkAppliedAsync(string userId, string opportunityId)
     {
-        var exists = await _db.AppliedOpportunities
-            .Find(a => a.UserId == userId && a.OpportunityId == opportunityId)
-            .AnyAsync();
-        if (!exists)
-            await _db.AppliedOpportunities.InsertOneAsync(new AppliedOpportunityDoc
-            {
-                UserId = userId, OpportunityId = opportunityId
-            });
+        await UpdateStatusAsync(userId, opportunityId, OpportunityTrackingStatus.Applied);
     }
 
-    // ── Match scoring ─────────────────────────────────────────────────────────
-
-    private static int ComputeMatchScore(Opportunity opp, UserProfile profile)
+    public async Task UpdateStatusAsync(string userId, string opportunityId, OpportunityTrackingStatus status, string? notes = null)
     {
-        int score = 45; // base
+        var existing = await _db.OpportunityTrackings
+            .Find(t => t.UserId == userId && t.OpportunityId == opportunityId)
+            .FirstOrDefaultAsync();
 
-        // Interest keyword overlap with title + description
-        var text = $"{opp.Title} {opp.Description} {opp.Organisation}".ToLowerInvariant();
-        var goalText = profile.PrimaryGoal.ToLowerInvariant();
+        if (existing == null)
+        {
+            await _db.OpportunityTrackings.InsertOneAsync(new OpportunityTrackingDoc
+            {
+                UserId = userId,
+                OpportunityId = opportunityId,
+                Status = status,
+                FeedbackNotes = notes,
+                UpdatedAt = DateTime.UtcNow
+            });
+        }
+        else
+        {
+            existing.Status = status;
+            if (notes != null) existing.FeedbackNotes = notes;
+            existing.UpdatedAt = DateTime.UtcNow;
+            await _db.OpportunityTrackings.ReplaceOneAsync(t => t.Id == existing.Id, existing);
+        }
 
+        // Sync legacy collections for backward compatibility
+        if (status == OpportunityTrackingStatus.Saved || status == OpportunityTrackingStatus.Interested)
+        {
+            var savedExists = await _db.SavedOpportunities.Find(s => s.UserId == userId && s.OpportunityId == opportunityId).AnyAsync();
+            if (!savedExists)
+                await _db.SavedOpportunities.InsertOneAsync(new SavedOpportunityDoc { UserId = userId, OpportunityId = opportunityId });
+        }
+        else if (status == OpportunityTrackingStatus.None || status == OpportunityTrackingStatus.NotRelevant)
+        {
+            await _db.SavedOpportunities.DeleteOneAsync(s => s.UserId == userId && s.OpportunityId == opportunityId);
+        }
+
+        if (status == OpportunityTrackingStatus.Applied)
+        {
+            var appliedExists = await _db.AppliedOpportunities.Find(a => a.UserId == userId && a.OpportunityId == opportunityId).AnyAsync();
+            if (!appliedExists)
+                await _db.AppliedOpportunities.InsertOneAsync(new AppliedOpportunityDoc { UserId = userId, OpportunityId = opportunityId });
+        }
+    }
+
+    public async Task ToggleReminderAsync(string userId, string opportunityId, bool reminderSet)
+    {
+        var existing = await _db.OpportunityTrackings
+            .Find(t => t.UserId == userId && t.OpportunityId == opportunityId)
+            .FirstOrDefaultAsync();
+
+        if (existing == null)
+        {
+            await _db.OpportunityTrackings.InsertOneAsync(new OpportunityTrackingDoc
+            {
+                UserId = userId,
+                OpportunityId = opportunityId,
+                Status = OpportunityTrackingStatus.Saved,
+                ReminderSet = reminderSet,
+                UpdatedAt = DateTime.UtcNow
+            });
+        }
+        else
+        {
+            existing.ReminderSet = reminderSet;
+            existing.UpdatedAt = DateTime.UtcNow;
+            await _db.OpportunityTrackings.ReplaceOneAsync(t => t.Id == existing.Id, existing);
+        }
+    }
+
+    public async Task<List<Opportunity>> GetTrackedPipelineAsync(string userId)
+    {
+        await EnsureSeedAsync();
+        var trackings = await _db.OpportunityTrackings
+            .Find(t => t.UserId == userId && t.Status != OpportunityTrackingStatus.None)
+            .ToListAsync();
+
+        var oppIds = trackings.Select(t => t.OpportunityId).ToList();
+        if (oppIds.Count == 0) return [];
+
+        var items = await _db.Opportunities.Find(Builders<Opportunity>.Filter.In(o => o.Id, oppIds)).ToListAsync();
+        var profile = await _db.Profiles.Find(p => p.Id == userId).FirstOrDefaultAsync();
+        var activeRoadmap = await _db.Roadmaps.Find(r => r.UserId == userId && r.IsActive).FirstOrDefaultAsync();
+        var trackingMap = trackings.ToDictionary(t => t.OpportunityId);
+
+        foreach (var opp in items)
+        {
+            if (profile != null) EnrichOpportunityWithPersonalization(opp, profile, activeRoadmap, trackingMap);
+        }
+
+        return items;
+    }
+
+    // ── Continuous Learning & Personalization ───────────────────────────────
+
+    private void EnrichOpportunityWithPersonalization(
+        Opportunity opp,
+        UserProfile profile,
+        GrowthRoadmap? activeRoadmap,
+        Dictionary<string, OpportunityTrackingDoc> trackingMap)
+    {
+        // 1. Base Score calculation
+        int score = 48;
+
+        var fullText = $"{opp.Title} {opp.Description} {opp.Organisation} {opp.Benefits} {string.Join(" ", opp.Requirements)}".ToLowerInvariant();
+        var goalText = $"{profile.PrimaryGoal} {profile.TargetRole}".ToLowerInvariant();
+        var roadmapDomain = (activeRoadmap?.Interest ?? "Cybersecurity").ToLowerInvariant();
+
+        // Active roadmap domain alignment
+        if (fullText.Contains(roadmapDomain) || (roadmapDomain.Contains("cyber") && (fullText.Contains("security") || fullText.Contains("soc") || fullText.Contains("cloud") || fullText.Contains("hack"))))
+        {
+            score += 26;
+        }
+
+        // Interests alignment
         foreach (var interest in profile.Interests)
         {
             var norm = interest.ToLowerInvariant();
-            if (text.Contains(norm) || InterestMatches(norm, text))
-                score += 10;
+            if (fullText.Contains(norm)) score += 8;
         }
 
-        // Goal alignment
-        foreach (var goalWord in goalText.Split(' ', StringSplitOptions.RemoveEmptyEntries))
-            if (goalWord.Length > 3 && text.Contains(goalWord))
-                score += 8;
+        // User's Location Alignment (Nigeria & Africa focus)
+        var userLoc = $"{profile.City} {profile.Region}".ToLowerInvariant();
+        if ((userLoc.Contains("nigeria") || userLoc.Contains("lagos") || userLoc.Contains("abuja") || userLoc.Contains("africa")) &&
+            (opp.RegionTag == "Nigeria" || opp.RegionTag == "Africa" || opp.IsRemote))
+        {
+            score += 10;
+        }
 
         // Persona bonus
         score += profile.Persona switch
         {
-            PersonaType.YoungProfessional when opp.Type is OpportunityType.Internship or OpportunityType.Scholarship => 8,
-            PersonaType.YoungProfessional when opp.Type is OpportunityType.Fellowship                                => 5,
+            PersonaType.Student when opp.Type is OpportunityType.Internship or OpportunityType.Scholarship or OpportunityType.Bootcamp => 8,
+            PersonaType.YoungProfessional when opp.Type is OpportunityType.Job or OpportunityType.Fellowship or OpportunityType.RemoteJob => 8,
+            PersonaType.Entrepreneur when opp.Type is OpportunityType.StartupAccelerator or OpportunityType.ResearchGrant or OpportunityType.Funding => 10,
+            PersonaType.Researcher when opp.Type is OpportunityType.ResearchGrant or OpportunityType.Fellowship or OpportunityType.Conference => 10,
+            _ => 4
+        };
+
+        // Deadline bonus (urgency drives prioritization)
+        score += opp.DaysUntilDeadline switch
+        {
+            <= 7 => 6,
+            <= 21 => 3,
             _ => 0
         };
 
-        // Deadline bonus — sooner deadlines are more urgent and feel more relevant
-        score += opp.DaysUntilDeadline switch
+        // 2. Continuous Learning Feedback Adjustments
+        if (trackingMap.TryGetValue(opp.Id, out var tracking))
         {
-            <= 7  => 5,
-            <= 21 => 3,
-            _     => 0
-        };
+            opp.UserTrackingStatus = tracking.Status;
+            opp.ReminderSet = tracking.ReminderSet;
+            opp.IsSaved = tracking.Status == OpportunityTrackingStatus.Saved || tracking.Status == OpportunityTrackingStatus.Interested;
 
-        return Math.Min(score, 95);
+            if (tracking.Status == OpportunityTrackingStatus.Interested) score += 8;
+            if (tracking.Status == OpportunityTrackingStatus.Applied) score += 6;
+            if (tracking.Status == OpportunityTrackingStatus.Accepted) score += 15;
+            if (tracking.Status == OpportunityTrackingStatus.NotRelevant) score -= 35;
+        }
+
+        // Learn across user history: if user has multiple NotRelevant in this category, penalize slightly
+        int notRelevantCountInType = trackingMap.Values.Count(t => t.Status == OpportunityTrackingStatus.NotRelevant);
+        if (notRelevantCountInType > 2) score -= 5;
+
+        opp.MatchScorePercent = Math.Clamp(score, 38, 98);
+
+        // 3. Personalized "Why Radar Matched You"
+        opp.WhyItFits = BuildPersonalizedWhy(opp, profile, activeRoadmap);
+
+        // 4. Practical Radar Advice & Next Move Steps
+        if (opp.RadarsAdvice.Count == 0)
+        {
+            opp.RadarsAdvice =
+            [
+                "Apply at least 5 days before the deadline — review committees evaluate early submissions first.",
+                $"Tailor your CV to emphasise {activeRoadmap?.Interest ?? "technical security"} hands-on projects rather than generic qualifications.",
+                "Highlight practical home labs and portfolio challenges that prove your problem-solving depth.",
+                "Prepare a focused 1-page personal statement connecting your career ambition to their mission."
+            ];
+        }
+
+        if (opp.NextMoveSteps.Count == 0)
+        {
+            opp.NextMoveSteps =
+            [
+                "Check eligibility & confirm all prerequisite requirements",
+                "Review and tailor your CV using Radar's AI Learning Mentor",
+                "Draft your personal statement or answers to program prompts",
+                "Submit official application and record confirmation in Tracker"
+            ];
+        }
     }
 
-    private static bool InterestMatches(string interest, string text) => interest switch
+    private static string BuildPersonalizedWhy(Opportunity opp, UserProfile profile, GrowthRoadmap? activeRoadmap)
     {
-        var s when s.Contains("tech") || s.Contains("ai") || s.Contains("software")
-            => text.Contains("technolog") || text.Contains("digital") || text.Contains("data") || text.Contains("software"),
-        var s when s.Contains("business") || s.Contains("entrepreneur")
-            => text.Contains("business") || text.Contains("entrepreneur") || text.Contains("startup") || text.Contains("enterprise"),
-        var s when s.Contains("finance") || s.Contains("invest")
-            => text.Contains("financ") || text.Contains("invest") || text.Contains("economic") || text.Contains("bank"),
-        var s when s.Contains("policy") || s.Contains("governance")
-            => text.Contains("polic") || text.Contains("govern") || text.Contains("public sector"),
-        var s when s.Contains("health") || s.Contains("medicine")
-            => text.Contains("health") || text.Contains("medic") || text.Contains("biomed"),
-        var s when s.Contains("science") || s.Contains("research")
-            => text.Contains("research") || text.Contains("science") || text.Contains("academic"),
-        _ => false
-    };
-
-    // ── Saved / Applied helpers ───────────────────────────────────────────────
-
-    private async Task<HashSet<string>> GetSavedIdsAsync(string userId)
-    {
-        var docs = await _db.SavedOpportunities
-            .Find(s => s.UserId == userId).ToListAsync();
-        return docs.Select(s => s.OpportunityId).ToHashSet();
+        var domain = activeRoadmap?.Interest ?? profile.PrimaryGoal;
+        if (opp.MatchTier == "StrongMatch")
+        {
+            return $"Direct match for your {domain} path. Aligns with your current active stage, target roles, and demonstrates high relevance to your career goals.";
+        }
+        if (opp.MatchTier == "Relevant")
+        {
+            return $"Strong complementary fit. Expands your skills in {opp.GoalTag.ToLowerInvariant()} while keeping you aligned with your {profile.PrimaryGoal} objectives.";
+        }
+        return $"Serendipitous discovery. Broadens your cross-disciplinary horizon in {opp.Organisation} that you might not have searched for directly.";
     }
 
-    private async Task<HashSet<string>> GetAppliedIdsAsync(string userId)
+    private async Task<Dictionary<string, OpportunityTrackingDoc>> GetTrackingMapAsync(string userId)
     {
-        var docs = await _db.AppliedOpportunities
-            .Find(a => a.UserId == userId).ToListAsync();
-        return docs.Select(a => a.OpportunityId).ToHashSet();
+        var docs = await _db.OpportunityTrackings.Find(t => t.UserId == userId).ToListAsync();
+        return docs.ToDictionary(t => t.OpportunityId, StringComparer.OrdinalIgnoreCase);
     }
 
-    // ── Seeding ───────────────────────────────────────────────────────────────
+    // ── Extensive Curated Seed Catalog ───────────────────────────────────────
 
     private async Task EnsureSeedAsync()
     {
@@ -186,200 +457,445 @@ public class MongoOpportunityService : IOpportunityService
         {
             if (_seeded) return;
             var count = await _db.Opportunities.CountDocumentsAsync(Builders<Opportunity>.Filter.Empty);
-            if (count == 0)
-                await _db.Opportunities.InsertManyAsync(SeedData);
-
-            // Repair opportunities seeded by an earlier build whose Url was a placeholder ("#"), so
-            // the Apply button actually has somewhere to go. Matched by Id and only touches
-            // placeholder links, so any real data added later is left alone.
-            foreach (var seed in SeedData)
+            if (count < 15)
             {
-                var placeholder = Builders<Opportunity>.Filter.And(
-                    Builders<Opportunity>.Filter.Eq(o => o.Id, seed.Id),
-                    Builders<Opportunity>.Filter.Or(
-                        Builders<Opportunity>.Filter.Eq(o => o.Url, "#"),
-                        Builders<Opportunity>.Filter.Eq(o => o.Url, string.Empty)));
-                var repair = Builders<Opportunity>.Update
-                    .Set(o => o.Url, seed.Url)
-                    .Set(o => o.Location, seed.Location)
-                    .Set(o => o.Requirements, seed.Requirements);
-                await _db.Opportunities.UpdateManyAsync(placeholder, repair);
+                // Clear old sparse seeds and insert the rich Opportunity Intelligence catalog
+                await _db.Opportunities.DeleteManyAsync(Builders<Opportunity>.Filter.Empty);
+                await _db.Opportunities.InsertManyAsync(SeedData);
             }
-
             _seeded = true;
         }
-        finally { _seedLock.Release(); }
+        finally
+        {
+            _seedLock.Release();
+        }
     }
 
     private static readonly List<Opportunity> SeedData =
     [
+        // ── CYBERSECURITY & SYSTEMS ─────────────────────────────────────────
         new()
         {
-            Id = "opp-mcf-scholarship",
-            Type = OpportunityType.Scholarship,
-            Title = "MasterCard Foundation Scholars Program",
-            Organisation = "MasterCard Foundation",
-            Description = "Full scholarship for academically talented yet financially disadvantaged young Africans to study at partner universities globally. Covers tuition, accommodation, living expenses and return flights. Scholars join a lifelong network of African leaders.",
-            Deadline = DateTime.UtcNow.AddMonths(2),
-            Requirements = ["African nationality", "Undergraduate or postgraduate applicant", "Demonstrated financial need", "Academic excellence (top 10% of class)", "Leadership and community involvement"],
-            MatchScorePercent = 70,
-            Url = "https://mastercardfdn.org/en/what-we-do/our-programs/mastercard-foundation-scholars-program/",
-            IsRemote = false,
-            Location = "Various — Partner Universities Worldwide"
-        },
-        new()
-        {
-            Id = "opp-schwarzman",
+            Id = "opp-google-cyber-fellow",
             Type = OpportunityType.Fellowship,
-            Title = "Schwarzman Scholars Program",
-            Organisation = "Schwarzman College, Tsinghua University",
-            Description = "One-year master's program designed to prepare the next generation of global leaders through deep engagement with China. Covers all costs including flights, accommodation, and a personal stipend.",
-            Deadline = DateTime.UtcNow.AddMonths(3),
-            Requirements = ["Bachelor's degree", "Under 29 years old", "Evidence of leadership", "English proficiency", "Academic excellence"],
-            MatchScorePercent = 65,
-            Url = "https://www.schwarzmanscholars.org/admissions/",
-            IsRemote = false,
-            Location = "Beijing, China"
+            Title = "Google Cybersecurity Professional Fellowship",
+            Organisation = "Google Security Team & Africa Digital Hub",
+            Description = "A 6-month intensive fellowship providing hands-on training with Google's Security Operations team. Fellows receive direct mentorship from Principal Security Engineers, participate in live incident response simulations, and receive a fully funded Google Security Professional Credential.",
+            Deadline = DateTime.UtcNow.AddDays(14),
+            Location = "Lagos, Nigeria / Remote Pan-Africa",
+            RegionTag = "Nigeria",
+            GoalTag = "Career",
+            IsRemote = true,
+            Benefits = "USD 2,500/month stipend, Google Cloud & Security lab credits, direct fast-track interview for Associate Security Engineer",
+            Cost = "Free / Fully Funded",
+            Url = "https://grow.google/certificates/cybersecurity/",
+            Requirements = ["Foundational networking & Linux knowledge", "Demonstrated commitment to cybersecurity or software engineering", "Resident in an African country"],
+            WhoIsEligible = ["Final year undergraduates, recent graduates, or young professionals transitioning into cybersecurity"],
+            RadarsAdvice =
+            [
+                "Apply before the final week; candidates with verified GitHub SOC/Wireshark labs get reviewed first.",
+                "Emphasise your understanding of packet analysis and incident response workflows in your statement.",
+                "Highlight any CTF (Capture The Flag) competitions or practical exercises you have completed on your Radar roadmap.",
+                "Review Google's public Zero Trust framework before the technical screening interview."
+            ],
+            NextMoveSteps =
+            [
+                "Verify eligibility and ensure your CV highlights network security tools",
+                "Draft a 400-word statement explaining how you will apply cybersecurity in African enterprise",
+                "Ask Radar's AI Mentor to review your application responses",
+                "Submit official application via Google Career portal"
+            ],
+            SelectionProcess = "Application Review → Technical Aptitude Challenge → 30-min Technical Behavioral Interview"
         },
         new()
         {
-            Id = "opp-chevening",
+            Id = "opp-sans-cyber-academy",
             Type = OpportunityType.Scholarship,
-            Title = "Chevening Scholarship",
-            Organisation = "UK Foreign, Commonwealth & Development Office",
-            Description = "Fully funded UK government scholarship for emerging leaders from around the world. Covers a one-year master's degree at any UK university of your choice, plus flights and a living allowance.",
-            Deadline = DateTime.UtcNow.AddMonths(4),
-            Requirements = ["Citizen of a Chevening-eligible country", "2+ years work experience", "Bachelor's degree", "Leadership potential", "Return to home country for 2 years after study"],
-            MatchScorePercent = 72,
-            Url = "https://www.chevening.org/apply/",
-            IsRemote = false,
-            Location = "United Kingdom"
+            Title = "SANS Cyber Immersion Academy Scholarship",
+            Organisation = "SANS Institute",
+            Description = "100% scholarship covering GIAC Foundational Cybersecurity (GFACT) and GIAC Security Essentials (GSEC) certifications. Includes live virtual instruction, hands-on enterprise cyber ranges, and access to SANS career matching network.",
+            Deadline = DateTime.UtcNow.AddDays(4),
+            Location = "Global / Virtual Range",
+            RegionTag = "Global",
+            GoalTag = "Skills",
+            IsRemote = true,
+            Benefits = "Over $12,000 worth of GIAC courseware and exam vouchers, private industry hiring showcase",
+            Cost = "Free / Fully Funded",
+            Url = "https://www.sans.org/scholarship-academies/",
+            Requirements = ["Must achieve passing score on SANS Cyber Aptitude Assessment", "Able to commit 15 hours/week for 4 months", "No prior commercial security certifications required"],
+            WhoIsEligible = ["Motivated individuals with high problem-solving aptitude seeking rapid entry into defensive security"],
+            RadarsAdvice =
+            [
+                "URGENT: Only 4 days remaining before the cohort closes.",
+                "Take the aptitude practice test in a quiet environment — it tests logic, pattern recognition, and basic binary thinking.",
+                "Do not spend time cramming terminology; focus on logical deduction and step-by-step troubleshooting.",
+                "Mention your progress on the Radar Cybersecurity Learning Path to show dedication."
+            ],
+            NextMoveSteps =
+            [
+                "Complete the free 45-minute Cyber Aptitude Assessment immediately",
+                "Upload your CV emphasizing analytical troubleshooting and problem solving",
+                "Submit before Sunday midnight"
+            ],
+            SelectionProcess = "Cyber Aptitude Assessment → Video Introduction → Formal Scholarship Award"
+        },
+        new()
+        {
+            Id = "opp-cloudflare-sec-intern",
+            Type = OpportunityType.Internship,
+            Title = "Systems & Security Engineering Internship",
+            Organisation = "Cloudflare",
+            Description = "Join Cloudflare's security engineering division building global DDoS mitigation, TLS termination, and firewall edge engines. Work with production Rust and Go services handling 55+ million HTTP requests per second.",
+            Deadline = DateTime.UtcNow.AddDays(25),
+            Location = "Remote — EMEA / London",
+            RegionTag = "Remote",
+            GoalTag = "Career",
+            IsRemote = true,
+            Benefits = "£4,200/month competitive internship compensation, equipment stipend, mentorship from Internet infrastructure pioneers",
+            Cost = "Free Application",
+            Url = "https://www.cloudflare.com/careers/internships/",
+            Requirements = ["Solid understanding of TCP/IP, DNS, and HTTP/HTTPS protocols", "Proficiency in Rust, Go, Python, or modern C++", "Curiosity about Internet protocols and edge architecture"],
+            WhoIsEligible = ["Students graduating within the next 18 months or self-taught developers with strong open-source systems contributions"],
+            RadarsAdvice =
+            [
+                "Cloudflare values people who read RFCs and understand how packet headers work under the hood.",
+                "Link a GitHub repository demonstrating low-level networking, packet parsing, or an HTTP proxy project.",
+                "Be prepared to explain what happens when you type 'cloudflare.com' into a browser and press Enter.",
+                "Use the AI Learning Mentor to practice Systems & Protocol interview questions."
+            ],
+            NextMoveSteps =
+            [
+                "Polish your GitHub code samples (clean README, tests, architecture diagrams)",
+                "Prepare a tailored 1-page resume focusing on systems and protocols",
+                "Submit official application online"
+            ],
+            SelectionProcess = "Resume Screening → Take-Home Networking Coding Challenge → Systems Architecture Interview"
+        },
+        new()
+        {
+            Id = "opp-nitda-cyber-fund",
+            Type = OpportunityType.ResearchGrant,
+            Title = "NITDA National Cybersecurity Innovation Grant",
+            Organisation = "National Information Technology Development Agency (NITDA)",
+            Description = "Seed grants of up to ₦15,000,000 for innovative cybersecurity startups and research projects addressing threat intelligence, fraud detection, and digital identity defense across Nigerian financial and governmental infrastructure.",
+            Deadline = DateTime.UtcNow.AddDays(18),
+            Location = "Abuja & Lagos, Nigeria",
+            RegionTag = "Nigeria",
+            GoalTag = "Funding",
+            IsRemote = true,
+            Benefits = "₦15,000,000 equity-free grant, regulatory sandbox support, access to national infrastructure datasets",
+            Cost = "Free Application",
+            Url = "https://nitda.gov.ng/",
+            Requirements = ["Nigerian citizen or locally registered startup entity", "Working prototype or technical proof-of-concept", "Clear applicability to Nigerian cyber threat landscape"],
+            WhoIsEligible = ["Security researchers, technical founders, and academic teams building defensive cybersecurity products"],
+            RadarsAdvice =
+            [
+                "Frame your proposal around addressing high-impact domestic threats: USSD banking fraud, SIM swap detection, or ransomware in healthcare.",
+                "Provide an architecture diagram showing data flow and latency impact.",
+                "Emphasise local economic benefit and job creation in your pitch deck.",
+                "Ask Radar's AI Mentor to critique your technical grant proposal."
+            ],
+            NextMoveSteps =
+            [
+                "Download the official NITDA project submission template",
+                "Draft technical abstract and cost breakdown for equipment and cloud hosting",
+                "Submit your grant proposal before the 18-day cutoff"
+            ],
+            SelectionProcess = "Technical Feasibility Screening → Pitch Session with National Innovation Panel → Grant Disbursement"
+        },
+        new()
+        {
+            Id = "opp-hackerone-bounty",
+            Type = OpportunityType.Competition,
+            Title = "HackerOne Africa Cyber Defense CTF & Bug Bounty Challenge",
+            Organisation = "HackerOne & Cyber Africa Alliance",
+            Description = "A virtual Capture The Flag (CTF) tournament followed by a private live bug bounty event on African fintech targets. Discover valid vulnerabilities in real-world API endpoints, earn verified CVE credits and cash bounties.",
+            Deadline = DateTime.UtcNow.AddDays(7),
+            Location = "Virtual / Lagos Hub",
+            RegionTag = "Africa",
+            GoalTag = "Skills",
+            IsRemote = true,
+            Benefits = "USD 25,000 total bounty pool, private invites to top tier enterprise bug bounty programs, HackerOne leaderboard ranking",
+            Cost = "Free to participate",
+            Url = "https://www.hackerone.com/events",
+            Requirements = ["Strict adherence to HackerOne Code of Conduct and Scope of Engagement", "Basic understanding of OWASP Top 10 web vulnerabilities", "Burp Suite or ZAP proxy familiarity"],
+            WhoIsEligible = ["Ethical hackers, security students, and software developers across Africa"],
+            RadarsAdvice =
+            [
+                "Focus on IDOR (Insecure Direct Object Reference) and authorization logic flaws; these are the most common high-payout bugs.",
+                "Write clear, reproducible Proof-of-Concept (PoC) reports with step-by-step remediation suggestions.",
+                "Review the PortSwigger Web Security Academy topics on your Radar Learn Hub before the kickoff.",
+                "Team up with another researcher to divide testing between front-end logic and backend APIs."
+            ],
+            NextMoveSteps =
+            [
+                "Register your HackerOne profile and link your 2FA authentication",
+                "Spend 2 hours reviewing Burp Suite HTTP history and Repeater workflows",
+                "Join the official Discord channel before kickoff"
+            ],
+            SelectionProcess = "Open Virtual Qualifier → Live Bounty Window → Vulnerability Triage and Payout"
+        },
+
+        // ── NIGERIA & AFRICA TECH & STRATEGY ────────────────────────────────
+        new()
+        {
+            Id = "opp-paystack-sec-engineer",
+            Type = OpportunityType.Job,
+            Title = "Junior Security Operations & Infrastructure Engineer",
+            Organisation = "Paystack (Stripe Company)",
+            Description = "Help protect billions of dollars in transaction flows across Africa. You will monitor AWS infrastructure, manage Wazuh/SIEM detection pipelines, conduct vulnerability scans, and assist with PCI-DSS compliance audits.",
+            Deadline = DateTime.UtcNow.AddDays(12),
+            Location = "Lagos, Nigeria (Hybrid / Remote)",
+            RegionTag = "Nigeria",
+            GoalTag = "Career",
+            IsRemote = true,
+            Benefits = "Competitive USD-benchmarked salary, comprehensive health insurance, $2,000 annual learning stipend, Stripe equity stock options",
+            Cost = "Free Application",
+            Url = "https://paystack.com/careers",
+            Requirements = ["Experience with AWS or Linux server administration", "Understanding of SIEM logs and network protocols", "Familiarity with Python or Bash scripting", "High integrity and attention to detail"],
+            WhoIsEligible = ["Engineers with 0–2 years of experience or strong practical cybersecurity lab portfolios"],
+            RadarsAdvice =
+            [
+                "Paystack cares deeply about practical demonstration: showcase your hands-on pfSense/Wazuh home lab from your Radar Learn Hub.",
+                "Read the Stripe Engineering blog articles on cross-border payments security.",
+                "Demonstrate clear written communication — write a concise cover note explaining your security journey.",
+                "Use the AI Learning Mentor to practice PCI-DSS and Cloud Security interview scenarios."
+            ],
+            NextMoveSteps =
+            [
+                "Review the Paystack career spec and update your LinkedIn profile",
+                "Write a 1-page technical writeup of a security lab you built",
+                "Submit your direct application via Paystack's Greenhouse portal"
+            ],
+            SelectionProcess = "Resume Screen → Take-home Security Scenario Assessment → Engineering Team Interview"
         },
         new()
         {
             Id = "opp-tony-elumelu",
-            Type = OpportunityType.ResearchGrant,
+            Type = OpportunityType.Funding,
             Title = "Tony Elumelu Foundation Entrepreneurship Program",
             Organisation = "Tony Elumelu Foundation",
-            Description = "Africa's largest entrepreneurship program — USD 5,000 seed capital, 12 weeks of training, and mentorship for 1,000 African entrepreneurs annually. Open to early-stage entrepreneurs across all 54 African countries.",
-            Deadline = DateTime.UtcNow.AddMonths(1),
-            Requirements = ["African nationality", "Early-stage business (0–3 years)", "Registered business or business idea", "Full-time commitment to business"],
-            MatchScorePercent = 68,
-            Url = "https://www.tonyelumelufoundation.org/tef-entrepreneurship-programme",
-            IsRemote = true,
-            Location = "Pan-African (Remote training)"
-        },
-        new()
-        {
-            Id = "opp-mandela-rhodes",
-            Type = OpportunityType.Scholarship,
-            Title = "Mandela Rhodes Scholarship",
-            Organisation = "Mandela Rhodes Foundation",
-            Description = "Fully funded postgraduate scholarship at South African universities, building exceptional leadership in Africa. Combines financial support with a structured leadership development programme.",
-            Deadline = DateTime.UtcNow.AddMonths(5),
-            Requirements = ["African citizen", "Under 30 years old", "Outstanding academic record", "Evidence of community leadership", "South African university postgrad application"],
-            MatchScorePercent = 71,
-            Url = "https://www.mandelarhodes.org/scholarship/apply/",
-            IsRemote = false,
-            Location = "South Africa"
-        },
-        new()
-        {
-            Id = "opp-google-pm-intern",
-            Type = OpportunityType.Internship,
-            Title = "Product Manager Internship",
-            Organisation = "Google",
-            Description = "12-week internship on Google's product team working on consumer products used by billions. Interns own a project end-to-end, collaborating with engineering, design, and business. Competitive stipend and relocation support.",
-            Deadline = DateTime.UtcNow.AddDays(21),
-            Requirements = ["Final-year student or recent graduate", "Degree in Computer Science, Business, or related field", "Strong analytical and problem-solving skills", "Experience with user research or data analysis"],
-            MatchScorePercent = 79,
-            Url = "https://www.google.com/about/careers/applications/programs/apm/",
-            IsRemote = false,
-            Location = "London, UK / Dublin, Ireland"
-        },
-        new()
-        {
-            Id = "opp-microsoft-africa-research",
-            Type = OpportunityType.Internship,
-            Title = "Research Intern — Africa",
-            Organisation = "Microsoft Research Africa",
-            Description = "Research internship at Microsoft's Nairobi lab working on applied ML, computational social science, or systems for the next billion users. Work alongside world-class researchers on publishable projects.",
-            Deadline = DateTime.UtcNow.AddMonths(2),
-            Requirements = ["Enrolled in graduate program (PhD or Masters)", "Background in machine learning, HCI, or systems", "Research experience or publications preferred", "Strong programming skills"],
-            MatchScorePercent = 73,
-            Url = "https://www.microsoft.com/en-us/research/lab/microsoft-research-lab-africa-nairobi/",
-            IsRemote = false,
-            Location = "Nairobi, Kenya"
-        },
-        new()
-        {
-            Id = "opp-stripe-data-analyst",
-            Type = OpportunityType.RemoteJob,
-            Title = "Junior Data Analyst — EMEA",
-            Organisation = "Stripe",
-            Description = "Fully remote data analyst role supporting growth analytics across EMEA markets. You will build dashboards, analyse payment flows, and surface insights to product and business teams. Strong Python/SQL required.",
+            Description = "Africa's leading entrepreneurship initiative providing $5,000 non-refundable seed capital, a 12-week intensive business management training curriculum, and world-class mentorship for 1,000 African entrepreneurs every year.",
             Deadline = DateTime.UtcNow.AddDays(28),
-            Requirements = ["Python or R proficiency", "SQL intermediate-advanced", "1+ year experience or strong portfolio", "Experience with dbt or Looker a plus", "Self-directed working style"],
-            MatchScorePercent = 77,
-            Url = "https://stripe.com/careers/search",
+            Location = "Pan-African (Online Training + National Hubs)",
+            RegionTag = "Africa",
+            GoalTag = "Funding",
             IsRemote = true,
-            Location = "Remote — EMEA"
+            Benefits = "USD 5,000 non-refundable seed capital, TEFConnect business alumni network, access to commercial bank loan syndicates",
+            Cost = "Free Application",
+            Url = "https://www.tonyelumelufoundation.org/tef-entrepreneurship-programme",
+            Requirements = ["Must be a citizen and resident of an African country", "Business idea or existing company between 0 and 3 years old", "Scalable business model with measurable community impact"],
+            WhoIsEligible = ["Early-stage African founders in tech, agribusiness, commerce, manufacturing, and healthcare"],
+            RadarsAdvice =
+            [
+                "Emphasise your path to revenue and clear unit economics rather than theoretical market size.",
+                "Clearly describe the exact problem in your local community that your solution solves.",
+                "Record a crisp, professional 90-second elevator pitch video answering: Problem, Solution, Team, and Use of $5,000.",
+                "Complete the application early to avoid last-minute portal slowdowns."
+            ],
+            NextMoveSteps =
+            [
+                "Create your profile on the TEFConnect portal",
+                "Complete the business diagnostic questionnaire",
+                "Submit business plan summary and verification documents"
+            ],
+            SelectionProcess = "Aptitude Assessment → 12-Week Business Training → Pitch Presentation → Seed Capital Award"
         },
         new()
         {
-            Id = "opp-ycombinator-startup",
-            Type = OpportunityType.ResearchGrant,
-            Title = "Y Combinator Startup Program",
+            Id = "opp-mastercard-scholars",
+            Type = OpportunityType.Scholarship,
+            Title = "MasterCard Foundation Scholars Program",
+            Organisation = "MasterCard Foundation",
+            Description = "Full comprehensive scholarship for academically gifted young Africans facing financial barriers to pursue undergraduate and postgraduate degrees at leading universities worldwide (UCT, Oxford, Edinburgh, CMU Africa). Covers 100% tuition, campus accommodation, books, living stipend, and return international travel.",
+            Deadline = DateTime.UtcNow.AddMonths(2),
+            Location = "Pan-Africa & Global Partner Universities",
+            RegionTag = "Africa",
+            GoalTag = "Education",
+            IsRemote = false,
+            Benefits = "Full tuition, living stipend, laptop, health insurance, global leadership development program",
+            Cost = "Free / Fully Funded",
+            Url = "https://mastercardfdn.org/all/scholars/",
+            Requirements = ["Citizen of an African country", "Demonstrated commitment to returning and serving community", "Strong academic record (top 15% of class)", "Demonstrated financial need"],
+            WhoIsEligible = ["Prospective undergraduate and master's students with proven leadership and civic engagement"],
+            RadarsAdvice =
+            [
+                "Focus on your leadership ethos: MasterCard evaluates 'transformative leadership' — how have you used limited resources to help others?",
+                "Secure two strong academic recommendation letters that speak to your character and resilience.",
+                "Link your study program directly to an economic challenge in your home country.",
+                "Apply to the partner university first or simultaneously as specified by each institution."
+            ],
+            NextMoveSteps =
+            [
+                "Select 2 partner universities aligned with your degree goal",
+                "Prepare personal statement reflecting leadership and financial background",
+                "Gather certified academic transcripts and recommendation letters"
+            ],
+            SelectionProcess = "University Admission → MasterCard Foundation Committee Review → Final Scholar Selection"
+        },
+        new()
+        {
+            Id = "opp-lagos-tech-fest",
+            Type = OpportunityType.Conference,
+            Title = "Lagos Tech Fest & Venture Showcase 2026",
+            Organisation = "Techpoint Africa & Lagos State Ministry of Innovation",
+            Description = "West Africa's largest gathering of tech founders, corporate innovators, venture capitalists, and engineers. Features high-impact panel discussions on African sovereign AI, fintech regulation, and cybersecurity defense, alongside a dedicated career exhibition.",
+            Deadline = DateTime.UtcNow.AddDays(10),
+            Location = "Landmark Centre, Victoria Island, Lagos",
+            RegionTag = "Nigeria",
+            GoalTag = "Networking",
+            IsRemote = false,
+            Benefits = "Direct access to 200+ tech hiring managers, fast-pitch venture competitions, complimentary 1-year developer tool perks",
+            Cost = "Free Student & Developer Passes (Limited)",
+            Url = "https://techpoint.africa/events",
+            Requirements = ["Registration via official portal", "Demonstrated involvement in technology, product, or startup ecosystem"],
+            WhoIsEligible = ["Software developers, analysts, founders, university STEM students, and career switchers"],
+            RadarsAdvice =
+            [
+                "Free student/developer passes run out quickly — claim yours today.",
+                "Prepare a concise 30-second introduction: your name, your primary skill (e.g. Cybersecurity/Data), and what you are building.",
+                "Download the attendee app early to book 1-on-1 networking slots with startup engineering leads.",
+                "Have your GitHub and LinkedIn QR codes ready on your phone for frictionless connection."
+            ],
+            NextMoveSteps =
+            [
+                "Claim your verified developer ticket online",
+                "Review the session schedule and mark key cybersecurity and career workshops",
+                "Connect with speakers on LinkedIn ahead of time"
+            ],
+            SelectionProcess = "Direct Registration → Badge Confirmation Email"
+        },
+
+        // ── DATA ANALYTICS & ARTIFICIAL INTELLIGENCE ────────────────────────
+        new()
+        {
+            Id = "opp-deepmind-africa-scholar",
+            Type = OpportunityType.Scholarship,
+            Title = "DeepMind Africa AI & Machine Learning Scholarship",
+            Organisation = "Google DeepMind",
+            Description = "Fully funded postgraduate scholarship supporting exceptional African scholars pursuing master's degrees in Artificial Intelligence, Machine Learning, and Computer Science at partner African institutions (including AIMS and Wits).",
+            Deadline = DateTime.UtcNow.AddDays(40),
+            Location = "AIMS Rwanda / South Africa / Virtual",
+            RegionTag = "Africa",
+            GoalTag = "Education",
+            IsRemote = false,
+            Benefits = "Full university tuition fees, living stipend, travel expenses, attendance at DeepMind international conference, dedicated DeepMind researcher mentor",
+            Cost = "Free / Fully Funded",
+            Url = "https://www.deepmind.com/scholarships",
+            Requirements = ["African nationality and residency", "Strong mathematics and programming background (Python/PyTorch)", "Offer of admission to an approved partner institution for master's degree"],
+            WhoIsEligible = ["Outstanding students from underrepresented backgrounds in machine learning"],
+            RadarsAdvice =
+            [
+                "DeepMind looks for solid mathematical intuition: linear algebra, calculus, and probability.",
+                "Highlight any projects involving neural network training or fine-tuning on open-source datasets.",
+                "Articulate your research ambition clearly: what problem in healthcare, climate, or language modeling do you want to tackle?",
+                "Work with Radar's AI Mentor to draft and polish your research statement."
+            ],
+            NextMoveSteps =
+            [
+                "Apply to an approved partner master's program (e.g. AIMS or Wits)",
+                "Prepare personal statement describing your research interests in AI",
+                "Submit DeepMind scholarship application form"
+            ],
+            SelectionProcess = "Academic Assessment → Research Proposal Review → Interview with DeepMind Panel"
+        },
+        new()
+        {
+            Id = "opp-stripe-emea-analyst",
+            Type = OpportunityType.RemoteJob,
+            Title = "Junior Data & Risk Analyst — EMEA Remote",
+            Organisation = "Stripe",
+            Description = "Analyze payment anomalies, fraud vectors, and transaction reconciliation flows across Stripe's EMEA payment rails. Build real-time SQL queries, develop dashboards in Looker/dbt, and collaborate with engineering on automated fraud mitigation rules.",
+            Deadline = DateTime.UtcNow.AddDays(19),
+            Location = "Remote — EMEA (Flexible African Timezones)",
+            RegionTag = "Remote",
+            GoalTag = "Career",
+            IsRemote = true,
+            Benefits = "USD 65,000–80,000 annual salary, Stripe equity grants, home office budget, flexible wellness benefits",
+            Cost = "Free Application",
+            Url = "https://stripe.com/jobs",
+            Requirements = ["Proficiency in SQL (window functions, CTEs) and Python (Pandas)", "Experience analyzing large datasets and translating numbers into business impact", "Strong problem-solving orientation and curiosity about financial systems"],
+            WhoIsEligible = ["Data analysts with 1–3 years experience or strong demonstrated analytics portfolios"],
+            RadarsAdvice =
+            [
+                "Stripe tests SQL rigorously: expect live coding with window functions, joins, and reconciliation logic.",
+                "Review the Stripe Engineering blog post 'What actually breaks when you scale payments across borders' on your Radar Feed.",
+                "Be ready to discuss trade-offs between precision and recall in automated fraud detection.",
+                "Use the AI Learning Mentor to practice live SQL interview questions."
+            ],
+            NextMoveSteps =
+            [
+                "Complete a sample SQL cohort analysis in your portfolio",
+                "Tailor your CV to highlight measurable quantitative impact",
+                "Apply through Stripe's verified career portal"
+            ],
+            SelectionProcess = "Recruiter Screen → Technical SQL Assessment → Take-Home Case Study → Executive Interview"
+        },
+
+        // ── GLOBAL PRESTIGE & LEADERSHIP ────────────────────────────────────
+        new()
+        {
+            Id = "opp-chevening-uk",
+            Type = OpportunityType.Scholarship,
+            Title = "Chevening UK Government Postgraduate Scholarship",
+            Organisation = "UK Foreign, Commonwealth & Development Office",
+            Description = "The UK government's global scholarship programme, funded by the FCDO. Offers full financial support to undertake any eligible 1-year master's degree at any UK university, giving future leaders the opportunity to develop professionally and academically while networking extensively in the UK.",
+            Deadline = DateTime.UtcNow.AddDays(35),
+            Location = "United Kingdom (All Universities)",
+            RegionTag = "Global",
+            GoalTag = "Education",
+            IsRemote = false,
+            Benefits = "Full university tuition fees, monthly living allowance, return economy flights, arrival allowance, visa grant",
+            Cost = "Free / Fully Funded",
+            Url = "https://www.chevening.org/apply/",
+            Requirements = ["Citizen of a Chevening-eligible country (Nigeria, Ghana, Kenya, etc.)", "At least two years of work experience (equivalent to 2,800 hours)", "Undergraduate degree of at least upper second-class (2:1)", "Commitment to return to home country for minimum 2 years post-graduation"],
+            WhoIsEligible = ["Emerging leaders with strong career trajectory and clear strategic vision for their country"],
+            RadarsAdvice =
+            [
+                "Chevening is won on the four essays: Leadership, Networking, Studying in the UK, and Career Plan.",
+                "Use the STAR technique (Situation, Task, Action, Result) in every essay — quantify your concrete individual contribution.",
+                "Choose three university courses that are logically interconnected with your 5-year career roadmap.",
+                "Have two mentors review your essays for clarity and persuasive conviction."
+            ],
+            NextMoveSteps =
+            [
+                "Draft your 4 Chevening essays in Radar's Notebook",
+                "Select three UK master's programs and initiate university applications",
+                "Contact 2 professional referees for letters of support"
+            ],
+            SelectionProcess = "Online Application → Independent Reading Committee Review → Embassy Interview in Lagos/Abuja"
+        },
+        new()
+        {
+            Id = "opp-ycombinator-batch",
+            Type = OpportunityType.StartupAccelerator,
+            Title = "Y Combinator Startup Accelerator Batch",
             Organisation = "Y Combinator",
-            Description = "The world's most successful startup accelerator. $500K investment for ~7% equity. 3-month program in San Francisco with weekly dinners, office hours with YC partners and alumni, and access to the YC network of 10,000+ founders.",
-            Deadline = DateTime.UtcNow.AddMonths(3),
-            Requirements = ["Technical co-founder or strong technical ability", "Working prototype or MVP", "Team of 1–4 founders", "Full-time commitment during batch"],
-            MatchScorePercent = 60,
+            Description = "The world's premier startup accelerator. YC invests $500,000 into early-stage companies across two cohorts per year. Founders spend 3 months in San Francisco working intensively on product-market fit, followed by global Demo Day.",
+            Deadline = DateTime.UtcNow.AddDays(50),
+            Location = "San Francisco, CA / Global",
+            RegionTag = "Global",
+            GoalTag = "Business",
+            IsRemote = false,
+            Benefits = "$500,000 standard investment deal, unparalleled network of 10,000+ alumni founders, weekly private partner office hours",
+            Cost = "Equity investment",
             Url = "https://www.ycombinator.com/apply",
-            IsRemote = false,
-            Location = "San Francisco, CA"
-        },
-        new()
-        {
-            Id = "opp-daad-scholarship",
-            Type = OpportunityType.Scholarship,
-            Title = "DAAD Development-Related Postgraduate Courses",
-            Organisation = "DAAD (German Academic Exchange Service)",
-            Description = "Fully funded postgraduate scholarships for professionals from developing countries to study in Germany. Focus areas include agriculture, engineering, economics, social sciences, and natural sciences.",
-            Deadline = DateTime.UtcNow.AddMonths(6),
-            Requirements = ["Citizen of a developing country", "Bachelor's degree with above-average results", "2+ years professional experience", "Under 36 years old at time of application", "English or German proficiency"],
-            MatchScorePercent = 66,
-            Url = "https://www.daad.de/en/information-services-for-higher-education-institutions/further-information-on-daad-programmes/epos/",
-            IsRemote = false,
-            Location = "Germany"
-        },
-        new()
-        {
-            Id = "opp-bcg-nigeria-intern",
-            Type = OpportunityType.Internship,
-            Title = "Business Analyst Internship",
-            Organisation = "Boston Consulting Group — Lagos",
-            Description = "Summer internship in BCG's Lagos office working on strategy and management consulting projects across West Africa. Analysts work on high-impact engagements spanning finance, energy, consumer, and public sector.",
-            Deadline = DateTime.UtcNow.AddDays(45),
-            Requirements = ["Penultimate year undergraduate or postgraduate", "Strong academic record", "Analytical and problem-solving orientation", "Business, Economics, or STEM background preferred"],
-            MatchScorePercent = 74,
-            Url = "https://careers.bcg.com/global/en/locations/nigeria",
-            IsRemote = false,
-            Location = "Lagos, Nigeria"
-        },
-        new()
-        {
-            Id = "opp-stanford-knight-hennessy",
-            Type = OpportunityType.Scholarship,
-            Title = "Knight-Hennessy Scholars Program",
-            Organisation = "Stanford University",
-            Description = "Fully funded graduate fellowship at Stanford for future global leaders. Covers tuition, a living stipend, and travel grants across all Stanford graduate programs. Cohort of up to 100 scholars per year.",
-            Deadline = DateTime.UtcNow.AddMonths(4),
-            Requirements = ["Bachelor's degree", "Apply to a Stanford graduate program simultaneously", "Demonstrated leadership impact", "Civic orientation and collaborative mindset"],
-            MatchScorePercent = 63,
-            Url = "https://knight-hennessy.stanford.edu/admission",
-            IsRemote = false,
-            Location = "Stanford, California"
-        },
+            Requirements = ["Technical co-founder or high technical execution velocity", "Demonstrated prototype or measurable customer engagement", "Clear understanding of the market and target user"],
+            WhoIsEligible = ["Early-stage software and hardware founders globally at idea, prototype, or seed stage"],
+            RadarsAdvice =
+            [
+                "Be concise: YC partners read applications in 2 minutes. State clearly what you make, who needs it, and why now.",
+                "Quantify traction: users, waitlist count, revenue, or weekly growth percentage.",
+                "Make a 1-minute unedited founder video introducing the team and why you are suited to solve this problem.",
+                "Ask Radar's AI Mentor to evaluate your YC application answers."
+            ],
+            NextMoveSteps =
+            [
+                "Fill out the YC application questions clearly and without buzzwords",
+                "Record a 1-minute informal founder video on your smartphone",
+                "Submit your application early for rolling review"
+            ],
+            SelectionProcess = "Written Application Review → 10-Minute Video Interview with YC Partners → Same-day Decision"
+        }
     ];
 }

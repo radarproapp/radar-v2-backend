@@ -20,8 +20,6 @@ public class OpportunitiesController : ControllerBase
         _profiles = profiles;
     }
 
-    /// <summary>Fields a caller may request via <c>?fields=</c> — see FeedController for why this is
-    /// an explicit whitelist rather than reflection over the model.</summary>
     private static readonly Dictionary<string, Func<Opportunity, object?>> OpportunityFieldProjectors = new(StringComparer.OrdinalIgnoreCase)
     {
         ["id"] = o => o.Id,
@@ -40,16 +38,26 @@ public class OpportunitiesController : ControllerBase
         ["location"] = o => o.Location,
         ["isRemote"] = o => o.IsRemote,
         ["isSaved"] = o => o.IsSaved,
+        ["regionTag"] = o => o.RegionTag,
+        ["goalTag"] = o => o.GoalTag,
+        ["benefits"] = o => o.Benefits,
+        ["cost"] = o => o.Cost,
+        ["radarsAdvice"] = o => o.RadarsAdvice,
+        ["nextMoveSteps"] = o => o.NextMoveSteps,
+        ["status"] = o => o.Status,
+        ["userTrackingStatus"] = o => o.UserTrackingStatus,
+        ["reminderSet"] = o => o.ReminderSet,
+        ["matchTier"] = o => o.MatchTier,
+        ["urgencyLabel"] = o => o.UrgencyLabel,
     };
 
-    /// <summary>
-    /// Opportunities, offset-paginated. Left on page/pageSize rather than moved to a cursor: the set
-    /// is a slowly-changing seed of a few dozen rows, so the shifting-window problem a cursor solves
-    /// is not in play here. The sparseness win applies regardless, via <c>?fields=</c>.
-    /// </summary>
     [HttpGet]
     public async Task<IActionResult> GetAsync(
         [FromQuery] string? type = null,
+        [FromQuery] string? region = null,
+        [FromQuery] string? goal = null,
+        [FromQuery] string? urgency = null,
+        [FromQuery] string? matchTier = null,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
         [FromQuery] string? fields = null)
@@ -60,9 +68,27 @@ public class OpportunitiesController : ControllerBase
         if (!FieldSet.TryParse(fields, OpportunityFieldProjectors.Keys.ToList(), out var fieldSet, out var fieldError))
             return BadRequest(new { error = fieldError });
 
-        var items = await _opportunities.GetOpportunitiesAsync(profile, ParseType(type), Math.Max(1, page), Math.Clamp(pageSize, 1, 50));
+        var items = await _opportunities.GetOpportunitiesAsync(
+            profile,
+            ParseType(type),
+            region,
+            goal,
+            urgency,
+            matchTier,
+            Math.Max(1, page),
+            Math.Clamp(pageSize, 1, 50));
 
         return Ok(fieldSet.IsEmpty ? items : items.Select(item => fieldSet.Project(item, OpportunityFieldProjectors)));
+    }
+
+    [HttpGet("daily")]
+    public async Task<IActionResult> GetDailyAsync()
+    {
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        var feed = await _opportunities.GetDailyFeedAsync(profile);
+        return Ok(feed);
     }
 
     [HttpGet("saved")]
@@ -74,11 +100,41 @@ public class OpportunitiesController : ControllerBase
         return Ok(await _opportunities.GetSavedOpportunitiesAsync(profile.Id));
     }
 
+    [HttpGet("pipeline")]
+    public async Task<IActionResult> GetPipelineAsync()
+    {
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        return Ok(await _opportunities.GetTrackedPipelineAsync(profile.Id));
+    }
+
     [HttpGet("{id}")]
     public async Task<IActionResult> GetByIdAsync(string id)
     {
-        var opp = await _opportunities.GetByIdAsync(id);
+        var profile = await _profiles.GetCurrentUserAsync();
+        var opp = await _opportunities.GetByIdAsync(id, profile);
         return opp is null ? NotFound(new { error = "Opportunity not found" }) : Ok(opp);
+    }
+
+    [HttpPost("{id}/status")]
+    public async Task<IActionResult> UpdateStatusAsync(string id, [FromBody] OpportunityStatusUpdateRequest request)
+    {
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return Unauthorized();
+
+        await _opportunities.UpdateStatusAsync(profile.Id, id, request.Status, request.Notes);
+        return NoContent();
+    }
+
+    [HttpPost("{id}/reminder")]
+    public async Task<IActionResult> ToggleReminderAsync(string id, [FromBody] OpportunityReminderRequest request)
+    {
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return Unauthorized();
+
+        await _opportunities.ToggleReminderAsync(profile.Id, id, request.ReminderSet);
+        return NoContent();
     }
 
     [HttpPost("{id}/save")]

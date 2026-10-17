@@ -71,7 +71,24 @@ public enum OpportunityType
     Competition,
     StartupAccelerator,
     Fellowship,
-    RemoteJob
+    RemoteJob,
+    Event,
+    Conference,
+    Workshop,
+    Training,
+    Bootcamp,
+    Funding
+}
+
+public enum OpportunityTrackingStatus
+{
+    None,
+    Saved,
+    Interested,
+    Applied,
+    NotRelevant,
+    Accepted,
+    Rejected
 }
 
 public enum InterestCategory
