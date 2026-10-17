@@ -33,7 +33,15 @@ public class MongoRoadmapService : IRoadmapService
             .Find(r => r.UserId == userId && r.IsActive)
             .FirstOrDefaultAsync();
 
-        if (roadmap is not null) return roadmap;
+        if (roadmap is not null)
+        {
+            if (roadmap.Resources.Count == 0 || roadmap.Modules.Any(m => m.Resources.Count == 0))
+            {
+                EnrichRoadmapWithResources(roadmap);
+                await _db.Roadmaps.ReplaceOneAsync(r => r.Id == roadmap.Id, roadmap);
+            }
+            return roadmap;
+        }
 
         // No roadmap yet — look up the user's goal and auto-create from template
         var profile = await _db.Profiles.Find(p => p.Id == userId).FirstOrDefaultAsync();
@@ -52,6 +60,7 @@ public class MongoRoadmapService : IRoadmapService
             createdRoadmap.Level = context.Level;
             createdRoadmap.Interest = path?.Title ?? context.Interest;
             createdRoadmap.Title = $"{createdRoadmap.Interest}: {profile.PrimaryGoal}";
+            EnrichRoadmapWithResources(createdRoadmap);
             await _db.Roadmaps.ReplaceOneAsync(r => r.Id == createdRoadmap.Id, createdRoadmap);
         }
         return createdRoadmap;
@@ -93,6 +102,7 @@ public class MongoRoadmapService : IRoadmapService
 
         roadmap.Interest = interest;
         roadmap.Level    = level;
+        EnrichRoadmapWithResources(roadmap);
 
         var deactivate = Builders<GrowthRoadmap>.Update.Set(r => r.IsActive, false);
         await _db.Roadmaps.UpdateManyAsync(r => r.UserId == userId && r.IsActive, deactivate, cancellationToken: ct);
@@ -208,6 +218,23 @@ public class MongoRoadmapService : IRoadmapService
         await _db.Roadmaps.ReplaceOneAsync(r => r.Id == roadmapId, roadmap);
     }
 
+    public async Task CompleteResourceAsync(string userId, string roadmapId, string resourceId)
+    {
+        var roadmap = await _db.Roadmaps.Find(r => r.Id == roadmapId && r.UserId == userId).FirstOrDefaultAsync();
+        if (roadmap is null) return;
+
+        var res = roadmap.Resources.FirstOrDefault(r => r.Id == resourceId);
+        if (res is not null) res.IsCompleted = !res.IsCompleted;
+
+        foreach (var mod in roadmap.Modules)
+        {
+            var modRes = mod.Resources.FirstOrDefault(r => r.Id == resourceId);
+            if (modRes is not null) modRes.IsCompleted = !modRes.IsCompleted;
+        }
+
+        await _db.Roadmaps.ReplaceOneAsync(r => r.Id == roadmapId, roadmap);
+    }
+
     public async Task AddTopicToRoadmapAsync(string userId, string roadmapId, string topic)
     {
         var roadmap = await _db.Roadmaps.Find(r => r.Id == roadmapId && r.UserId == userId).FirstOrDefaultAsync();
@@ -226,6 +253,7 @@ public class MongoRoadmapService : IRoadmapService
             ]
         };
         roadmap.Modules.Add(newModule);
+        EnrichRoadmapWithResources(roadmap);
         await _db.Roadmaps.ReplaceOneAsync(r => r.Id == roadmapId, roadmap);
     }
 
@@ -233,6 +261,36 @@ public class MongoRoadmapService : IRoadmapService
     {
         var roadmap = await _db.Roadmaps.Find(r => r.Id == roadmapId && r.UserId == userId).FirstOrDefaultAsync();
         return roadmap?.ProgressPercent ?? 0;
+    }
+
+    private static void EnrichRoadmapWithResources(GrowthRoadmap roadmap)
+    {
+        var skill = !string.IsNullOrWhiteSpace(roadmap.Interest) ? roadmap.Interest : roadmap.Goal;
+        var allResources = LearningResourceCatalog.GetResourcesForSkill(skill);
+
+        if (roadmap.Resources.Count == 0)
+        {
+            roadmap.Resources = allResources;
+        }
+
+        for (var i = 0; i < roadmap.Modules.Count; i++)
+        {
+            var module = roadmap.Modules[i];
+            var stageIndex = (int)Math.Floor((double)i / Math.Max(1, roadmap.Modules.Count) * 4);
+            module.Level = stageIndex switch
+            {
+                0 => "Beginner",
+                1 => "Intermediate",
+                2 => "Advanced",
+                _ => "Advanced"
+            };
+
+            if (module.Resources.Count == 0)
+            {
+                var stageResources = allResources.Where(r => r.Level.Equals(module.Level, StringComparison.OrdinalIgnoreCase)).ToList();
+                module.Resources = stageResources.Count > 0 ? stageResources : allResources;
+            }
+        }
     }
 
     // ── Template builder ──────────────────────────────────────────────────────
@@ -252,7 +310,7 @@ public class MongoRoadmapService : IRoadmapService
             _ => GenericModules(goal),
         };
 
-        return new GrowthRoadmap
+        var roadmap = new GrowthRoadmap
         {
             UserId   = userId,
             Title    = goal,
@@ -260,6 +318,8 @@ public class MongoRoadmapService : IRoadmapService
             IsActive = true,
             Modules  = modules,
         };
+        EnrichRoadmapWithResources(roadmap);
+        return roadmap;
     }
 
     private static List<RoadmapModule> ProductManagementModules() =>

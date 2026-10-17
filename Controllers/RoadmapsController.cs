@@ -84,6 +84,16 @@ public class RoadmapsController : ControllerBase
         return NoContent();
     }
 
+    [HttpPost("{roadmapId}/resources/{resourceId}/complete")]
+    public async Task<IActionResult> CompleteResourceAsync(string roadmapId, string resourceId)
+    {
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        await _roadmaps.CompleteResourceAsync(profile.Id, roadmapId, resourceId);
+        return NoContent();
+    }
+
     [HttpGet("{roadmapId}/progress")]
     public async Task<IActionResult> GetProgressAsync(string roadmapId)
     {
