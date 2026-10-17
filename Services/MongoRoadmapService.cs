@@ -59,6 +59,17 @@ public class MongoRoadmapService : IRoadmapService
             createdRoadmap.Interest = path?.Title ?? context.Interest;
             createdRoadmap.Title = $"{createdRoadmap.Interest}: {profile.PrimaryGoal}";
             EnrichRoadmapWithResources(createdRoadmap);
+
+            if (profile.Persona == PersonaType.Student && profile.PersonaDetails.TryGetValue("difficultCourses", out var diffCourses) && !string.IsNullOrWhiteSpace(diffCourses))
+            {
+                var split = diffCourses.Split(new[] { ',', ';', '/', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                foreach (var d in split)
+                {
+                    if (!createdRoadmap.WeakAreas.Contains(d))
+                        createdRoadmap.WeakAreas.Add(d);
+                }
+            }
+
             await _db.Roadmaps.ReplaceOneAsync(r => r.Id == createdRoadmap.Id, createdRoadmap);
         }
         return createdRoadmap;
