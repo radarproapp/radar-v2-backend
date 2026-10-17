@@ -8,11 +8,26 @@ public class GrowthRoadmap
     public string Goal { get; set; } = string.Empty;
     public string Interest { get; set; } = string.Empty;
     public string Level { get; set; } = "Beginner";
+    public string CurrentStage { get; set; } = "Beginner"; // "Beginner", "Intermediate", "Advanced", "Application"
     public List<RoadmapModule> Modules { get; set; } = [];
     public List<LearningResource> Resources { get; set; } = [];
     public int ProgressPercent { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public bool IsActive { get; set; }
+
+    // Mastery & Stage Tracking
+    public Dictionary<string, int> StageMastery { get; set; } = new()
+    {
+        ["Beginner"] = 0,
+        ["Intermediate"] = 0,
+        ["Advanced"] = 0,
+        ["Application"] = 0
+    };
+    public List<string> CompletedResourceIds { get; set; } = [];
+    public List<string> CompletedExerciseIds { get; set; } = [];
+    public List<QuizPerformanceRecord> QuizResults { get; set; } = [];
+    public List<string> WeakAreas { get; set; } = [];
+    public string? AdaptiveRecommendation { get; set; }
 }
 
 public class RoadmapModule
@@ -20,10 +35,12 @@ public class RoadmapModule
     public string Id { get; set; } = Guid.NewGuid().ToString();
     public string Title { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
+    public string StageGoal { get; set; } = string.Empty;
     public int Order { get; set; }
-    public string Level { get; set; } = "Beginner";
+    public string Level { get; set; } = "Beginner"; // "Beginner", "Intermediate", "Advanced", "Application"
     public bool IsCompleted { get; set; }
     public bool IsLocked { get; set; }
+    public int MasteryPercent { get; set; }
     public List<RoadmapLesson> Lessons { get; set; } = [];
     public List<string> ContentItemIds { get; set; } = [];
     public List<LearningResource> Resources { get; set; } = [];
@@ -56,15 +73,29 @@ public class LearningResource
     public string Source { get; set; } = "YouTube";
     public string? ChannelOrAuthor { get; set; }
     public string? Duration { get; set; }
-    public string Level { get; set; } = "Beginner"; // "Beginner", "Intermediate", "Advanced"
+    public string? EstimatedTime { get; set; } // e.g. "45 minutes"
+    public int Order { get; set; } = 1;        // Sequence in stage (1, 2, 3...)
+    public string SequenceRole { get; set; } = "Start here"; // "Start here", "Next", "Practice", "Capstone", "New Development"
+    public string Level { get; set; } = "Beginner"; // "Beginner", "Intermediate", "Advanced", "Application"
     public LearningResourceType Type { get; set; } = LearningResourceType.TutorialVideo;
     public bool IsHowToTutorial => Type == LearningResourceType.TutorialVideo;
+    public bool IsNewDevelopment => Type == LearningResourceType.NewDevelopmentVideo || Type == LearningResourceType.BlogPost;
+
+    // Why am I learning this? (Connection to user's goal)
+    public string WhyAmILearningThis { get; set; } = string.Empty;
 
     // Detailed How-To Tutorial format:
     public string? WhatYouWillBuild { get; set; }
     public List<TutorialStep> StepByStepBreakdown { get; set; } = [];
 
-    // Detailed 4-part intelligence format:
+    // Practice Task
+    public string? PracticeExerciseTitle { get; set; }
+    public string? PracticeExercise { get; set; }
+    public bool IsExerciseCompleted { get; set; }
+    public string? QuizTopic { get; set; }
+    public List<string> KeyConcepts { get; set; } = [];
+
+    // Detailed 4-part intelligence format (for news / developments / blogs):
     public string WhatHappened { get; set; } = string.Empty;
     public string WhyItMatters { get; set; } = string.Empty;
     public string YourEdge { get; set; } = string.Empty;
@@ -79,4 +110,14 @@ public class TutorialStep
     public string Title { get; set; } = string.Empty;
     public string Instruction { get; set; } = string.Empty;
     public string? CodeSnippetOrKeyPoint { get; set; }
+}
+
+public class QuizPerformanceRecord
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string Topic { get; set; } = string.Empty;
+    public string Stage { get; set; } = "Beginner";
+    public int ScorePercent { get; set; }
+    public bool Passed => ScorePercent >= 75;
+    public DateTime TakenAt { get; set; } = DateTime.UtcNow;
 }

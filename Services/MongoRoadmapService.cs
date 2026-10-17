@@ -35,11 +35,9 @@ public class MongoRoadmapService : IRoadmapService
 
         if (roadmap is not null)
         {
-            if (roadmap.Resources.Count == 0 || roadmap.Modules.Any(m => m.Resources.Count == 0))
-            {
-                EnrichRoadmapWithResources(roadmap);
-                await _db.Roadmaps.ReplaceOneAsync(r => r.Id == roadmap.Id, roadmap);
-            }
+            // Re-enrich with latest catalog structure (4 stages, ordered resources, practical exercises)
+            EnrichRoadmapWithResources(roadmap);
+            await _db.Roadmaps.ReplaceOneAsync(r => r.Id == roadmap.Id, roadmap);
             return roadmap;
         }
 
@@ -110,47 +108,44 @@ public class MongoRoadmapService : IRoadmapService
         return roadmap;
     }
 
-    /// <summary>
-    /// Asks the shared AI engine for a pathway tailored to this profile. Returns null on any
-    /// failure (no key, budget cap, unparseable JSON) so the caller can fall back to a template.
-    /// </summary>
     private async Task<List<RoadmapModule>?> BuildAiModulesAsync(UserProfile profile, string interest, string level, CancellationToken ct)
     {
         try
         {
             var sb = new StringBuilder();
-            sb.AppendLine($"Build a learning pathway for this person on: {interest}");
+            sb.AppendLine($"Build a 4-stage learning pathway (Beginner → Intermediate → Advanced → Real-world Application) for: {interest}");
             sb.AppendLine();
             sb.AppendLine("About them:");
             sb.AppendLine($"persona: {profile.Persona}");
             sb.AppendLine($"career goal: {profile.PrimaryGoal}");
             sb.AppendLine($"starting level: {level}");
             sb.AppendLine($"other interests: {string.Join(", ", profile.Interests.Where(i => !i.Equals(interest, StringComparison.OrdinalIgnoreCase)))}");
-            if (profile.InterestContexts.Count > 0)
-                sb.AppendLine($"their own words: {string.Join("; ", profile.InterestContexts.Select(c => $"{c.Interest} — {c.Goal}"))}");
-            sb.AppendLine($"region: {profile.City}, {profile.Region}");
             sb.AppendLine();
-            sb.AppendLine("Order the pathway so each step is only attempted once the previous one makes sense.");
-            sb.AppendLine("Lessons must be things the person can actually do alone, and should reference the African context where it genuinely matters.");
-            sb.AppendLine("Never invent facts about them, and do not reference any underlying AI provider or model.");
+            sb.AppendLine("Return exactly 4 modules representing the 4 stages:");
+            sb.AppendLine("Stage 1: Beginner (Foundations, core tools)");
+            sb.AppendLine("Stage 2: Intermediate (Applied workflows, modelling)");
+            sb.AppendLine("Stage 3: Advanced (Scale, prediction, optimization)");
+            sb.AppendLine("Stage 4: Application (Real-world projects, portfolio, case studies, interview prep)");
             sb.AppendLine("Return strict JSON with exactly this shape:");
-            sb.AppendLine("{ \"modules\": [ { \"title\": \"...\", \"description\": \"why this stage matters\",");
-            sb.AppendLine("  \"lessons\": [ { \"title\": \"...\", \"body\": \"one or two sentences on what to do\", \"estimatedTime\": \"e.g. 25 min\" } ] } ] }");
-            sb.AppendLine("Give 4 to 6 modules with 3 to 5 lessons each.");
+            sb.AppendLine("{ \"modules\": [ { \"title\": \"...\", \"description\": \"...\", \"stageGoal\": \"...\",");
+            sb.AppendLine("  \"lessons\": [ { \"title\": \"...\", \"body\": \"...\", \"estimatedTime\": \"e.g. 25 min\" } ] } ] }");
 
             var result = await _ai.GenerateJsonAsync<PathwayResult>(
                 "learning-pathway",
-                "You are Radar's learning architect. You design practical, ordered learning pathways for ambitious young Africans.",
+                "You are Radar's learning architect. You design practical, ordered learning pathways with a 4-stage progression from Beginner to Application.",
                 sb.ToString(),
                 ct);
 
+            var stages = new[] { "Beginner", "Intermediate", "Advanced", "Application" };
             var modules = result?.Modules
                 ?.Where(m => !string.IsNullOrWhiteSpace(m.Title))
                 .Select((m, index) => new RoadmapModule
                 {
                     Title       = m.Title!,
                     Description = m.Description ?? string.Empty,
+                    StageGoal   = m.StageGoal ?? string.Empty,
                     Order       = index + 1,
+                    Level       = index < stages.Length ? stages[index] : stages[3],
                     IsLocked    = index > 0,
                     Lessons     = (m.Lessons ?? [])
                         .Where(l => !string.IsNullOrWhiteSpace(l.Title))
@@ -181,6 +176,7 @@ public class MongoRoadmapService : IRoadmapService
     {
         public string? Title { get; set; }
         public string? Description { get; set; }
+        public string? StageGoal { get; set; }
         public List<LessonResult>? Lessons { get; set; }
     }
 
@@ -202,7 +198,6 @@ public class MongoRoadmapService : IRoadmapService
 
         lesson.IsCompleted = true;
 
-        // Unlock next module when current is complete
         if (module!.Lessons.All(l => l.IsCompleted))
         {
             module.IsCompleted = true;
@@ -210,11 +205,7 @@ public class MongoRoadmapService : IRoadmapService
             if (next is not null) next.IsLocked = false;
         }
 
-        // Recalculate progress
-        var total = roadmap.Modules.Sum(m => m.Lessons.Count);
-        var done  = roadmap.Modules.Sum(m => m.Lessons.Count(l => l.IsCompleted));
-        roadmap.ProgressPercent = total > 0 ? (int)((double)done / total * 100) : 0;
-
+        RecalculateMastery(roadmap);
         await _db.Roadmaps.ReplaceOneAsync(r => r.Id == roadmapId, roadmap);
     }
 
@@ -223,15 +214,87 @@ public class MongoRoadmapService : IRoadmapService
         var roadmap = await _db.Roadmaps.Find(r => r.Id == roadmapId && r.UserId == userId).FirstOrDefaultAsync();
         if (roadmap is null) return;
 
+        if (roadmap.CompletedResourceIds.Contains(resourceId))
+            roadmap.CompletedResourceIds.Remove(resourceId);
+        else
+            roadmap.CompletedResourceIds.Add(resourceId);
+
+        var isCompleted = roadmap.CompletedResourceIds.Contains(resourceId);
+
         var res = roadmap.Resources.FirstOrDefault(r => r.Id == resourceId);
-        if (res is not null) res.IsCompleted = !res.IsCompleted;
+        if (res is not null) res.IsCompleted = isCompleted;
 
         foreach (var mod in roadmap.Modules)
         {
             var modRes = mod.Resources.FirstOrDefault(r => r.Id == resourceId);
-            if (modRes is not null) modRes.IsCompleted = !modRes.IsCompleted;
+            if (modRes is not null) modRes.IsCompleted = isCompleted;
         }
 
+        RecalculateMastery(roadmap);
+        await _db.Roadmaps.ReplaceOneAsync(r => r.Id == roadmapId, roadmap);
+    }
+
+    public async Task CompleteExerciseAsync(string userId, string roadmapId, string resourceId)
+    {
+        var roadmap = await _db.Roadmaps.Find(r => r.Id == roadmapId && r.UserId == userId).FirstOrDefaultAsync();
+        if (roadmap is null) return;
+
+        if (roadmap.CompletedExerciseIds.Contains(resourceId))
+            roadmap.CompletedExerciseIds.Remove(resourceId);
+        else
+            roadmap.CompletedExerciseIds.Add(resourceId);
+
+        var isCompleted = roadmap.CompletedExerciseIds.Contains(resourceId);
+
+        var res = roadmap.Resources.FirstOrDefault(r => r.Id == resourceId);
+        if (res is not null) res.IsExerciseCompleted = isCompleted;
+
+        foreach (var mod in roadmap.Modules)
+        {
+            var modRes = mod.Resources.FirstOrDefault(r => r.Id == resourceId);
+            if (modRes is not null) modRes.IsExerciseCompleted = isCompleted;
+        }
+
+        RecalculateMastery(roadmap);
+        await _db.Roadmaps.ReplaceOneAsync(r => r.Id == roadmapId, roadmap);
+    }
+
+    public async Task<GrowthRoadmap?> RecordQuizResultAsync(string userId, string roadmapId, string topic, string stage, int scorePercent)
+    {
+        var roadmap = await _db.Roadmaps.Find(r => r.Id == roadmapId && r.UserId == userId).FirstOrDefaultAsync();
+        if (roadmap is null) return null;
+
+        var record = new QuizPerformanceRecord
+        {
+            Topic = topic,
+            Stage = stage,
+            ScorePercent = scorePercent,
+            TakenAt = DateTime.UtcNow
+        };
+        roadmap.QuizResults.Add(record);
+
+        if (scorePercent < 75)
+        {
+            if (!roadmap.WeakAreas.Contains(topic)) roadmap.WeakAreas.Add(topic);
+            roadmap.AdaptiveRecommendation = $"Reinforce {topic}: your quiz score was {scorePercent}%. Review the tutorial breakdown and retry the practice task before advancing.";
+        }
+        else
+        {
+            roadmap.WeakAreas.Remove(topic);
+            roadmap.AdaptiveRecommendation = $"Mastery demonstrated in {topic} ({scorePercent}%)! Great work—continue to the next milestone in {stage}.";
+        }
+
+        RecalculateMastery(roadmap);
+        await _db.Roadmaps.ReplaceOneAsync(r => r.Id == roadmapId, roadmap);
+        return roadmap;
+    }
+
+    public async Task SetRoadmapStageAsync(string userId, string roadmapId, string stage)
+    {
+        var roadmap = await _db.Roadmaps.Find(r => r.Id == roadmapId && r.UserId == userId).FirstOrDefaultAsync();
+        if (roadmap is null) return;
+
+        roadmap.CurrentStage = stage;
         await _db.Roadmaps.ReplaceOneAsync(r => r.Id == roadmapId, roadmap);
     }
 
@@ -244,6 +307,7 @@ public class MongoRoadmapService : IRoadmapService
         {
             Title    = topic,
             Order    = roadmap.Modules.Count + 1,
+            Level    = "Intermediate",
             IsLocked = false,
             Lessons  =
             [
@@ -263,37 +327,97 @@ public class MongoRoadmapService : IRoadmapService
         return roadmap?.ProgressPercent ?? 0;
     }
 
+    private static void RecalculateMastery(GrowthRoadmap roadmap)
+    {
+        var stages = new[] { "Beginner", "Intermediate", "Advanced", "Application" };
+        var totalMasterySum = 0;
+
+        foreach (var st in stages)
+        {
+            var stageResources = roadmap.Resources.Where(r => r.Level.Equals(st, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (stageResources.Count == 0)
+            {
+                roadmap.StageMastery[st] = 0;
+                continue;
+            }
+
+            var completedResources = stageResources.Count(r => r.IsCompleted || roadmap.CompletedResourceIds.Contains(r.Id));
+            var exerciseCount = stageResources.Count(r => !string.IsNullOrEmpty(r.PracticeExercise));
+            var completedExercises = stageResources.Count(r => roadmap.CompletedExerciseIds.Contains(r.Id));
+
+            var quizRecord = roadmap.QuizResults.LastOrDefault(q => q.Stage.Equals(st, StringComparison.OrdinalIgnoreCase));
+            var quizFactor = quizRecord != null ? (quizRecord.Passed ? 100 : quizRecord.ScorePercent) : 0;
+
+            double resourceProgress = (double)completedResources / stageResources.Count * 50.0;
+            double exerciseProgress = exerciseCount > 0 ? (double)completedExercises / exerciseCount * 25.0 : 25.0;
+            double quizProgress = quizFactor * 0.25;
+
+            int stagePercent = Math.Min(100, (int)Math.Round(resourceProgress + exerciseProgress + quizProgress));
+            roadmap.StageMastery[st] = stagePercent;
+            totalMasterySum += stagePercent;
+
+            var mod = roadmap.Modules.FirstOrDefault(m => m.Level.Equals(st, StringComparison.OrdinalIgnoreCase));
+            if (mod != null)
+            {
+                mod.MasteryPercent = stagePercent;
+                mod.IsCompleted = stagePercent >= 80;
+            }
+        }
+
+        roadmap.ProgressPercent = totalMasterySum / stages.Length;
+
+        // Auto-advance stage if user reached mastery
+        if (roadmap.StageMastery["Beginner"] >= 80 && roadmap.CurrentStage == "Beginner")
+            roadmap.CurrentStage = "Intermediate";
+        else if (roadmap.StageMastery["Intermediate"] >= 80 && roadmap.CurrentStage == "Intermediate")
+            roadmap.CurrentStage = "Advanced";
+        else if (roadmap.StageMastery["Advanced"] >= 80 && roadmap.CurrentStage == "Advanced")
+            roadmap.CurrentStage = "Application";
+    }
+
     private static void EnrichRoadmapWithResources(GrowthRoadmap roadmap)
     {
         var skill = !string.IsNullOrWhiteSpace(roadmap.Interest) ? roadmap.Interest : roadmap.Goal;
         var allResources = LearningResourceCatalog.GetResourcesForSkill(skill);
 
-        if (roadmap.Resources.Count == 0)
+        roadmap.Resources = allResources;
+
+        // Sync completion states with tracking lists
+        foreach (var r in roadmap.Resources)
         {
-            roadmap.Resources = allResources;
+            r.IsCompleted = roadmap.CompletedResourceIds.Contains(r.Id);
+            r.IsExerciseCompleted = roadmap.CompletedExerciseIds.Contains(r.Id);
         }
+
+        var stages = new[] { "Beginner", "Intermediate", "Advanced", "Application" };
 
         for (var i = 0; i < roadmap.Modules.Count; i++)
         {
             var module = roadmap.Modules[i];
-            var stageIndex = (int)Math.Floor((double)i / Math.Max(1, roadmap.Modules.Count) * 4);
-            module.Level = stageIndex switch
+            if (string.IsNullOrEmpty(module.Level) || (module.Level == "Beginner" && i > 0))
             {
-                0 => "Beginner",
-                1 => "Intermediate",
-                2 => "Advanced",
-                _ => "Advanced"
-            };
+                module.Level = i < stages.Length ? stages[i] : stages[3];
+            }
 
-            if (module.Resources.Count == 0)
+            var stageResources = allResources.Where(r => r.Level.Equals(module.Level, StringComparison.OrdinalIgnoreCase)).ToList();
+            module.Resources = stageResources.Count > 0 ? stageResources : allResources;
+
+            foreach (var r in module.Resources)
             {
-                var stageResources = allResources.Where(r => r.Level.Equals(module.Level, StringComparison.OrdinalIgnoreCase)).ToList();
-                module.Resources = stageResources.Count > 0 ? stageResources : allResources;
+                r.IsCompleted = roadmap.CompletedResourceIds.Contains(r.Id);
+                r.IsExerciseCompleted = roadmap.CompletedExerciseIds.Contains(r.Id);
             }
         }
+
+        if (string.IsNullOrEmpty(roadmap.CurrentStage))
+        {
+            roadmap.CurrentStage = "Beginner";
+        }
+
+        RecalculateMastery(roadmap);
     }
 
-    // ── Template builder ──────────────────────────────────────────────────────
+    // ── Template builder (Clean 4-stage progression: Beginner → Intermediate → Advanced → Application) ──
 
     private static GrowthRoadmap BuildFromTemplate(string userId, string goal)
     {
@@ -302,12 +426,12 @@ public class MongoRoadmapService : IRoadmapService
         var modules = normalized switch
         {
             var g when g.Contains("product") => ProductManagementModules(),
-            var g when g.Contains("data") || g.Contains("analytics") => DataScienceModules(),
+            var g when g.Contains("data") || g.Contains("analytics") || g.Contains("sql") || g.Contains("excel") || g.Contains("bi") => DataAnalyticsModules(),
             var g when g.Contains("entrepreneur") || g.Contains("startup") || g.Contains("business") => EntrepreneurshipModules(),
             var g when g.Contains("finance") || g.Contains("investment") || g.Contains("banking") => FinanceModules(),
             var g when g.Contains("software") || g.Contains("engineer") || g.Contains("developer") || g.Contains("coding") => SoftwareEngModules(),
             var g when g.Contains("policy") || g.Contains("government") || g.Contains("public") => PublicPolicyModules(),
-            _ => GenericModules(goal),
+            _ => DataAnalyticsModules(),
         };
 
         var roadmap = new GrowthRoadmap
@@ -315,6 +439,7 @@ public class MongoRoadmapService : IRoadmapService
             UserId   = userId,
             Title    = goal,
             Goal     = goal,
+            CurrentStage = "Beginner",
             IsActive = true,
             Modules  = modules,
         };
@@ -322,249 +447,371 @@ public class MongoRoadmapService : IRoadmapService
         return roadmap;
     }
 
+    private static List<RoadmapModule> DataAnalyticsModules() =>
+    [
+        new()
+        {
+            Order = 1,
+            Level = "Beginner",
+            Title = "Beginner: Foundations & Core Tools",
+            StageGoal = "Excel fundamentals, data cleaning, basic statistics, charts and visualisation",
+            IsLocked = false,
+            Lessons =
+            [
+                Lesson(1, "Excel fundamentals & spreadsheet layout", "45 min"),
+                Lesson(2, "Data cleaning & Power Query wrangling", "35 min"),
+                Lesson(3, "Basic statistics: central tendency & variance", "30 min"),
+                Lesson(4, "Charts and business visual storytelling", "30 min")
+            ]
+        },
+        new()
+        {
+            Order = 2,
+            Level = "Intermediate",
+            Title = "Intermediate: SQL & Relational Modelling",
+            StageGoal = "SQL, advanced Excel, Power BI, data modelling",
+            IsLocked = true,
+            Lessons =
+            [
+                Lesson(1, "SQL aggregations, multi-table joins & CTEs", "55 min"),
+                Lesson(2, "Advanced Excel star schemas & relationships", "45 min"),
+                Lesson(3, "Power BI dashboard build from raw CSV", "50 min"),
+                Lesson(4, "Relational data modelling & DAX measures", "40 min")
+            ]
+        },
+        new()
+        {
+            Order = 3,
+            Level = "Advanced",
+            Title = "Advanced: Python & Predictive Analytics",
+            StageGoal = "Python, advanced statistics, predictive analytics, advanced BI",
+            IsLocked = true,
+            Lessons =
+            [
+                Lesson(1, "Python Pandas & NumPy vectorized wrangling", "55 min"),
+                Lesson(2, "Advanced statistics & A/B hypothesis testing", "45 min"),
+                Lesson(3, "Predictive analytics: customer churn classification", "50 min"),
+                Lesson(4, "Advanced BI: Direct Lake & DAX query optimization", "40 min")
+            ]
+        },
+        new()
+        {
+            Order = 4,
+            Level = "Application",
+            Title = "Application: Real-World Projects & Career",
+            StageGoal = "Real-world projects, portfolio, case studies, interview preparation",
+            IsLocked = true,
+            Lessons =
+            [
+                Lesson(1, "End-to-end analytics capstone project", "60 min"),
+                Lesson(2, "Portfolio construction & GitHub/NovyPro showcase", "40 min"),
+                Lesson(3, "Business case studies: framing findings into ROI", "45 min"),
+                Lesson(4, "Data analyst technical interview preparation & live SQL", "50 min")
+            ]
+        }
+    ];
+
     private static List<RoadmapModule> ProductManagementModules() =>
     [
-        Module(1, "PM Foundations", false, [
-            Lesson(1, "What is Product Management?", "15 min"),
-            Lesson(2, "The PM's role in a tech company", "20 min"),
-            Lesson(3, "Product vs Project vs Program Management", "15 min"),
-        ]),
-        Module(2, "User Research", true, [
-            Lesson(1, "Jobs-to-be-done framework", "20 min"),
-            Lesson(2, "Conducting user interviews", "30 min"),
-            Lesson(3, "Synthesising research insights", "25 min"),
-            Lesson(4, "Building user personas", "20 min"),
-        ]),
-        Module(3, "Product Strategy", true, [
-            Lesson(1, "Vision, mission, and strategy", "20 min"),
-            Lesson(2, "Market sizing and opportunity", "25 min"),
-            Lesson(3, "Competitive analysis frameworks", "20 min"),
-        ]),
-        Module(4, "Prioritisation", true, [
-            Lesson(1, "RICE, MoSCoW, and ICE scoring", "20 min"),
-            Lesson(2, "Building a product roadmap", "25 min"),
-            Lesson(3, "Stakeholder alignment", "20 min"),
-        ]),
-        Module(5, "Metrics & Analytics", true, [
-            Lesson(1, "North Star metrics", "20 min"),
-            Lesson(2, "Defining success criteria", "20 min"),
-            Lesson(3, "A/B testing fundamentals", "25 min"),
-        ]),
-        Module(6, "Execution", true, [
-            Lesson(1, "Writing PRDs and user stories", "30 min"),
-            Lesson(2, "Working with engineers and designers", "20 min"),
-            Lesson(3, "Sprint planning and agile basics", "20 min"),
-        ]),
-        Module(7, "Interview Prep", true, [
-            Lesson(1, "PM interview question types", "20 min"),
-            Lesson(2, "Product design questions (practice)", "30 min"),
-            Lesson(3, "Estimation questions (practice)", "25 min"),
-            Lesson(4, "Strategy questions (practice)", "25 min"),
-        ]),
-    ];
-
-    private static List<RoadmapModule> DataScienceModules() =>
-    [
-        Module(1, "Python & Data Foundations", false, [
-            Lesson(1, "Python for data analysis", "30 min"),
-            Lesson(2, "NumPy and Pandas essentials", "40 min"),
-            Lesson(3, "Data cleaning and wrangling", "35 min"),
-        ]),
-        Module(2, "Statistics & Probability", true, [
-            Lesson(1, "Descriptive statistics", "25 min"),
-            Lesson(2, "Probability distributions", "30 min"),
-            Lesson(3, "Hypothesis testing", "30 min"),
-            Lesson(4, "Bayesian thinking basics", "25 min"),
-        ]),
-        Module(3, "Data Visualisation", true, [
-            Lesson(1, "Matplotlib and Seaborn", "30 min"),
-            Lesson(2, "Storytelling with data", "25 min"),
-            Lesson(3, "Dashboard design principles", "20 min"),
-        ]),
-        Module(4, "Machine Learning", true, [
-            Lesson(1, "Supervised learning fundamentals", "35 min"),
-            Lesson(2, "Regression and classification", "35 min"),
-            Lesson(3, "Decision trees and random forests", "30 min"),
-            Lesson(4, "Model evaluation and validation", "30 min"),
-        ]),
-        Module(5, "Deep Learning", true, [
-            Lesson(1, "Neural networks from scratch", "40 min"),
-            Lesson(2, "Convolutional neural networks", "35 min"),
-            Lesson(3, "Transformers and LLMs overview", "30 min"),
-        ]),
-        Module(6, "Real-World Projects", true, [
-            Lesson(1, "End-to-end ML project workflow", "40 min"),
-            Lesson(2, "Feature engineering techniques", "30 min"),
-            Lesson(3, "Deploying a model with FastAPI", "35 min"),
-        ]),
-    ];
-
-    private static List<RoadmapModule> EntrepreneurshipModules() =>
-    [
-        Module(1, "Entrepreneur Mindset", false, [
-            Lesson(1, "Problem vs solution thinking", "20 min"),
-            Lesson(2, "First-principles reasoning", "20 min"),
-            Lesson(3, "Risk tolerance and resilience", "15 min"),
-        ]),
-        Module(2, "Idea Validation", true, [
-            Lesson(1, "Customer discovery interviews", "30 min"),
-            Lesson(2, "Building an MVP", "25 min"),
-            Lesson(3, "Measuring product-market fit signals", "25 min"),
-        ]),
-        Module(3, "Business Models", true, [
-            Lesson(1, "Revenue model options", "20 min"),
-            Lesson(2, "Unit economics and CAC/LTV", "25 min"),
-            Lesson(3, "Pricing strategy", "20 min"),
-        ]),
-        Module(4, "Fundraising", true, [
-            Lesson(1, "Venture capital basics", "20 min"),
-            Lesson(2, "Angel investors vs VCs", "20 min"),
-            Lesson(3, "Pitching and the pitch deck", "30 min"),
-            Lesson(4, "Term sheets and cap tables", "25 min"),
-        ]),
-        Module(5, "Growth & Marketing", true, [
-            Lesson(1, "Growth loops vs funnels", "20 min"),
-            Lesson(2, "Distribution channels in Africa", "25 min"),
-            Lesson(3, "Content and community-led growth", "20 min"),
-        ]),
-        Module(6, "Operations & Team", true, [
-            Lesson(1, "Hiring your first team members", "20 min"),
-            Lesson(2, "Company culture foundations", "20 min"),
-            Lesson(3, "Legal basics for startups", "25 min"),
-        ]),
-    ];
-
-    private static List<RoadmapModule> FinanceModules() =>
-    [
-        Module(1, "Financial Foundations", false, [
-            Lesson(1, "How financial markets work", "25 min"),
-            Lesson(2, "Reading financial statements", "30 min"),
-            Lesson(3, "Time value of money", "25 min"),
-        ]),
-        Module(2, "Investment Analysis", true, [
-            Lesson(1, "Equity valuation methods", "30 min"),
-            Lesson(2, "DCF modelling basics", "35 min"),
-            Lesson(3, "Portfolio theory and diversification", "25 min"),
-        ]),
-        Module(3, "African Financial Markets", true, [
-            Lesson(1, "Stock exchanges in Africa", "20 min"),
-            Lesson(2, "Fintech landscape in Africa", "25 min"),
-            Lesson(3, "Pan-African payment systems", "20 min"),
-        ]),
-        Module(4, "Corporate Finance", true, [
-            Lesson(1, "Capital structure decisions", "25 min"),
-            Lesson(2, "Mergers and acquisitions overview", "25 min"),
-            Lesson(3, "Working capital management", "20 min"),
-        ]),
-        Module(5, "Macroeconomics & Policy", true, [
-            Lesson(1, "Monetary policy and central banks", "25 min"),
-            Lesson(2, "Inflation and currency dynamics in Africa", "25 min"),
-            Lesson(3, "IMF and World Bank programmes", "20 min"),
-        ]),
-        Module(6, "Career Prep", true, [
-            Lesson(1, "Investment banking interview prep", "30 min"),
-            Lesson(2, "Financial modelling case study", "40 min"),
-            Lesson(3, "Networking in finance", "20 min"),
-        ]),
+        new()
+        {
+            Order = 1,
+            Level = "Beginner",
+            Title = "Beginner: PM Foundations & Discovery",
+            StageGoal = "Problem definition, customer discovery, writing PRDs",
+            IsLocked = false,
+            Lessons =
+            [
+                Lesson(1, "What is Product Management & PM First 90 Days", "30 min"),
+                Lesson(2, "Customer discovery interviews (The Mom Test)", "30 min"),
+                Lesson(3, "Writing crisp Product Requirements Documents (PRDs)", "35 min"),
+            ]
+        },
+        new()
+        {
+            Order = 2,
+            Level = "Intermediate",
+            Title = "Intermediate: Strategy & Growth Loops",
+            StageGoal = "Product strategy, competitive moats, growth loops, RICE prioritization",
+            IsLocked = true,
+            Lessons =
+            [
+                Lesson(1, "Product strategy and 7 Powers moats", "40 min"),
+                Lesson(2, "Growth loops vs linear acquisition funnels", "35 min"),
+                Lesson(3, "Roadmap prioritization with RICE framework", "30 min"),
+            ]
+        },
+        new()
+        {
+            Order = 3,
+            Level = "Advanced",
+            Title = "Advanced: Retention & Experimentation",
+            StageGoal = "Product analytics, retention cohorts, A/B testing at scale",
+            IsLocked = true,
+            Lessons =
+            [
+                Lesson(1, "Diagnosing cohort retention curves and flatlines", "40 min"),
+                Lesson(2, "Funnel conversion drop-off analysis", "35 min"),
+                Lesson(3, "Designing high-velocity A/B experiments", "35 min"),
+            ]
+        },
+        new()
+        {
+            Order = 4,
+            Level = "Application",
+            Title = "Application: Teardowns & PM Interview",
+            StageGoal = "Published product teardown, mock interviews, leadership rounds",
+            IsLocked = true,
+            Lessons =
+            [
+                Lesson(1, "End-to-end product teardown case study", "60 min"),
+                Lesson(2, "Product sense interview questions (CIRCLES framework)", "45 min"),
+                Lesson(3, "Analytical metric drop diagnosis and execution rounds", "45 min"),
+            ]
+        }
     ];
 
     private static List<RoadmapModule> SoftwareEngModules() =>
     [
-        Module(1, "Computer Science Fundamentals", false, [
-            Lesson(1, "Data structures: arrays, lists, trees", "35 min"),
-            Lesson(2, "Algorithms and Big-O notation", "40 min"),
-            Lesson(3, "Recursion and dynamic programming", "35 min"),
-        ]),
-        Module(2, "System Design", true, [
-            Lesson(1, "Scalability principles", "30 min"),
-            Lesson(2, "Databases: SQL vs NoSQL", "30 min"),
-            Lesson(3, "Caching and CDNs", "25 min"),
-            Lesson(4, "Microservices and monoliths", "25 min"),
-        ]),
-        Module(3, "Web & API Development", true, [
-            Lesson(1, "RESTful API design", "30 min"),
-            Lesson(2, "Authentication and authorisation", "25 min"),
-            Lesson(3, "HTTP and networking basics", "25 min"),
-        ]),
-        Module(4, "DevOps & Cloud", true, [
-            Lesson(1, "Docker and containerisation", "30 min"),
-            Lesson(2, "CI/CD pipelines", "25 min"),
-            Lesson(3, "Cloud providers: AWS, GCP, Azure overview", "25 min"),
-        ]),
-        Module(5, "Software Craft", true, [
-            Lesson(1, "Clean code principles", "20 min"),
-            Lesson(2, "Testing: unit, integration, E2E", "25 min"),
-            Lesson(3, "Code reviews and collaboration", "20 min"),
-        ]),
-        Module(6, "Interview Prep", true, [
-            Lesson(1, "LeetCode problem-solving patterns", "40 min"),
-            Lesson(2, "Behavioural interview questions", "25 min"),
-            Lesson(3, "System design mock interview", "40 min"),
-        ]),
+        new()
+        {
+            Order = 1,
+            Level = "Beginner",
+            Title = "Beginner: Clean Code & Git Foundations",
+            StageGoal = "Git workflows, SOLID design principles, unit testing",
+            IsLocked = false,
+            Lessons =
+            [
+                Lesson(1, "Git branching, rebasing and semantic commits", "35 min"),
+                Lesson(2, "SOLID principles in modern application code", "35 min"),
+                Lesson(3, "Unit testing and test-driven development basics", "30 min"),
+            ]
+        },
+        new()
+        {
+            Order = 2,
+            Level = "Intermediate",
+            Title = "Intermediate: REST APIs & Databases",
+            StageGoal = "RESTful API design, database indexing, caching strategies",
+            IsLocked = true,
+            Lessons =
+            [
+                Lesson(1, "Designing robust idempotent REST APIs", "40 min"),
+                Lesson(2, "PostgreSQL indexing and EXPLAIN ANALYZE tuning", "45 min"),
+                Lesson(3, "Authentication, JWT tokens and rate limiting", "35 min"),
+            ]
+        },
+        new()
+        {
+            Order = 3,
+            Level = "Advanced",
+            Title = "Advanced: Distributed Systems & Scale",
+            StageGoal = "Event-driven architecture, message queues, Docker & CI/CD",
+            IsLocked = true,
+            Lessons =
+            [
+                Lesson(1, "Message queues with RabbitMQ/Kafka and idempotency", "50 min"),
+                Lesson(2, "Containerization with Docker Compose and microservices", "40 min"),
+                Lesson(3, "Automated CI/CD pipelines with GitHub Actions", "35 min"),
+            ]
+        },
+        new()
+        {
+            Order = 4,
+            Level = "Application",
+            Title = "Application: Production SaaS & System Design",
+            StageGoal = "Full-stack cloud deployment, system design interview prep",
+            IsLocked = true,
+            Lessons =
+            [
+                Lesson(1, "Deploying full-stack SaaS with cloud monitoring", "60 min"),
+                Lesson(2, "System design interview architecture patterns", "50 min"),
+                Lesson(3, "Technical coding challenges and portfolio presentation", "45 min"),
+            ]
+        }
+    ];
+
+    private static List<RoadmapModule> FinanceModules() =>
+    [
+        new()
+        {
+            Order = 1,
+            Level = "Beginner",
+            Title = "Beginner: 3-Statement Financial Modeling",
+            StageGoal = "Income statement, balance sheet, cash flow linking",
+            IsLocked = false,
+            Lessons =
+            [
+                Lesson(1, "Linking the 3 financial statements dynamically", "45 min"),
+                Lesson(2, "Working capital management and EBITDA", "35 min"),
+                Lesson(3, "Reading audited corporate annual reports", "30 min"),
+            ]
+        },
+        new()
+        {
+            Order = 2,
+            Level = "Intermediate",
+            Title = "Intermediate: DCF Valuation & WACC",
+            StageGoal = "Discounted cash flow, cost of capital, sensitivity tables",
+            IsLocked = true,
+            Lessons =
+            [
+                Lesson(1, "Forecasting Free Cash Flow to Firm (FCFF)", "45 min"),
+                Lesson(2, "Calculating WACC and emerging market risk premiums", "40 min"),
+                Lesson(3, "Building 2D valuation sensitivity tables", "35 min"),
+            ]
+        },
+        new()
+        {
+            Order = 3,
+            Level = "Advanced",
+            Title = "Advanced: Fintech Rails & Ledgers",
+            StageGoal = "Double-entry ledgers, payment settlement, FX dynamics",
+            IsLocked = true,
+            Lessons =
+            [
+                Lesson(1, "Double-entry ledger design and transaction locks", "45 min"),
+                Lesson(2, "Payment rails, clearing and settlement timings", "40 min"),
+                Lesson(3, "Multi-currency FX spread modeling", "35 min"),
+            ]
+        },
+        new()
+        {
+            Order = 4,
+            Level = "Application",
+            Title = "Application: Investment Due Diligence",
+            StageGoal = "Venture capital investment memo, financial due diligence",
+            IsLocked = true,
+            Lessons =
+            [
+                Lesson(1, "Drafting an institutional Investment Committee memo", "60 min"),
+                Lesson(2, "Unit economics: CAC, LTV and payback periods", "40 min"),
+                Lesson(3, "Finance interview case studies and modeling tests", "45 min"),
+            ]
+        }
+    ];
+
+    private static List<RoadmapModule> EntrepreneurshipModules() =>
+    [
+        new()
+        {
+            Order = 1,
+            Level = "Beginner",
+            Title = "Beginner: Customer Discovery & Validation",
+            StageGoal = "Idea validation, Mom Test interviews, MVP definition",
+            IsLocked = false,
+            Lessons =
+            [
+                Lesson(1, "Customer discovery interviews (The Mom Test)", "40 min"),
+                Lesson(2, "Defining a minimum viable product (MVP)", "35 min"),
+                Lesson(3, "Problem validation scorecards", "30 min"),
+            ]
+        },
+        new()
+        {
+            Order = 2,
+            Level = "Intermediate",
+            Title = "Intermediate: Business Models & Unit Economics",
+            StageGoal = "Pricing strategy, revenue models, CAC and LTV",
+            IsLocked = true,
+            Lessons =
+            [
+                Lesson(1, "Selecting viable software revenue models", "35 min"),
+                Lesson(2, "Calculating unit economics (CAC, LTV, margins)", "40 min"),
+                Lesson(3, "First sales and B2B pilot agreements", "35 min"),
+            ]
+        },
+        new()
+        {
+            Order = 3,
+            Level = "Advanced",
+            Title = "Advanced: Distribution & Scaling",
+            StageGoal = "Go-to-market channels, viral loops, hiring",
+            IsLocked = true,
+            Lessons =
+            [
+                Lesson(1, "GTM distribution channels in emerging markets", "40 min"),
+                Lesson(2, "Building viral and content-led growth loops", "35 min"),
+                Lesson(3, "Hiring your first 5 core team members", "30 min"),
+            ]
+        },
+        new()
+        {
+            Order = 4,
+            Level = "Application",
+            Title = "Application: Pitch Deck & Fundraising",
+            StageGoal = "10-slide YC pitch deck, investor presentations, term sheets",
+            IsLocked = true,
+            Lessons =
+            [
+                Lesson(1, "Building a 10-slide YC-style investor pitch deck", "60 min"),
+                Lesson(2, "Term sheets, valuations and cap tables", "45 min"),
+                Lesson(3, "Pitching to angels and venture funds", "45 min"),
+            ]
+        }
     ];
 
     private static List<RoadmapModule> PublicPolicyModules() =>
     [
-        Module(1, "Policy Foundations", false, [
-            Lesson(1, "How policy is made", "25 min"),
-            Lesson(2, "Policy analysis frameworks", "25 min"),
-            Lesson(3, "Stakeholder mapping", "20 min"),
-        ]),
-        Module(2, "African Governance", true, [
-            Lesson(1, "AU and regional bodies", "25 min"),
-            Lesson(2, "Federalism and decentralisation", "20 min"),
-            Lesson(3, "Civil society and advocacy", "20 min"),
-        ]),
-        Module(3, "Economic Policy", true, [
-            Lesson(1, "Trade and industrial policy", "25 min"),
-            Lesson(2, "Social protection systems", "25 min"),
-            Lesson(3, "Development finance institutions", "20 min"),
-        ]),
-        Module(4, "Research & Evidence", true, [
-            Lesson(1, "Policy brief writing", "30 min"),
-            Lesson(2, "Qualitative research methods", "25 min"),
-            Lesson(3, "Using data to make the case", "25 min"),
-        ]),
-        Module(5, "Communication & Influence", true, [
-            Lesson(1, "Policy communication for non-experts", "20 min"),
-            Lesson(2, "Media engagement and op-eds", "20 min"),
-            Lesson(3, "Parliamentary and legislative processes", "20 min"),
-        ]),
-        Module(6, "Career Pathways", true, [
-            Lesson(1, "Working at government vs think tank vs NGO", "20 min"),
-            Lesson(2, "Fellowship and graduate programs", "20 min"),
-            Lesson(3, "Building your policy network", "15 min"),
-        ]),
-    ];
-
-    private static List<RoadmapModule> GenericModules(string goal) =>
-    [
-        Module(1, "Foundations", false, [
-            Lesson(1, $"Introduction to {goal}", "20 min"),
-            Lesson(2, "Core concepts and terminology", "25 min"),
-            Lesson(3, "Key frameworks and mental models", "20 min"),
-        ]),
-        Module(2, "Intermediate Skills", true, [
-            Lesson(1, "Practical application", "30 min"),
-            Lesson(2, "Common tools and resources", "25 min"),
-            Lesson(3, "Case studies and examples", "25 min"),
-        ]),
-        Module(3, "Advanced Topics", true, [
-            Lesson(1, "Expert-level concepts", "30 min"),
-            Lesson(2, "Current research and trends", "25 min"),
-            Lesson(3, "Building your own perspective", "20 min"),
-        ]),
-        Module(4, "Real-World Practice", true, [
-            Lesson(1, "Project-based learning", "40 min"),
-            Lesson(2, "Community and networking", "20 min"),
-            Lesson(3, "Finding mentors and role models", "15 min"),
-        ]),
+        new()
+        {
+            Order = 1,
+            Level = "Beginner",
+            Title = "Beginner: Policy Analysis Foundations",
+            StageGoal = "Stakeholder mapping, policy analysis frameworks",
+            IsLocked = false,
+            Lessons =
+            [
+                Lesson(1, "Policy formulation and stakeholder mapping", "35 min"),
+                Lesson(2, "Data sovereignty and regional governance", "35 min"),
+                Lesson(3, "Regulatory impact assessment basics", "30 min"),
+            ]
+        },
+        new()
+        {
+            Order = 2,
+            Level = "Intermediate",
+            Title = "Intermediate: Economic & Tech Policy",
+            StageGoal = "Cross-border data flows, fintech regulation, trade",
+            IsLocked = true,
+            Lessons =
+            [
+                Lesson(1, "Cross-border data flows and African free trade", "40 min"),
+                Lesson(2, "Fintech regulatory sandboxes and central bank policies", "40 min"),
+                Lesson(3, "Public-private partnerships in digital infrastructure", "35 min"),
+            ]
+        },
+        new()
+        {
+            Order = 3,
+            Level = "Advanced",
+            Title = "Advanced: AI Governance & Sovereignty",
+            StageGoal = "National AI strategies, algorithmic accountability",
+            IsLocked = true,
+            Lessons =
+            [
+                Lesson(1, "National AI strategies and safety standards", "45 min"),
+                Lesson(2, "Algorithmic accountability and bias audits", "40 min"),
+                Lesson(3, "International treaty negotiations on technology", "35 min"),
+            ]
+        },
+        new()
+        {
+            Order = 4,
+            Level = "Application",
+            Title = "Application: Policy Briefs & Advocacy",
+            StageGoal = "Executive policy memos, legislative testimony",
+            IsLocked = true,
+            Lessons =
+            [
+                Lesson(1, "Drafting a 2-page executive policy brief for ministers", "60 min"),
+                Lesson(2, "Media engagement, op-eds and public advocacy", "40 min"),
+                Lesson(3, "Presenting at legislative hearings and committee sessions", "45 min"),
+            ]
+        }
     ];
 
     // ── Helpers ───────────────────────────────────────────────────────────────
-
-    private static RoadmapModule Module(int order, string title, bool locked, List<RoadmapLesson> lessons) =>
-        new() { Title = title, Order = order, IsLocked = locked, Lessons = lessons };
 
     private static RoadmapLesson Lesson(int order, string title, string time) =>
         new() { Title = title, Order = order, EstimatedTime = time };

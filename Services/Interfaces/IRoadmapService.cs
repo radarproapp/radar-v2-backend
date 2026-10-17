@@ -16,6 +16,9 @@ public interface IRoadmapService
     Task<GrowthRoadmap> CreateAiRoadmapAsync(string userId, UserProfile profile, CancellationToken ct = default);
     Task CompleteLessonAsync(string userId, string roadmapId, string moduleId, string lessonId);
     Task CompleteResourceAsync(string userId, string roadmapId, string resourceId);
+    Task CompleteExerciseAsync(string userId, string roadmapId, string resourceId);
+    Task<GrowthRoadmap?> RecordQuizResultAsync(string userId, string roadmapId, string topic, string stage, int scorePercent);
+    Task SetRoadmapStageAsync(string userId, string roadmapId, string stage);
     Task AddTopicToRoadmapAsync(string userId, string roadmapId, string topic);
     Task<int> GetProgressPercentAsync(string userId, string roadmapId);
 }

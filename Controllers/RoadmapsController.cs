@@ -24,6 +24,18 @@ public class RoadmapsController : ControllerBase
         [Required, MinLength(1)] public string Topic { get; set; } = string.Empty;
     }
 
+    public sealed class SubmitQuizRequest
+    {
+        [Required] public string Topic { get; set; } = string.Empty;
+        [Required] public string Stage { get; set; } = "Beginner";
+        [Range(0, 100)] public int ScorePercent { get; set; }
+    }
+
+    public sealed class SetStageRequest
+    {
+        [Required] public string Stage { get; set; } = "Beginner";
+    }
+
     [HttpPost("active/topics")]
     public async Task<IActionResult> AddTopicToActiveAsync([FromBody] AddTopicRequest request)
     {
@@ -68,8 +80,6 @@ public class RoadmapsController : ControllerBase
         var profile = await _profiles.GetCurrentUserAsync();
         if (profile is null) return NotFound(new { error = "Profile not found" });
 
-        // Mirrors Learn.razor: GetActiveRoadmapAsync auto-creates from the user's goal template
-        // when no active roadmap exists yet, so this only 404s when the profile itself is missing.
         var active = await _roadmaps.GetActiveRoadmapAsync(profile.Id);
         return active is null ? NotFound(new { error = "No active roadmap" }) : Ok(active);
     }
@@ -91,6 +101,40 @@ public class RoadmapsController : ControllerBase
         if (profile is null) return NotFound(new { error = "Profile not found" });
 
         await _roadmaps.CompleteResourceAsync(profile.Id, roadmapId, resourceId);
+        return NoContent();
+    }
+
+    [HttpPost("{roadmapId}/exercises/{resourceId}/complete")]
+    public async Task<IActionResult> CompleteExerciseAsync(string roadmapId, string resourceId)
+    {
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        await _roadmaps.CompleteExerciseAsync(profile.Id, roadmapId, resourceId);
+        return NoContent();
+    }
+
+    [HttpPost("{roadmapId}/quizzes")]
+    public async Task<IActionResult> RecordQuizResultAsync(string roadmapId, [FromBody] SubmitQuizRequest request)
+    {
+        if (!ModelState.IsValid) return ValidationProblem();
+
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        var updated = await _roadmaps.RecordQuizResultAsync(profile.Id, roadmapId, request.Topic, request.Stage, request.ScorePercent);
+        return updated is null ? NotFound(new { error = "Roadmap not found" }) : Ok(updated);
+    }
+
+    [HttpPost("{roadmapId}/stage")]
+    public async Task<IActionResult> SetStageAsync(string roadmapId, [FromBody] SetStageRequest request)
+    {
+        if (!ModelState.IsValid) return ValidationProblem();
+
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        await _roadmaps.SetRoadmapStageAsync(profile.Id, roadmapId, request.Stage);
         return NoContent();
     }
 
