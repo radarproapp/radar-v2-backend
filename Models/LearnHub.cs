@@ -29,6 +29,10 @@ public class AcademicPaperBreakdown
     public string Findings { get; set; } = string.Empty;
     public string Contribution { get; set; } = string.Empty;
     public string WhyItMatters { get; set; } = string.Empty;
+
+    public int TotalWordCount =>
+        (Introduction + " " + Problem + " " + AimAndObjectives + " " + Methodology + " " + KeyArguments + " " + Findings + " " + Contribution)
+        .Split(new[] { ' ', '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries).Length;
 }
 
 public class PodcastBreakdown

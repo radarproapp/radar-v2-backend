@@ -12,8 +12,15 @@ namespace RadarV2.Services;
 public class MongoClipsService : IClipsService
 {
     private readonly RadarDatabase _db;
+    private readonly IAiEngine _ai;
+    private readonly ILogger<MongoClipsService> _log;
 
-    public MongoClipsService(RadarDatabase db) => _db = db;
+    public MongoClipsService(RadarDatabase db, IAiEngine ai, ILogger<MongoClipsService> log)
+    {
+        _db = db;
+        _ai = ai;
+        _log = log;
+    }
 
     public async Task<List<Clip>> GetDailyClipsAsync(UserProfile profile)
     {
@@ -109,6 +116,7 @@ public class MongoClipsService : IClipsService
             });
         }
 
+        await PersonalizeClipsWithAiAsync(clips, profile, activeRoadmap);
         return clips;
     }
 
@@ -258,4 +266,75 @@ public class MongoClipsService : IClipsService
             PublishedAt = DateTime.UtcNow,
         }
     ];
+
+    private async Task PersonalizeClipsWithAiAsync(List<Clip> clips, UserProfile profile, GrowthRoadmap? activeRoadmap)
+    {
+        if (clips.Count == 0) return;
+        try
+        {
+            var summaries = string.Join("\n\n", clips.Take(4).Select((c, idx) =>
+                $"Clip {idx + 1}:\nTitle: {c.Signal}\nTag: {c.Tag}\nCurrentWhy: {c.WhyItMatters}"));
+
+            var prompt = $$"""
+                User Profile:
+                - Goal: {{profile.PrimaryGoal}}
+                - Role: {{profile.TargetRole}}
+                - Roadmap Topic: {{activeRoadmap?.Interest ?? profile.PrimaryGoal}}
+                - Target Industry: {{profile.TargetIndustry}}
+                - Location: {{profile.City}}, {{profile.Region}}
+
+                Clips to personalize:
+                {{summaries}}
+
+                For each clip, personalize 'whyItMatters', 'yourEdge', and 'nextMove' to specifically match this user's stated goal, role, and active learning roadmap.
+                Return strict JSON:
+                {
+                  "personalizedClips": [
+                    {
+                      "index": 1,
+                      "whyItMatters": "...",
+                      "yourEdge": "...",
+                      "nextMove": "..."
+                    }
+                  ]
+                }
+                """;
+
+            var result = await _ai.GenerateJsonAsync<ClipPersonalizationResult>(
+                "clips-personalization",
+                "You are Radar's AI Clip Intelligence Processor. Transform video clips into hyper-relevant action intelligence.",
+                prompt);
+
+            if (result?.PersonalizedClips is not null)
+            {
+                foreach (var item in result.PersonalizedClips)
+                {
+                    var idx = item.Index - 1;
+                    if (idx >= 0 && idx < clips.Count)
+                    {
+                        if (!string.IsNullOrWhiteSpace(item.WhyItMatters)) clips[idx].WhyItMatters = item.WhyItMatters;
+                        if (!string.IsNullOrWhiteSpace(item.YourEdge)) clips[idx].YourEdge = item.YourEdge;
+                        if (!string.IsNullOrWhiteSpace(item.NextMove)) clips[idx].NextMove = item.NextMove;
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Non-fatal: AI Engine clip personalization failed; keeping baseline insights");
+        }
+    }
+
+    private sealed class ClipPersonalizationResult
+    {
+        public List<PersonalizedClipItem>? PersonalizedClips { get; set; }
+    }
+
+    private sealed class PersonalizedClipItem
+    {
+        public int Index { get; set; }
+        public string? WhyItMatters { get; set; }
+        public string? YourEdge { get; set; }
+        public string? NextMove { get; set; }
+    }
 }

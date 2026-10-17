@@ -95,13 +95,21 @@ public class MongoResearchService : IResearchService
         if (local != null)
             return local;
 
-        // Accept both OpenAlex IDs (W...) and DOIs
+        ContentItem? paper = null;
         if (id.StartsWith("W", StringComparison.OrdinalIgnoreCase))
-            return await _openAlex.GetWorkByIdAsync(id);
+            paper = await _openAlex.GetWorkByIdAsync(id);
+        else
+        {
+            var results = await _openAlex.SearchAsync(id, pageSize: 1);
+            paper = results.FirstOrDefault();
+        }
 
-        // If it looks like a DOI, search by DOI
-        var results = await _openAlex.SearchAsync(id, pageSize: 1);
-        return results.FirstOrDefault();
+        if (paper != null)
+        {
+            await EnsureAiPaperBreakdownAsync(paper);
+        }
+
+        return paper;
     }
 
     public async Task<List<ContentItem>> GetRelatedPapersAsync(string paperId)
@@ -197,5 +205,53 @@ public class MongoResearchService : IResearchService
 
         AcademicPaperSynthesizer.EnrichPaperWithStrictBreakdown(paper);
         return paper;
+    }
+
+    private async Task EnsureAiPaperBreakdownAsync(ContentItem paper)
+    {
+        if (paper.PaperBreakdown != null && paper.WordCount > 400) return;
+
+        try
+        {
+            var prompt = $$"""
+                Synthesize a strict ~500-word academic breakdown for the following research paper:
+                Title: {{paper.Title}}
+                Authors: {{string.Join(", ", paper.Authors)}}
+                Journal: {{paper.Journal ?? paper.Source ?? "Peer-Reviewed Press"}}
+                Year: {{paper.PublishedAt.Year}}
+                Abstract: {{paper.AiSummary ?? paper.WhatHappened ?? ""}}
+                Topic: {{paper.Topic ?? "Interdisciplinary Science"}}
+
+                Format strictly as JSON with all 7 mandated sections:
+                {
+                  "introduction": "Comprehensive introduction contextualizing the paper within the field...",
+                  "problem": "Specific, empirical problem statement the researchers target...",
+                  "aimAndObjectives": "Key aim and structured objectives of the investigation...",
+                  "methodology": "Empirical methodology, datasets, models, or experimental setup used...",
+                  "keyArguments": "Primary theoretical arguments and claims articulated by the authors...",
+                  "findings": "Verified quantitative and qualitative findings produced by the study...",
+                  "contribution": "Direct scientific contribution to the field and why it matters to practitioners...",
+                  "whyItMatters": "Actionable explanation connecting this academic evidence to real-world application."
+                }
+                """;
+
+            var breakdown = await _ai.GenerateJsonAsync<AcademicPaperBreakdown>(
+                "academic-paper-breakdown",
+                "You are Radar's Academic Research Synthesizer. Produce strict, verified 7-part 500-word academic paper breakdowns.",
+                prompt);
+
+            if (breakdown != null && !string.IsNullOrWhiteSpace(breakdown.Introduction))
+            {
+                paper.PaperBreakdown = breakdown;
+                paper.WordCount = breakdown.TotalWordCount;
+                return;
+            }
+        }
+        catch
+        {
+            // Fall back to template synthesizer cleanly
+        }
+
+        AcademicPaperSynthesizer.EnrichPaperWithStrictBreakdown(paper);
     }
 }

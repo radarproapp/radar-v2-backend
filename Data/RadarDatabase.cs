@@ -63,6 +63,7 @@ public class RadarDatabase
     public IMongoCollection<MentorWorkReview> MentorWorkReviews => _db.GetCollection<MentorWorkReview>("mentor_work_reviews");
     public IMongoCollection<TopicMastery> TopicMasteries => _db.GetCollection<TopicMastery>("topic_masteries");
     public IMongoCollection<SpacedRevisionItem> SpacedRevisions => _db.GetCollection<SpacedRevisionItem>("spaced_revisions");
+    public IMongoCollection<AiActivityLogDoc> AiActivities => _db.GetCollection<AiActivityLogDoc>("ai_activities");
 
     private void EnsureIndexes()
     {
