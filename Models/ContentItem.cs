@@ -46,6 +46,11 @@ public class ContentItem
     public string? KeyFindings { get; set; }
     public string? Methodology { get; set; }
     public List<string> RelatedPaperIds { get; set; } = [];
+    public AcademicPaperBreakdown? PaperBreakdown { get; set; }
+    public string? DocumentType { get; set; } // "Journal Article", "Conference Paper", "Review Article"
+    public int WordCount { get; set; }
+    public string? OpenAccessPdfUrl { get; set; }
+    public string? DatabaseSource { get; set; } = "OpenAlex";
 
     // Enrichment fields — populated by the AI ingestion pipeline
     public ContentLayer Layer { get; set; } = ContentLayer.Ideas;

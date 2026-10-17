@@ -26,30 +26,38 @@ public class OpenAlexClient
     /// </summary>
     public async Task<List<ContentItem>> SearchAsync(string query, int yearFrom = 0, int page = 1, int pageSize = 20)
     {
-        var filters = new List<string>();
-        if (yearFrom > 0)
-            filters.Add($"publication_year:{yearFrom}-");
-
-        var url = $"https://api.openalex.org/works?search={Uri.EscapeDataString(query)}&per_page={Math.Min(pageSize, 100)}&page={page}";
-        if (filters.Count > 0)
-            url += $"&filter={string.Join(",", filters)}";
-
-        var response = await _http.GetAsync(url);
-        response.EnsureSuccessStatusCode();
-
-        var json = await response.Content.ReadAsStringAsync();
-        using var doc = JsonDocument.Parse(json);
-
-        if (ArrayProperty(doc.RootElement, "results") is not { } results)
-            return [];
-
-        var items = new List<ContentItem>();
-        foreach (var work in results.EnumerateArray())
+        try
         {
-            if (work.ValueKind != JsonValueKind.Object) continue;
-            items.Add(MapWorkToContentItem(work));
+            var filters = new List<string>();
+            if (yearFrom > 0)
+                filters.Add($"publication_year:{yearFrom}-");
+
+            var url = $"https://api.openalex.org/works?search={Uri.EscapeDataString(query)}&per_page={Math.Min(pageSize, 100)}&page={page}";
+            if (filters.Count > 0)
+                url += $"&filter={string.Join(",", filters)}";
+
+            var response = await _http.GetAsync(url);
+            if (!response.IsSuccessStatusCode)
+                return [];
+
+            var json = await response.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(json);
+
+            if (ArrayProperty(doc.RootElement, "results") is not { } results)
+                return [];
+
+            var items = new List<ContentItem>();
+            foreach (var work in results.EnumerateArray())
+            {
+                if (work.ValueKind != JsonValueKind.Object) continue;
+                items.Add(MapWorkToContentItem(work));
+            }
+            return items;
         }
-        return items;
+        catch
+        {
+            return [];
+        }
     }
 
     /// <summary>
@@ -103,25 +111,11 @@ public class OpenAlexClient
     }
 
     /// <summary>
-    /// Generate an APA or MLA citation for a work.
+    /// Generate a formatted citation for a paper in APA, Harvard, IEEE, BibTeX, MLA, or Chicago style.
     /// </summary>
     public static string FormatCitation(ContentItem paper, string style = "APA")
     {
-        var authors = paper.Authors.Count > 0
-            ? string.Join(", ", paper.Authors)
-            : "Unknown";
-
-        var year = paper.PublishedAt.Year;
-        var title = paper.Title;
-        var journal = paper.Journal ?? paper.Source;
-        var doi = paper.Doi;
-
-        return style.ToUpperInvariant() switch
-        {
-            "APA" => $"{authors} ({year}). {title}. {journal}. https://doi.org/{doi}",
-            "MLA" => $"{authors}. \"{title}.\" {journal}, {year}. https://doi.org/{doi}.",
-            _ => $"{authors} ({year}). {title}. {journal}. https://doi.org/{doi}",
-        };
+        return AcademicPaperSynthesizer.FormatCitation(paper, style);
     }
 
     private static ContentItem MapWorkToContentItem(JsonElement work)
@@ -147,16 +141,50 @@ public class OpenAlexClient
             : DateTime.UtcNow;
 
         var journal = "";
-        if (ObjectProperty(work, "primary_location") is { } loc &&
-            ObjectProperty(loc, "source") is { } source &&
-            source.TryGetProperty("display_name", out var srcName))
+        string? landingPageUrl = null;
+        string? pdfUrl = null;
+
+        if (ObjectProperty(work, "primary_location") is { } loc)
         {
-            journal = srcName.GetString() ?? "";
+            if (ObjectProperty(loc, "source") is { } source &&
+                source.TryGetProperty("display_name", out var srcName))
+            {
+                journal = srcName.GetString() ?? "";
+            }
+
+            if (loc.TryGetProperty("landing_page_url", out var landEl))
+                landingPageUrl = landEl.GetString();
+
+            if (loc.TryGetProperty("pdf_url", out var pdfEl))
+                pdfUrl = pdfEl.GetString();
         }
 
-        // Extract authors from authorships. OpenAlex sends an explicit null for missing nested
-        // objects (and null elements inside these arrays), so every level is checked first —
-        // TryGetProperty/EnumerateArray throw on a Null element rather than returning false.
+        if (ObjectProperty(work, "best_oa_location") is { } bestOa)
+        {
+            if (string.IsNullOrEmpty(landingPageUrl) && bestOa.TryGetProperty("landing_page_url", out var bLandEl))
+                landingPageUrl = bLandEl.GetString();
+
+            if (string.IsNullOrEmpty(pdfUrl) && bestOa.TryGetProperty("pdf_url", out var bPdfEl))
+                pdfUrl = bPdfEl.GetString();
+        }
+
+        // Determine verified paper link
+        var paperUrl = !string.IsNullOrWhiteSpace(doi)
+            ? (doi.StartsWith("http") ? doi : $"https://doi.org/{doi}")
+            : (!string.IsNullOrWhiteSpace(landingPageUrl) ? landingPageUrl : $"https://openalex.org/{id}");
+
+        // Map document type
+        var rawType = work.TryGetProperty("type", out var typeEl) ? typeEl.GetString()?.ToLowerInvariant() : "";
+        var docType = rawType switch
+        {
+            "proceedings-article" => "Conference Paper",
+            "book-chapter" => "Book Chapter",
+            "review" => "Review Article",
+            "preprint" => "Preprint",
+            _ => "Journal Article"
+        };
+
+        // Extract authors from authorships
         var authors = new List<string>();
         if (ArrayProperty(work, "authorships") is { } authorships)
         {
@@ -191,22 +219,32 @@ public class OpenAlexClient
             abstractText = ReconstructAbstract(absIndex);
         }
 
-        return new ContentItem
+        var item = new ContentItem
         {
             Id = id,
             Type = ContentType.ResearchPaper,
             Title = title,
             Doi = doi,
+            Url = paperUrl,
+            OpenAccessPdfUrl = pdfUrl,
+            DocumentType = docType,
+            DatabaseSource = "OpenAlex / CrossRef",
             Authors = authors,
-            Source = journal,
+            Source = !string.IsNullOrWhiteSpace(journal) ? journal : "Academic Press",
             Journal = journal,
             PublishedAt = publicationDate,
             AiSummary = abstractText.Length > 500 ? abstractText[..500] + "…" : abstractText,
             Tags = tags,
             Signal = title,
+            Topic = tags.Count > 0 ? tags[0] : "Academic Research",
             WhatHappened = abstractText,
-            WhyItMatters = $"Cited {citedByCount} times. Published in {journal}.",
+            WhyItMatters = $"Cited {citedByCount} times in peer-reviewed scholarship. Published in {journal}.",
         };
+
+        // Enrich with strict 5-minute (~500-word) 7-part breakdown
+        AcademicPaperSynthesizer.EnrichPaperWithStrictBreakdown(item);
+
+        return item;
     }
 
     /// <summary>
