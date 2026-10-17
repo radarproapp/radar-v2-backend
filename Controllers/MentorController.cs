@@ -7,7 +7,11 @@ using RadarV2.Services.Interfaces;
 
 namespace RadarV2.Controllers;
 
-/// <summary>AI Learning Mentor — chat (streamed over SSE), quiz, study plan, work review.</summary>
+/// <summary>
+/// AI Learning Mentor — Socratic chat tutor, adaptive quizzes, dynamic study plans,
+/// work reviews with revision loops, personal learning memory, topic mastery tracking,
+/// spaced repetition, and daily learning cards.
+/// </summary>
 [ApiController]
 [Authorize]
 [Route("api/mentor")]
@@ -22,6 +26,7 @@ public class MentorController : ControllerBase
         _profiles = profiles;
     }
 
+    // ── Chat & Tutor ────────────────────────────────────────────────────────
     public sealed class ChatRequest
     {
         [Required, MinLength(1)] public string Message { get; set; } = string.Empty;
@@ -41,10 +46,12 @@ public class MentorController : ControllerBase
         await SseWriter.WriteChatStreamAsync(Response, _mentor.StreamMessageAsync(profile.Id, request.Message, request.History, ct), ct);
     }
 
+    // ── Practice & Quiz ─────────────────────────────────────────────────────
     public sealed class GenerateQuizRequest
     {
         [Required, MinLength(1)] public string Topic { get; set; } = string.Empty;
         public int QuestionCount { get; set; } = 5;
+        public string Difficulty { get; set; } = "Adaptive";
     }
 
     [HttpPost("quiz")]
@@ -55,7 +62,7 @@ public class MentorController : ControllerBase
         var profile = await _profiles.GetCurrentUserAsync();
         if (profile is null) return NotFound(new { error = "Profile not found" });
 
-        var quiz = await _mentor.GenerateQuizAsync(profile.Id, request.Topic, Math.Clamp(request.QuestionCount, 1, 20));
+        var quiz = await _mentor.GenerateQuizAsync(profile.Id, request.Topic, Math.Clamp(request.QuestionCount, 1, 20), request.Difficulty);
         return Ok(quiz);
     }
 
@@ -63,6 +70,7 @@ public class MentorController : ControllerBase
     {
         [Required] public int QuestionIndex { get; set; }
         [Required] public int AnswerIndex { get; set; }
+        public string? TextAnswer { get; set; }
     }
 
     [HttpPost("quiz/{quizId}/answer")]
@@ -73,14 +81,16 @@ public class MentorController : ControllerBase
         var profile = await _profiles.GetCurrentUserAsync();
         if (profile is null) return NotFound(new { error = "Profile not found" });
 
-        var quiz = await _mentor.SubmitAnswerAsync(profile.Id, quizId, request.QuestionIndex, request.AnswerIndex);
+        var quiz = await _mentor.SubmitAnswerAsync(profile.Id, quizId, request.QuestionIndex, request.AnswerIndex, request.TextAnswer);
         return quiz is null ? NotFound(new { error = "Quiz not found" }) : Ok(quiz);
     }
 
+    // ── Study Plan ──────────────────────────────────────────────────────────
     public sealed class CreateStudyPlanRequest
     {
         [Required, MinLength(1)] public string Topic { get; set; } = string.Empty;
         [Required, MinLength(1)] public string Goal { get; set; } = string.Empty;
+        public int Weeks { get; set; } = 6;
     }
 
     [HttpPost("study-plan")]
@@ -91,7 +101,7 @@ public class MentorController : ControllerBase
         var profile = await _profiles.GetCurrentUserAsync();
         if (profile is null) return NotFound(new { error = "Profile not found" });
 
-        var plan = await _mentor.CreateStudyPlanAsync(profile.Id, request.Topic, request.Goal);
+        var plan = await _mentor.CreateStudyPlanAsync(profile.Id, request.Topic, request.Goal, Math.Clamp(request.Weeks, 1, 12));
         return Ok(plan);
     }
 
@@ -105,11 +115,44 @@ public class MentorController : ControllerBase
         return plan is null ? NoContent() : Ok(plan);
     }
 
+    public sealed class AdjustPlanRequest
+    {
+        [Required] public string Reason { get; set; } = string.Empty;
+    }
+
+    [HttpPost("study-plan/{planId}/adjust")]
+    public async Task<IActionResult> AdjustStudyPlanAsync(string planId, [FromBody] AdjustPlanRequest request)
+    {
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        var plan = await _mentor.AdjustStudyPlanAsync(profile.Id, planId, request.Reason);
+        return plan is null ? NotFound(new { error = "Plan not found" }) : Ok(plan);
+    }
+
+    public sealed class ToggleTaskRequest
+    {
+        [Required] public int WeekNumber { get; set; }
+        [Required] public int TaskIndex { get; set; }
+    }
+
+    [HttpPost("study-plan/{planId}/toggle-task")]
+    public async Task<IActionResult> ToggleTaskAsync(string planId, [FromBody] ToggleTaskRequest request)
+    {
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        var ok = await _mentor.ToggleTaskCompletionAsync(profile.Id, planId, request.WeekNumber, request.TaskIndex);
+        return ok ? Ok(new { success = true }) : NotFound(new { error = "Task not found" });
+    }
+
+    // ── Work Review & Revision Loop ─────────────────────────────────────────
     public sealed class ReviewWorkRequest
     {
         [Required, MinLength(1)] public string WorkTitle { get; set; } = string.Empty;
         [Required, MinLength(1)] public string WorkContent { get; set; } = string.Empty;
         [Required, MinLength(1)] public string ReviewType { get; set; } = string.Empty;
+        public string? RevisedFromId { get; set; }
     }
 
     [HttpPost("review")]
@@ -120,7 +163,90 @@ public class MentorController : ControllerBase
         var profile = await _profiles.GetCurrentUserAsync();
         if (profile is null) return NotFound(new { error = "Profile not found" });
 
-        var review = await _mentor.ReviewWorkAsync(profile.Id, request.WorkTitle, request.WorkContent, request.ReviewType);
+        var review = await _mentor.ReviewWorkAsync(profile.Id, request.WorkTitle, request.WorkContent, request.ReviewType, request.RevisedFromId);
         return Ok(review);
+    }
+
+    [HttpGet("reviews")]
+    public async Task<IActionResult> GetUserReviewsAsync()
+    {
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        var reviews = await _mentor.GetUserReviewsAsync(profile.Id);
+        return Ok(reviews);
+    }
+
+    // ── Personal Learning Memory & Topic Mastery ────────────────────────────
+    [HttpGet("memory")]
+    public async Task<IActionResult> GetLearningMemoryAsync()
+    {
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        var memory = await _mentor.GetLearningMemoryAsync(profile.Id);
+        return Ok(memory);
+    }
+
+    [HttpGet("mastery")]
+    public async Task<IActionResult> GetTopicMasteriesAsync()
+    {
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        var masteries = await _mentor.GetTopicMasteriesAsync(profile.Id);
+        return Ok(masteries);
+    }
+
+    // ── Challenge Mode & Today's Learning ───────────────────────────────────
+    public sealed class ChallengeRequest
+    {
+        public string? Topic { get; set; }
+    }
+
+    [HttpPost("challenge")]
+    public async Task<IActionResult> RunChallengeAsync([FromBody] ChallengeRequest? request)
+    {
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        var challenge = await _mentor.RunChallengeAsync(profile.Id, request?.Topic);
+        return Ok(challenge);
+    }
+
+    [HttpGet("today")]
+    public async Task<IActionResult> GetTodayLearningAsync()
+    {
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        var card = await _mentor.GetTodayLearningAsync(profile.Id);
+        return Ok(card);
+    }
+
+    // ── Spaced Revision ─────────────────────────────────────────────────────
+    [HttpGet("spaced-revision")]
+    public async Task<IActionResult> GetSpacedRevisionsAsync()
+    {
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        var revisions = await _mentor.GetSpacedRevisionsAsync(profile.Id);
+        return Ok(revisions);
+    }
+
+    public sealed class CompleteRevisionRequest
+    {
+        public bool WasRemembered { get; set; } = true;
+    }
+
+    [HttpPost("spaced-revision/{id}/complete")]
+    public async Task<IActionResult> CompleteRevisionAsync(string id, [FromBody] CompleteRevisionRequest request)
+    {
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        var ok = await _mentor.CompleteSpacedRevisionAsync(profile.Id, id, request.WasRemembered);
+        return ok ? Ok(new { success = true }) : NotFound(new { error = "Revision item not found" });
     }
 }
