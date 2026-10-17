@@ -21,6 +21,61 @@ public static class FollowUpService
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var interests = profile.Interests.ToHashSet(StringComparer.OrdinalIgnoreCase);
 
+        // ── Top 3 interacted things ──────────────────────────────────────────
+        // Highlights the top 3 topics/terms the user has been engaging with the most across
+        // reads, saves, searches, and activity.
+        var positiveSignals = allSignals
+            .Where(s => s.Strength > 0.05 && (s.NegativeCount == 0 || s.PositiveCount > s.NegativeCount))
+            .Where(s => s.ExplicitFeedback > -0.5)
+            .OrderByDescending(s => (s.PositiveCount * 2.0) + BehavioralSignalService.DecayedStrength(s))
+            .ThenByDescending(s => s.UpdatedAt)
+            .Select(s => s.Term.Trim())
+            .Where(t => !string.IsNullOrWhiteSpace(t))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (positiveSignals.Count < 3 && profile.InterestActivityScores.Count > 0)
+        {
+            var activityTerms = profile.InterestActivityScores
+                .Where(kv => kv.Value > 0)
+                .OrderByDescending(kv => kv.Value)
+                .Select(kv => kv.Key.Trim())
+                .Where(t => !string.IsNullOrWhiteSpace(t) && !positiveSignals.Contains(t, StringComparer.OrdinalIgnoreCase));
+            positiveSignals.AddRange(activityTerms);
+        }
+
+        if (positiveSignals.Count < 3 && profile.Interests.Count > 0)
+        {
+            var profileInterests = profile.Interests
+                .Select(i => i.Trim())
+                .Where(t => !string.IsNullOrWhiteSpace(t) && !positiveSignals.Contains(t, StringComparer.OrdinalIgnoreCase));
+            positiveSignals.AddRange(profileInterests);
+        }
+
+        var top3 = positiveSignals.Take(3).ToList();
+        if (top3.Count > 0)
+        {
+            var prompt = top3.Count switch
+            {
+                3 => $"You've been engaging most with {top3[0]}, {top3[1]}, and {top3[2]} recently.",
+                2 => $"You've been engaging most with {top3[0]} and {top3[1]} recently.",
+                _ => $"You've been engaging most with {top3[0]} recently.",
+            };
+
+            var unaddedInterest = top3.FirstOrDefault(t => !interests.Contains(t));
+            suggestions.Add(new FollowUpSuggestion
+            {
+                Id = $"top3:{string.Join("-", top3)}",
+                Kind = "topInteractions",
+                Prompt = prompt,
+                Detail = "Radar is tuning your daily intelligence, briefings, and opportunities around these themes.",
+                Action = unaddedInterest is not null ? "addInterest" : "explore",
+                ActionLabel = unaddedInterest is not null ? $"Add {unaddedInterest} to interests" : "Explore in Feed",
+                Value = unaddedInterest ?? top3[0],
+                Items = top3,
+            });
+        }
+
         // 1. Something the user keeps engaging with, that Radar only inferred.
         foreach (var signal in topSignals
             .Where(s => s.Source == SignalSource.Inferred && s.Strength >= 0.5

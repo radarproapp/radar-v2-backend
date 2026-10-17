@@ -29,9 +29,20 @@ public class ContentIngestionService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
         _log.LogInformation("Content ingestion service started.");
-            await BackfillTopicsAsync(ct);
-            await ReconcileLayersAsync(ct);
-            await RunCycleOnceAsync(ct);
+
+        // Allow application to finish startup, bind ports, and serve health checks / early user requests cleanly
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(25), ct);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        await BackfillTopicsAsync(ct);
+        await ReconcileLayersAsync(ct);
+        await RunCycleOnceAsync(ct);
 
         using var timer = new PeriodicTimer(RssInterval);
         while (!ct.IsCancellationRequested && await timer.WaitForNextTickAsync(ct))

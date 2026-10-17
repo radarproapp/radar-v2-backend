@@ -21,4 +21,7 @@ public class FollowUpSuggestion
 
     /// <summary>The value to apply (interest name or focus term), when the action needs one.</summary>
     public string? Value { get; set; }
+
+    /// <summary>The top items/topics the user interacted with.</summary>
+    public List<string> Items { get; set; } = [];
 }

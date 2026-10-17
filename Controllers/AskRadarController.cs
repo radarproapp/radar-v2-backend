@@ -89,7 +89,7 @@ public class AskRadarController : ControllerBase
         // still receives each chunk live through the tee.
         var reply = new StringBuilder();
 
-        async IAsyncEnumerable<string> Tapped(CancellationToken token)
+        async IAsyncEnumerable<string> Tapped([EnumeratorCancellation] CancellationToken token)
         {
             await foreach (var chunk in _ask.StreamMessageAsync(profile.Id, request.Message, request.History, token))
             {
@@ -160,40 +160,156 @@ public class AskRadarController : ControllerBase
         return Ok(new { summary = reply.Content });
     }
 
+    public sealed class SummarizeFileResponse
+    {
+        public bool RequiresSectionSelection { get; set; }
+        public string FileName { get; set; } = string.Empty;
+        public List<string> Sections { get; set; } = [];
+        public string? Section { get; set; }
+        public string Message { get; set; } = string.Empty;
+        public string? Summary { get; set; }
+    }
+
     /// <summary>
-    /// Summarise an uploaded text document. PDFs do not have a reliable text extractor here, so
-    /// they are rejected with a clear message rather than silently summarising nothing.
+    /// Summarise an uploaded document (PDF, Word docx, Markdown, TXT, CSV, JSON, HTML).
+    /// If the work contains multiple chapters or sections, it asks the user which section
+    /// to summarise or if all should be summarised, delivering concise, brief intelligence.
     /// </summary>
     [HttpPost("summarize-file")]
-    [RequestSizeLimit(10_000_000)]
-    public async Task<IActionResult> SummarizeFileAsync(IFormFile? file)
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(20_000_000)]
+    public async Task<IActionResult> SummarizeFileAsync(
+        [FromForm] IFormFile? file,
+        [FromForm] string? section = null,
+        [FromForm] string? question = null,
+        CancellationToken ct = default)
     {
         var profile = await _profiles.GetCurrentUserAsync();
         if (profile is null) return NotFound(new { error = "Profile not found" });
-        if (file is null || file.Length == 0) return BadRequest(new { error = "No file uploaded." });
+        if (file is null || file.Length == 0) return BadRequest(new { error = "No file uploaded. Please select a valid document." });
 
-        var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
-        var textExtensions = new[] { ".txt", ".md", ".markdown", ".csv", ".json", ".html", ".htm", ".rtf", ".xml", ".log" };
-        var isText = textExtensions.Contains(ext) || (file.ContentType?.StartsWith("text/", StringComparison.OrdinalIgnoreCase) ?? false);
-        if (!isText)
+        if (!DocumentTextExtractor.IsSupported(file.FileName, file.ContentType))
+        {
             return StatusCode(StatusCodes.Status415UnsupportedMediaType, new
             {
-                error = "Only text documents are supported right now (.txt, .md, .csv, .json, .html, .xml). PDFs aren't supported yet — copy the text in for now.",
+                error = "Unsupported file format. Supported formats include PDF (.pdf), Word (.docx), Markdown (.md), Plain Text (.txt), CSV, JSON, and HTML.",
             });
+        }
 
-        using var reader = new StreamReader(file.OpenReadStream());
-        var text = await reader.ReadToEndAsync();
-        if (string.IsNullOrWhiteSpace(text)) return BadRequest(new { error = "That file was empty." });
-        text = Truncate(text, 12000);
+        string fullText;
+        try
+        {
+            fullText = await DocumentTextExtractor.ExtractTextAsync(file, ct);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { error = $"Could not read this document: {ex.Message}" });
+        }
 
-        var reply = await _ask.SendMessageAsync(profile.Id,
-            $"Summarize this document for me. Key points, why they matter to my goals, and my next move.\n\nFile: {file.FileName}\n\n{text}", []);
+        if (string.IsNullOrWhiteSpace(fullText))
+        {
+            return BadRequest(new { error = "That file contained no readable text." });
+        }
+
+        var detectedSections = DocumentSectionDetector.DetectSections(fullText);
+
+        // Check if user's question or section parameter explicitly specifies a section or all
+        var userChoice = !string.IsNullOrWhiteSpace(section) ? section : question;
+        var hasUserChoice = !string.IsNullOrWhiteSpace(userChoice);
+
+        // If work has multiple chapters/sections and user hasn't made a choice yet:
+        if (detectedSections.Count >= 2 && !hasUserChoice)
+        {
+            var sectionTitles = new List<string> { "All sections / Entire document" };
+            sectionTitles.AddRange(detectedSections.Select(s => $"{s.Number}. {s.Title}"));
+
+            var sectionListFormatted = string.Join("\n", detectedSections.Select(s => $"• **{s.Number}. {s.Title}**"));
+            var promptMessage = $"This work is divided into {detectedSections.Count} chapters/sections:\n\n{sectionListFormatted}\n\nWhich section or chapter should be summarised, or should I summarise the entire document?";
+
+            // Record assistant question in chat history
+            await _ask.AppendAsync(profile.Id,
+            [
+                new ChatMessage { Role = "user", Content = $"Upload: {file.FileName}" },
+                new ChatMessage { Role = "assistant", Content = promptMessage }
+            ]);
+
+            return Ok(new SummarizeFileResponse
+            {
+                RequiresSectionSelection = true,
+                FileName = file.FileName,
+                Sections = sectionTitles,
+                Message = promptMessage,
+                Summary = null
+            });
+        }
+
+        // Determine target text
+        string targetText;
+        string scopeLabel;
+
+        if (detectedSections.Count >= 2 && hasUserChoice)
+        {
+            var sectionText = DocumentSectionDetector.ExtractSelectedSectionContent(detectedSections, userChoice!);
+            if (!string.IsNullOrWhiteSpace(sectionText))
+            {
+                targetText = sectionText;
+                scopeLabel = $"Section: {userChoice}";
+            }
+            else
+            {
+                targetText = fullText;
+                scopeLabel = "Entire document";
+            }
+        }
+        else
+        {
+            targetText = fullText;
+            scopeLabel = "Document";
+        }
+
+        targetText = Truncate(targetText, 14000);
+
+        var userContextNote = !string.IsNullOrWhiteSpace(question) ? $"\nUser's question/focus: {question.Trim()}\n" : "";
+
+        var prompt = 
+$@"You are Radar's executive intelligence summarizer. Summarize this {scopeLabel} for me.
+Your summary MUST be very concise, brief, and structured. Eliminate all unnecessary filler or repetition.
+{userContextNote}
+File: {file.FileName}
+Scope: {scopeLabel}
+
+Content:
+{targetText}
+
+Format your output strictly as:
+**Core Takeaway**: 1-2 punchy sentences capturing the essential conclusion.
+**Key Insights**:
+• [Key insight with concrete data/facts]
+• [Key insight with concrete data/facts]
+• [Key insight with concrete data/facts]
+**Strategic Value**: 1 sentence on why this matters to my career/business goals.
+**Next Move**: 1 concrete action I should take next.";
+
+        var reply = await _ask.SendMessageAsync(profile.Id, prompt, []);
+
+        var queryDisplay = !string.IsNullOrWhiteSpace(userChoice) && userChoice != "all"
+            ? $"Summarize file: {file.FileName} ({scopeLabel})"
+            : $"Summarize file: {file.FileName}";
+
         await _ask.AppendAsync(profile.Id,
         [
-            new ChatMessage { Role = "user", Content = $"Summarize file: {file.FileName}" },
+            new ChatMessage { Role = "user", Content = queryDisplay },
             new ChatMessage { Role = "assistant", Content = reply.Content },
         ]);
-        return Ok(new { summary = reply.Content });
+
+        return Ok(new SummarizeFileResponse
+        {
+            RequiresSectionSelection = false,
+            FileName = file.FileName,
+            Section = scopeLabel,
+            Summary = reply.Content,
+            Message = reply.Content
+        });
     }
 
     private static string Truncate(string value, int max) => value.Length <= max ? value : value[..max];

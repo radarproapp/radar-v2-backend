@@ -14,7 +14,19 @@ public class RadarDatabase
         var databaseName     = config["MongoDB:DatabaseName"] ?? "radar";
         var client = new MongoClient(connectionString);
         _db = client.GetDatabase(databaseName);
-        EnsureIndexes();
+
+        // Run index creation in background so cold boot and the first HTTP request are instantaneous
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                EnsureIndexes();
+            }
+            catch
+            {
+                // Non-fatal if index creation fails or races during startup
+            }
+        });
     }
 
     // ── Typed collection accessors ──────────────────────────────────────────

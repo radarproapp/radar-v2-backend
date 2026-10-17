@@ -153,6 +153,12 @@ public sealed class OpenRouterAiEngine : IAiEngine
         }
     }
 
+    public Task<float[]?> EmbedAsync(string text, CancellationToken ct = default)
+    {
+        // Embeddings not currently provided via OpenRouter chat completion models
+        return Task.FromResult<float[]?>(null);
+    }
+
     private async Task<bool> WithinBudgetAsync(string feature, CancellationToken ct)
     {
         var cap = _config.GetValue<decimal>("OpenRouter:MonthlySpendCapUsd", 25m);

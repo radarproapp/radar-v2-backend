@@ -161,15 +161,52 @@ public static class InterestPersonalization
         var goal = string.IsNullOrWhiteSpace(profile.PrimaryGoal) ? null : profile.PrimaryGoal;
 
         if (!string.IsNullOrWhiteSpace(capability))
-            return $"Read the full analysis, then use {Lower(capability)} on a short project and add it to your portfolio.";
+        {
+            var artifact = GetSpecificPortfolioArtifact(capability, topic);
+            return $"Read the full analysis, then build {artifact} and add it to your career portfolio.";
+        }
 
         if (!string.IsNullOrWhiteSpace(interest) && profile.OpportunityPreferences.Count > 0)
-            return $"Read the full analysis, then look for {Lower(interest)} {string.Join("/", profile.OpportunityPreferences.Take(2)).ToLowerInvariant()} that fit your goal.";
+        {
+            var oppTypes = string.Join(" or ", profile.OpportunityPreferences.Take(2)).ToLowerInvariant();
+            return $"Read the full analysis, then apply these insights when evaluating open {oppTypes} in {Lower(interest)}.";
+        }
 
         if (!string.IsNullOrWhiteSpace(goal))
-            return $"Read the full analysis, then decide whether {Lower(topic)} moves your goal to {Lower(goal)} forward and add it to your roadmap.";
+            return $"Read the full analysis, then map how this shift in {Lower(topic)} impacts your roadmap towards {Lower(goal)}.";
 
-        return $"Read the full analysis, then add {Lower(topic)} to your roadmap and connect it to a current module.";
+        return $"Read the full analysis, then add {Lower(topic)} to your roadmap and connect it to your current learning module.";
+    }
+
+    private static string GetSpecificPortfolioArtifact(string capability, string topic)
+    {
+        var text = $"{capability} {topic}".ToLowerInvariant();
+
+        if (text.Contains("model") || text.Contains("valuation") || text.Contains("dcf") || text.Contains("finance"))
+            return "a 3-statement financial forecast model analyzing this market case";
+
+        if (text.Contains("product") || text.Contains("prd") || text.Contains("user story") || text.Contains("feature"))
+            return "a 1-page PRD and user journey map addressing this problem";
+
+        if (text.Contains("ai") || text.Contains("prompt") || text.Contains("rag") || text.Contains("llm") || text.Contains("machine learning"))
+            return "a working prototype or evaluation script testing this architecture";
+
+        if (text.Contains("sql") || text.Contains("data") || text.Contains("metric") || text.Contains("dashboard") || text.Contains("analytic"))
+            return "an interactive metrics dashboard or SQL query notebook exploring this dataset";
+
+        if (text.Contains("api") || text.Contains("backend") || text.Contains("system") || text.Contains("software") || text.Contains("engineer") || text.Contains("code"))
+            return "a public GitHub repository implementing this architecture pattern with tests";
+
+        if (text.Contains("invest") || text.Contains("vc") || text.Contains("venture") || text.Contains("pitch") || text.Contains("deck"))
+            return "a 2-page investment memo breaking down the unit economics and market risks";
+
+        if (text.Contains("policy") || text.Contains("sandbox") || text.Contains("govern") || text.Contains("regulat"))
+            return "a structured policy brief evaluating the regulatory and compliance trade-offs";
+
+        if (text.Contains("strategy") || text.Contains("market") || text.Contains("business") || text.Contains("growth"))
+            return "a strategic teardown and competitive positioning matrix";
+
+        return $"a documented case study applying {Lower(capability)} to solve a problem in {Lower(topic)}";
     }
 
     private static double WeightFor(string dimension) => dimension switch
