@@ -235,6 +235,7 @@ builder.Services.AddScoped<INavigatorService, MongoNavigatorService>();
 builder.Services.AddScoped<IOpportunityService, MongoOpportunityService>();
 builder.Services.AddScoped<IResearchService, MongoResearchService>();
 builder.Services.AddScoped<IRoadmapService, MongoRoadmapService>();
+builder.Services.AddScoped<ILearnHubService, MongoLearnHubService>();
 builder.Services.AddScoped<IWeeklyBriefService, MongoWeeklyBriefService>();
 builder.Services.AddScoped<IProjectStudioService, MongoProjectStudioService>();
 builder.Services.AddScoped<INotebookService, MongoNotebookService>();
