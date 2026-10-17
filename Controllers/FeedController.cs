@@ -70,6 +70,7 @@ public class FeedController : ControllerBase
         ["durationSeconds"] = i => i.DurationSeconds,
         ["authors"] = i => i.Authors,
         ["journal"] = i => i.Journal,
+        ["yourEdge"] = i => i.YourEdge,
         ["hasSummary"] = i => i.IsEnriched,
     };
 
@@ -184,11 +185,17 @@ public class FeedController : ControllerBase
 
         var deterministic = InterestPersonalization.Explain(profile, item);
         var personalized = await _why.GetOrGenerateAsync(profile, item);
+
+        var whyText = !string.IsNullOrWhiteSpace(personalized?.WhyText) ? personalized.WhyText : deterministic.Why;
+        var yourEdge = !string.IsNullOrWhiteSpace(personalized?.YourEdge) ? personalized.YourEdge : deterministic.YourEdge;
+        var nextMove = !string.IsNullOrWhiteSpace(personalized?.NextMove) ? personalized.NextMove : deterministic.NextMove;
+
         return Ok(new
         {
-            text = personalized?.WhyText ?? deterministic.Why,
+            text = whyText,
+            yourEdge = yourEdge,
             whatToKnow = InterestPersonalization.WhatToKnow(item),
-            nextMove = item.NextMove ?? deterministic.NextMove,
+            nextMove = nextMove,
             relevanceScore = item.RelevanceScore,
             relevanceConfidence = item.RelevanceConfidence,
             matchedSignals = item.MatchedSignals.Count > 0 ? item.MatchedSignals : deterministic.MatchedSignals,
@@ -206,8 +213,11 @@ public class FeedController : ControllerBase
         var item = await _feed.GetByIdAsync(id);
         if (item is null) return NotFound(new { error = "Item not found" });
 
+        var deterministic = InterestPersonalization.Explain(profile, item);
         var personalized = await _why.GetOrGenerateAsync(profile, item);
-        await _why.RateAsync(profile.Id, id, personalized?.WhyText ?? InterestPersonalization.BuildWhy(profile, item), request.Helpful);
+        var whyText = !string.IsNullOrWhiteSpace(personalized?.WhyText) ? personalized.WhyText : deterministic.Why;
+
+        await _why.RateAsync(profile.Id, id, whyText, request.Helpful);
         await _analytics.LogEventAsync(new AnalyticsEvent
         {
             UserId = profile.Id,

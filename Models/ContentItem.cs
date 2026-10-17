@@ -61,6 +61,7 @@ public class ContentItem
     public double RelevanceConfidence { get; set; }
     public List<string> MatchedSignals { get; set; } = [];
     public string? NextMove { get; set; }
+    public string? YourEdge { get; set; }
 }
 
 public class ChapterBreakdown

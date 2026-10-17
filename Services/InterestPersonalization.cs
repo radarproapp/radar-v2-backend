@@ -1,3 +1,4 @@
+using System.Text;
 using RadarV2.Models;
 
 namespace RadarV2.Services;
@@ -15,7 +16,7 @@ namespace RadarV2.Services;
 public static class InterestPersonalization
 {
     public sealed record DimensionMatch(string Dimension, string Phrase, double Coverage);
-    public sealed record Explanation(int Score, string Why, string NextMove, IReadOnlyList<string> MatchedSignals);
+    public sealed record Explanation(int Score, string Why, string YourEdge, string NextMove, IReadOnlyList<string> MatchedSignals);
 
     private static readonly HashSet<string> StopWords = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -67,12 +68,18 @@ public static class InterestPersonalization
             .Select(m => $"{m.Dimension}: {m.Phrase}")
             .ToList();
 
-        return new Explanation(score, BuildWhy(profile, matches), BuildNextMove(profile, item, matches), signals);
+        var why = BuildWhy(profile, item, matches);
+        var edge = BuildYourEdge(profile, item, matches);
+        var nextMove = BuildNextMove(profile, item, matches);
+
+        return new Explanation(score, why, edge, nextMove, signals);
     }
 
     public static int ContentScore(ContentItem item, UserProfile profile) => Explain(profile, item).Score;
 
     public static string BuildWhy(UserProfile profile, ContentItem item) => Explain(profile, item).Why;
+
+    public static string BuildYourEdge(UserProfile profile, ContentItem item) => Explain(profile, item).YourEdge;
 
     public static string NextMove(UserProfile profile, ContentItem item) => Explain(profile, item).NextMove;
 
@@ -129,53 +136,78 @@ public static class InterestPersonalization
 
     // ── internals ────────────────────────────────────────────────────────────
 
-    private static string BuildWhy(UserProfile profile, List<DimensionMatch> matches)
+    private static string BuildWhy(UserProfile profile, ContentItem item, List<DimensionMatch> matches)
     {
-        var goal = matches.FirstOrDefault(m => m.Dimension == "Goal")?.Phrase;
-        var capability = matches.FirstOrDefault(m => m.Dimension == "Capability")?.Phrase;
-        var interest = matches.FirstOrDefault(m => m.Dimension == "Interest")?.Phrase;
-        var problem = matches.FirstOrDefault(m => m.Dimension == "Problem")?.Phrase;
-        var intent = matches.FirstOrDefault(m => m.Dimension == "Intent")?.Phrase;
+        var goal = matches.FirstOrDefault(m => m.Dimension == "Goal")?.Phrase ?? profile.PrimaryGoal;
+        var capability = matches.FirstOrDefault(m => m.Dimension == "Capability")?.Phrase ?? profile.Capabilities.FirstOrDefault();
+        var interest = matches.FirstOrDefault(m => m.Dimension == "Interest")?.Phrase ?? profile.Interests.FirstOrDefault() ?? "your domain";
+        var problem = matches.FirstOrDefault(m => m.Dimension == "Problem")?.Phrase ?? profile.Problems.FirstOrDefault();
+        var location = !string.IsNullOrWhiteSpace(profile.City)
+            ? $"{profile.City}, {profile.Region}"
+            : (!string.IsNullOrWhiteSpace(profile.Region) ? profile.Region : "your target market");
+        var target = !string.IsNullOrWhiteSpace(profile.TargetRole)
+            ? profile.TargetRole
+            : (!string.IsNullOrWhiteSpace(profile.TargetIndustry) ? $"{profile.TargetIndustry} roles" : "technology-focused roles");
+        var topic = !string.IsNullOrWhiteSpace(item.Topic) ? item.Topic : item.Title;
 
-        var parts = new List<string>();
-        if (!string.IsNullOrWhiteSpace(goal)) parts.Add($"your goal to {Lower(goal)}");
-        if (!string.IsNullOrWhiteSpace(problem)) parts.Add($"the challenge you flagged ({Lower(problem)})");
-        if (!string.IsNullOrWhiteSpace(intent)) parts.Add($"what you're trying to do now ({Lower(intent)})");
-        if (!string.IsNullOrWhiteSpace(capability)) parts.Add($"building {Lower(capability)}");
-        if (!string.IsNullOrWhiteSpace(interest)) parts.Add($"your interest in {Lower(interest)}");
+        var sb = new StringBuilder();
+        sb.Append($"This matters to you because your focus sits directly at the intersection of {Lower(interest)} and your goal to {Lower(goal)}. ");
+        sb.Append($"In {location}, developments in {Lower(topic)} create demand for professionals who understand both technical execution and business applications, particularly for {Lower(target)}. ");
 
-        if (parts.Count == 0)
-            return "This sits in a field you track. Read it, then keep or dismiss it so Radar learns what actually matters to you.";
+        if (!string.IsNullOrWhiteSpace(problem))
+        {
+            sb.Append($"Given the challenge you flagged regarding {Lower(problem)}, understanding this development provides concrete foresight into how organizations and industry leaders are resolving similar hurdles. ");
+        }
 
-        return $"This matters to you because it connects to {string.Join(" and ", parts)}.";
+        if (!string.IsNullOrWhiteSpace(capability))
+        {
+            sb.Append($"A skill that becomes significantly more valuable here is applying {Lower(capability)} to solve operational bottlenecks in {Lower(topic)}. ");
+        }
+        else
+        {
+            sb.Append($"This makes your current learning path more urgent, particularly as practical expertise in {Lower(topic)} becomes a key market differentiator. ");
+        }
+
+        sb.Append("Rather than general industry commentary, this directly impacts how you prioritize your learning modules and career positioning.");
+        return sb.ToString().Trim();
+    }
+
+    private static string BuildYourEdge(UserProfile profile, ContentItem item, List<DimensionMatch> matches)
+    {
+        var topic = !string.IsNullOrWhiteSpace(item.Topic) ? item.Topic : item.Title;
+        var capability = matches.FirstOrDefault(m => m.Dimension == "Capability")?.Phrase ?? profile.Capabilities.FirstOrDefault() ?? "market research";
+        var interest = matches.FirstOrDefault(m => m.Dimension == "Interest")?.Phrase ?? profile.Interests.FirstOrDefault() ?? "this domain";
+        var location = !string.IsNullOrWhiteSpace(profile.Region) ? profile.Region : (!string.IsNullOrWhiteSpace(profile.City) ? profile.City : "regional");
+        var target = !string.IsNullOrWhiteSpace(profile.TargetRole) ? profile.TargetRole : (!string.IsNullOrWhiteSpace(profile.TargetIndustry) ? profile.TargetIndustry : "target employers and clients");
+        var artifact = GetSpecificPortfolioArtifact(capability, topic);
+
+        var sb = new StringBuilder();
+        sb.Append($"Your edge is not simply knowing that {Lower(topic)} is evolving. ");
+        sb.Append($"You can use this trend to build {artifact}: track how companies and institutions across {location} are responding, identify the business functions being automated or restructured, and turn your findings into a high-signal work sample. ");
+        sb.Append($"This demonstrates both applied {Lower(capability)} and {Lower(interest)} capabilities to {Lower(target)}. ");
+        sb.Append($"A market worth watching is the emergence of specialized {Lower(topic)} workflows tailored for {location} infrastructure constraints.");
+
+        return sb.ToString().Trim();
     }
 
     private static string BuildNextMove(UserProfile profile, ContentItem item, List<DimensionMatch> matches)
     {
-        var action = item.RecommendedActions.FirstOrDefault();
-        if (!string.IsNullOrWhiteSpace(action)) return action;
+        var topic = !string.IsNullOrWhiteSpace(item.Topic) ? item.Topic : item.Title;
+        var capability = matches.FirstOrDefault(m => m.Dimension == "Capability")?.Phrase ?? profile.Capabilities.FirstOrDefault() ?? "applied problem-solving";
+        var location = !string.IsNullOrWhiteSpace(profile.Region) ? profile.Region : (!string.IsNullOrWhiteSpace(profile.City) ? profile.City : "your target market");
+        var artifact = GetSpecificPortfolioArtifact(capability, topic);
+        var sourceName = !string.IsNullOrWhiteSpace(item.Source) ? item.Source : "the official release";
 
-        var topic = string.IsNullOrWhiteSpace(item.Topic) ? "this" : item.Topic;
-        var capability = matches.FirstOrDefault(m => m.Dimension == "Capability")?.Phrase;
-        var interest = matches.FirstOrDefault(m => m.Dimension == "Interest")?.Phrase;
-        var goal = string.IsNullOrWhiteSpace(profile.PrimaryGoal) ? null : profile.PrimaryGoal;
-
-        if (!string.IsNullOrWhiteSpace(capability))
+        var lines = new[]
         {
-            var artifact = GetSpecificPortfolioArtifact(capability, topic);
-            return $"Read the full analysis, then build {artifact} and add it to your career portfolio.";
-        }
+            $"1. Read the core analysis or documentation from {sourceName} and note the key technical and market implications.",
+            $"2. Identify 3 organizations or market players in {location} directly affected by this shift.",
+            $"3. Spend 30 minutes researching how they are adapting their technical architecture or commercial strategy.",
+            $"4. Build {artifact} and add your findings to your professional portfolio.",
+            $"5. Add {topic} to your active roadmap and revisit this topic in seven days to track new moves."
+        };
 
-        if (!string.IsNullOrWhiteSpace(interest) && profile.OpportunityPreferences.Count > 0)
-        {
-            var oppTypes = string.Join(" or ", profile.OpportunityPreferences.Take(2)).ToLowerInvariant();
-            return $"Read the full analysis, then apply these insights when evaluating open {oppTypes} in {Lower(interest)}.";
-        }
-
-        if (!string.IsNullOrWhiteSpace(goal))
-            return $"Read the full analysis, then map how this shift in {Lower(topic)} impacts your roadmap towards {Lower(goal)}.";
-
-        return $"Read the full analysis, then add {Lower(topic)} to your roadmap and connect it to your current learning module.";
+        return string.Join("\n", lines);
     }
 
     private static string GetSpecificPortfolioArtifact(string capability, string topic)

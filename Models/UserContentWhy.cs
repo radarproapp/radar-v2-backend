@@ -12,6 +12,8 @@ public class UserContentWhy
     public string UserId { get; set; } = string.Empty;
     public string ContentItemId { get; set; } = string.Empty;
     public string WhyText { get; set; } = string.Empty;
+    public string YourEdge { get; set; } = string.Empty;
+    public string NextMove { get; set; } = string.Empty;
 
     /// <summary>Profile fields the sentence was generated against — used to detect staleness.</summary>
     public string GoalSnapshot { get; set; } = string.Empty;
