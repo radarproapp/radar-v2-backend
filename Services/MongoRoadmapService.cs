@@ -11,17 +11,20 @@ public class MongoRoadmapService : IRoadmapService
     private readonly RadarDatabase _db;
     private readonly IAiEngine _ai;
     private readonly IUserLearningRecordService _records;
+    private readonly YouTubeSearchService _youtube;
     private readonly ILogger<MongoRoadmapService> _log;
 
     public MongoRoadmapService(
         RadarDatabase db,
         IAiEngine ai,
         IUserLearningRecordService records,
+        YouTubeSearchService youtube,
         ILogger<MongoRoadmapService> log)
     {
         _db = db;
         _ai = ai;
         _records = records;
+        _youtube = youtube;
         _log = log;
     }
 
@@ -56,7 +59,7 @@ public class MongoRoadmapService : IRoadmapService
         if (roadmap is not null)
         {
             // Re-enrich with latest catalog structure (4 stages, ordered resources, practical exercises)
-            EnrichRoadmapWithResources(roadmap);
+            await EnrichRoadmapWithResourcesAsync(roadmap);
             await PersonalizeAsync(roadmap, userId);
             await _db.Roadmaps.ReplaceOneAsync(r => r.Id == roadmap.Id, roadmap);
             return roadmap;
@@ -79,7 +82,7 @@ public class MongoRoadmapService : IRoadmapService
             createdRoadmap.Level = context.Level;
             createdRoadmap.Interest = path?.Title ?? context.Interest;
             createdRoadmap.Title = $"{createdRoadmap.Interest}: {profile.PrimaryGoal}";
-            EnrichRoadmapWithResources(createdRoadmap);
+            await EnrichRoadmapWithResourcesAsync(createdRoadmap);
 
             if (profile.Persona == PersonaType.Student && profile.PersonaDetails.TryGetValue("difficultCourses", out var diffCourses) && !string.IsNullOrWhiteSpace(diffCourses))
             {
@@ -106,7 +109,7 @@ public class MongoRoadmapService : IRoadmapService
         await _db.Roadmaps.UpdateManyAsync(r => r.UserId == userId && r.IsActive, deactivate);
 
         var roadmap = BuildFromTemplate(userId, goal, displayGoal);
-        EnrichRoadmapWithResources(roadmap);
+        await EnrichRoadmapWithResourcesAsync(roadmap);
         await PersonalizeAsync(roadmap, userId);
         await _db.Roadmaps.InsertOneAsync(roadmap);
         return roadmap;
@@ -137,7 +140,7 @@ public class MongoRoadmapService : IRoadmapService
 
         roadmap.Interest = interest;
         roadmap.Level    = level;
-        EnrichRoadmapWithResources(roadmap);
+        await EnrichRoadmapWithResourcesAsync(roadmap);
         await PersonalizeAsync(roadmap, userId, ct);
 
         var deactivate = Builders<GrowthRoadmap>.Update.Set(r => r.IsActive, false);
@@ -355,7 +358,7 @@ public class MongoRoadmapService : IRoadmapService
             ]
         };
         roadmap.Modules.Add(newModule);
-        EnrichRoadmapWithResources(roadmap);
+        await EnrichRoadmapWithResourcesAsync(roadmap);
         await _db.Roadmaps.ReplaceOneAsync(r => r.Id == roadmapId, roadmap);
     }
 
@@ -413,10 +416,24 @@ public class MongoRoadmapService : IRoadmapService
             roadmap.CurrentStage = "Application";
     }
 
-    private static void EnrichRoadmapWithResources(GrowthRoadmap roadmap)
+    /// <summary>
+    /// Attaches learning resources. Reads only the YouTube cache here — never the API — so a
+    /// roadmap render cannot wait on a network call or spend quota. Anything unresolved falls back
+    /// to a search link and is warmed in the background for next time.
+    /// </summary>
+    private async Task EnrichRoadmapWithResourcesAsync(GrowthRoadmap roadmap, CancellationToken ct = default)
     {
         var skill = !string.IsNullOrWhiteSpace(roadmap.Interest) ? roadmap.Interest : roadmap.Goal;
+
+        // Curated pools first where one exists, because a hand-written lesson plan beats a generated
+        // one. But they only cover the domains someone wrote by hand, so anything else is built from
+        // the learner's own path rather than left empty.
         var allResources = LearningResourceCatalog.GetResourcesForSkill(skill);
+        if (allResources.Count == 0)
+        {
+            var resolved = await ResolveLessonVideosAsync(roadmap, ct);
+            allResources = LearningPathResourceBuilder.Build(roadmap, resolved);
+        }
 
         roadmap.Resources = allResources;
 
@@ -453,6 +470,56 @@ public class MongoRoadmapService : IRoadmapService
         }
 
         RecalculateMastery(roadmap);
+    }
+
+
+    /// <summary>
+    /// Real videos for each lesson, from cache only. Misses are queued for a background search so
+    /// the next visit shows an actual video instead of a search link. Quota is spent once per
+    /// distinct lesson title across every user on that path, not once per page view.
+    /// </summary>
+    private async Task<Dictionary<string, YouTubeVideoRef>> ResolveLessonVideosAsync(
+        GrowthRoadmap roadmap, CancellationToken ct)
+    {
+        var resolved = new Dictionary<string, YouTubeVideoRef>();
+        if (!_youtube.IsConfigured) return resolved;
+
+        var queries = LearningPathResourceBuilder.QueriesFor(roadmap);
+        var misses = new List<string>();
+
+        foreach (var (lessonTitle, query) in queries)
+        {
+            var cached = await _youtube.GetCachedAsync(query, ct: ct);
+            if (cached.Count > 0) resolved[lessonTitle] = cached[0];
+            else misses.Add(query);
+        }
+
+        if (misses.Count > 0) WarmLessonVideos(misses);
+        return resolved;
+    }
+
+    /// <summary>
+    /// Detached, and capped. Searches cost 100 quota units each against a 10,000/day allowance, so
+    /// a single roadmap view must not be able to spend a meaningful share of the day's budget.
+    /// </summary>
+    private void WarmLessonVideos(List<string> queries)
+    {
+        var batch = queries.Take(4).ToList();
+
+        _ = Task.Run(async () =>
+        {
+            foreach (var query in batch)
+            {
+                try
+                {
+                    await _youtube.SearchAndCacheAsync(query);
+                }
+                catch (Exception ex)
+                {
+                    _log.LogWarning(ex, "Background YouTube warm failed for {Query}", query);
+                }
+            }
+        });
     }
 
     // ── Template builder (Clean 4-stage progression: Beginner → Intermediate → Advanced → Application) ──
@@ -499,7 +566,8 @@ public class MongoRoadmapService : IRoadmapService
             IsActive = true,
             Modules  = modules,
         };
-        EnrichRoadmapWithResources(roadmap);
+        // Resources are attached by the caller, which can await. Keeping this builder pure also
+        // keeps it unit-testable without a database or an HTTP client.
         return roadmap;
     }
 
@@ -953,9 +1021,9 @@ public class MongoRoadmapService : IRoadmapService
                 IsLocked = false,
                 Lessons =
                 [
-                    Lesson(1, $"What {subject} actually involves day to day", "40 min"),
-                    Lesson(2, $"Core concepts and vocabulary in {subject}", "40 min"),
-                    Lesson(3, $"The standard toolset for {subject}", "45 min")
+                    Hinted(1, $"What {subject} actually involves day to day", "40 min", $"what does a {subject} do"),
+                    Hinted(2, $"Core concepts and vocabulary in {subject}", "40 min", $"{subject} for beginners"),
+                    Hinted(3, $"The standard toolset for {subject}", "45 min", $"{subject} tools explained")
                 ]
             },
             new()
@@ -967,9 +1035,9 @@ public class MongoRoadmapService : IRoadmapService
                 IsLocked = true,
                 Lessons =
                 [
-                    Lesson(1, $"Typical workflows in {subject}", "50 min"),
-                    Lesson(2, $"Working a realistic {subject} problem end to end", "55 min"),
-                    Lesson(3, "Common mistakes and how practitioners avoid them", "40 min")
+                    Hinted(1, $"Typical workflows in {subject}", "50 min", $"{subject} step by step guide"),
+                    Hinted(2, $"Working a realistic {subject} problem end to end", "55 min", $"{subject} case study walkthrough"),
+                    Hinted(3, "Common mistakes and how practitioners avoid them", "40 min", $"common {subject} mistakes")
                 ]
             },
             new()
@@ -981,9 +1049,9 @@ public class MongoRoadmapService : IRoadmapService
                 IsLocked = true,
                 Lessons =
                 [
-                    Lesson(1, $"Specialised techniques in {subject}", "50 min"),
-                    Lesson(2, $"Operating at scale in {subject}", "50 min"),
-                    Lesson(3, "Judgement calls experienced practitioners make", "45 min")
+                    Hinted(1, $"Specialised techniques in {subject}", "50 min", $"advanced {subject}"),
+                    Hinted(2, $"Operating at scale in {subject}", "50 min", $"{subject} at scale"),
+                    Hinted(3, "Judgement calls experienced practitioners make", "45 min", $"{subject} best practices")
                 ]
             },
             new()
@@ -995,13 +1063,17 @@ public class MongoRoadmapService : IRoadmapService
                 IsLocked = true,
                 Lessons =
                 [
-                    Lesson(1, $"Build a portfolio piece that demonstrates {subject}", "60 min"),
-                    Lesson(2, "Write up your work so a hiring manager can assess it", "45 min"),
-                    Lesson(3, $"Interview preparation for {subject} roles", "50 min")
+                    Hinted(1, $"Build a portfolio piece that demonstrates {subject}", "60 min", $"{subject} portfolio project"),
+                    Hinted(2, "Write up your work so a hiring manager can assess it", "45 min", $"how to present {subject} work"),
+                    Hinted(3, $"Interview preparation for {subject} roles", "50 min", $"{subject} interview questions")
                 ]
             }
         ];
     }
+
+    /// <summary>A lesson that also carries a concise phrase to search for it.</summary>
+    private static RoadmapLesson Hinted(int order, string title, string time, string searchHint) =>
+        new() { Title = title, Order = order, EstimatedTime = time, SearchHint = searchHint };
 
     private static RoadmapLesson Lesson(int order, string title, string time) =>
         new() { Title = title, Order = order, EstimatedTime = time };

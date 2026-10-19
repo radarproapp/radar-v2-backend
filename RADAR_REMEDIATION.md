@@ -192,6 +192,35 @@ work was worth doing, but it was not the cause.
   `WhyMonthlySpendCapUsd` ($10) plus usage tracking that **nothing ever called**, left behind when
   the service moved to `IAiEngine`. Removed, along with the two dependencies it dragged in.
 
+## Phase 5e — Tutorials follow the learner's path (user direction, 2026-10-19)
+
+> _"Youtube tutorials should be according to what user's learning path.. This still boils down to
+> personalization for all users."_ Plus the direction to use the YouTube Data API and cache results
+> rather than hand-collecting and summarising videos.
+
+- [x] 5e.1 ~~Resources derive from the roadmap~~ — `LearningPathResourceBuilder` turns each lesson
+  into a tutorial and each stage into one "what changed recently" entry, roughly the 80/20 split.
+  A nursing path went from **0 resources to 16**.
+- [x] 5e.2 ~~YouTube Data API with caching~~ — `YouTubeSearchService` resolves real videos and
+  caches every result (including empty ones) in Mongo, shared across all users. `search.list` costs
+  100 units against 10,000/day, so about 100 searches a day for the whole product; lesson titles
+  repeat across everyone on a path, so one cached result serves all of them.
+- [x] 5e.3 ~~Never block a render on it~~ — roadmap reads hit the cache only. Misses are warmed in
+  the background, capped at 4 per view so one page cannot spend a meaningful share of the day's
+  quota.
+- [x] 5e.4 ~~Links, not scraping~~ — official API, watch links and the supported `/embed/` player.
+  No transcript extraction, which is where YouTube's terms tighten.
+- [x] 5e.5 ~~`RoadmapLesson.SearchHint`~~ — readable titles make poor queries. "What hospital nurse
+  manager actually involves day to day" finds nothing; "what does a hospital nurse manager do"
+  finds the lesson.
+- [x] 5e.6 ~~Do not scope to the wrong channel~~ — an earlier pass fell back to general teaching
+  channels, so a nursing query was scoped to Khan Academy and would return an empty page. No domain
+  match now means an unscoped search, which covers every subject.
+- [ ] 5e.7 **Set `YouTube:ApiKey`.** Without it, resources stay as search links — useful, but not
+  real resolved videos. The free quota is enough given the caching.
+- [ ] 5e.8 Transcript summarisation (Supadata / TranscriptAPI) so each video carries a Radar
+  summary. Deferred until 5e.7 is in and we can see real titles first.
+
 ## Phase 6 — Learn Hub + Knowledge Graph (spec #14)
 
 - [ ] 6.1 Learn Hub scoped to the active learning path: primary skill + 1–3 sub-interests

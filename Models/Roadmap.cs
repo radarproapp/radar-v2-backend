@@ -81,6 +81,13 @@ public class RoadmapLesson
     public int Order { get; set; }
     public bool IsCompleted { get; set; }
     public string? EstimatedTime { get; set; }
+
+    /// <summary>
+    /// A short phrase to search for this lesson, when the human-readable title would make a poor
+    /// query. "What hospital nurse manager actually involves day to day" reads well on a card and
+    /// finds nothing on YouTube; "hospital nurse management for beginners" finds the lesson.
+    /// </summary>
+    public string? SearchHint { get; set; }
 }
 
 public enum LearningResourceType

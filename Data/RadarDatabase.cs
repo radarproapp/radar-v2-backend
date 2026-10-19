@@ -63,6 +63,7 @@ public class RadarDatabase
     public IMongoCollection<TopicMastery> TopicMasteries => _db.GetCollection<TopicMastery>("topic_masteries");
     public IMongoCollection<SpacedRevisionItem> SpacedRevisions => _db.GetCollection<SpacedRevisionItem>("spaced_revisions");
     public IMongoCollection<AiActivityLogDoc> AiActivities => _db.GetCollection<AiActivityLogDoc>("ai_activities");
+    public IMongoCollection<YouTubeSearchCacheDoc> YouTubeSearches => _db.GetCollection<YouTubeSearchCacheDoc>("youtube_searches");
 
     private void EnsureIndexes()
     {
@@ -169,6 +170,12 @@ public class RadarDatabase
                 Builders<PolicyComparison>.IndexKeys
                     .Ascending(c => c.UserId)
                     .Descending(c => c.CreatedAt)));
+
+        // Lets the cache sweep by age without scanning; the TTL itself is enforced in code so a
+        // stale entry can still be served if a later lookup needs a fallback.
+        YouTubeSearches.Indexes.CreateOne(
+            new CreateIndexModel<YouTubeSearchCacheDoc>(
+                Builders<YouTubeSearchCacheDoc>.IndexKeys.Descending(d => d.CachedAt)));
 
         UserProjects.Indexes.CreateOne(
             new CreateIndexModel<StudioProject>(

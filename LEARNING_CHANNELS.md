@@ -124,6 +124,23 @@ cybersecurity content in the catalogue at all.
 
 ---
 
+## Added 2026-10-19 on user suggestion
+
+Checked the same way. Two of the seven suggested handles were wrong.
+
+| Channel | Handle | Good for |
+|---|---|---|
+| Khan Academy | `@khanacademy` | Maths, economics and science, explained step by step. |
+| CrashCourse | `@crashcourse` | History, economics, psychology. Short organised courses. |
+| TED-Ed | `@TEDEd` | General knowledge and how the world works. |
+| IBM Technology | `@IBMTechnology` | AI, cloud and security, explained for work. |
+| HubSpot Marketing | `@HubSpotMarketing` | Marketing, sales and growing a business. |
+
+- **`@HubSpot` does not resolve.** The working handle is `@HubSpotMarketing`.
+- **`@ProductSchool` is not Product School** — it belongs to an unrelated account. Use
+  `@ProductSchoolSanFrancisco`.
+- freeCodeCamp and Alex The Analyst were already on the list above.
+
 ## Not added, and why
 
 - **Security Onion** — could not find a handle that resolves. Their site is `securityonion.net`.
