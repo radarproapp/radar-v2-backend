@@ -318,7 +318,10 @@ Four separate faults, one root cause: nothing interpreted the goal before genera
 
 ## Phase 10 — Profile and persona
 
-- [ ] 10.1 Changing persona re-runs the matching onboarding flow
+- [x] 10.1 ~~Changing persona re-runs the matching onboarding flow~~ — done. A persona switch now
+  clears `OnboardingComplete` and the stale `PersonaDetails`, and the client routes to that
+  persona's flow instead of home. An ordinary edit (same persona) is untouched, and details sent in
+  the same request as the switch — which is what the onboarding flows do — are not wiped.
 - [ ] 10.2 Retire the generic `EditProfile` form in favour of the persona flows
 
 ## Explicitly not changing

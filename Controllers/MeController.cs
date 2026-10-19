@@ -235,8 +235,30 @@ public class MeController : ControllerBase
         if (request.PersonaDetails is not null)                  profile.PersonaDetails = request.PersonaDetails;
         if (request.Notifications is not null)                   profile.Notifications = request.Notifications;
 
-        if (Enum.TryParse<PersonaType>(request.Persona, ignoreCase: true, out var persona))
+        if (Enum.TryParse<PersonaType>(request.Persona, ignoreCase: true, out var persona)
+            && persona != profile.Persona)
+        {
+            // Changing persona changes which questions Radar should have asked. A student and a
+            // working professional are asked different things, and their answers drive the roadmap,
+            // the home screen and matching — so the old persona's answers are not merely stale,
+            // they are about someone else.
+            //
+            // Reopening onboarding is what the user expected and did not get: they switched persona
+            // and nothing changed, because OnboardingComplete stayed true and the router never
+            // re-gated them.
             profile.Persona = persona;
+            profile.OnboardingComplete = false;
+
+            // Only discard the old persona's answers when this request is not itself supplying new
+            // ones. The onboarding flows send persona and personaDetails together, and clearing
+            // unconditionally would wipe the answers the user had just given.
+            if (request.PersonaDetails is null)
+                profile.PersonaDetails = new Dictionary<string, string>();
+        }
+        else if (Enum.TryParse<PersonaType>(request.Persona, ignoreCase: true, out var samePersona))
+        {
+            profile.Persona = samePersona;
+        }
     }
 
     private static List<string> Clean(IEnumerable<string> values) =>
