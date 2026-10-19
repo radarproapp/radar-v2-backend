@@ -49,7 +49,6 @@ public class RadarDatabase
     public IMongoCollection<Note>              Notes           => _db.GetCollection<Note>("notes");
     public IMongoCollection<CapturedItem>       CapturedItems   => _db.GetCollection<CapturedItem>("captured_items");
     public IMongoCollection<PolicyComparison>   Comparisons     => _db.GetCollection<PolicyComparison>("comparisons");
-    public IMongoCollection<Clip>               Clips           => _db.GetCollection<Clip>("clips");
     public IMongoCollection<ProjectTemplate>    ProjectTemplates => _db.GetCollection<ProjectTemplate>("project_templates");
     public IMongoCollection<StudioProject>      UserProjects    => _db.GetCollection<StudioProject>("user_projects");
     public IMongoCollection<UserSubscriptionDoc> UserSubscriptions => _db.GetCollection<UserSubscriptionDoc>("user_subscriptions");
@@ -123,6 +122,12 @@ public class RadarDatabase
                     .Ascending(s => s.OpportunityId),
                 new CreateIndexOptions { Unique = true }));
 
+        // Supports the expiry filter the opportunity list applies before per-user scoring, so that
+        // query never degrades into a full collection scan.
+        Opportunities.Indexes.CreateOne(
+            new CreateIndexModel<Opportunity>(
+                Builders<Opportunity>.IndexKeys.Ascending(o => o.Deadline)));
+
         AppliedOpportunities.Indexes.CreateOne(
             new CreateIndexModel<AppliedOpportunityDoc>(
                 Builders<AppliedOpportunityDoc>.IndexKeys
@@ -164,12 +169,6 @@ public class RadarDatabase
                 Builders<PolicyComparison>.IndexKeys
                     .Ascending(c => c.UserId)
                     .Descending(c => c.CreatedAt)));
-
-        Clips.Indexes.CreateOne(
-            new CreateIndexModel<Clip>(
-                Builders<Clip>.IndexKeys
-                    .Ascending(c => c.UserId)
-                    .Descending(c => c.PublishedAt)));
 
         UserProjects.Indexes.CreateOne(
             new CreateIndexModel<StudioProject>(

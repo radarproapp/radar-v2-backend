@@ -140,6 +140,10 @@ builder.Services.AddHttpClient("OpenRouter", (sp, client) =>
         new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
     client.DefaultRequestHeaders.Add("HTTP-Referer", "https://radar.app");
     client.DefaultRequestHeaders.Add("X-Title", "Radar");
+    // Without this the client inherits HttpClient's 100-second default. Combined with the engine's
+    // two-attempt retry, a hung provider could pin a page render for well over three minutes — which
+    // is exactly what "it takes a lot of time to load" was describing.
+    client.Timeout = TimeSpan.FromSeconds(config.GetValue("OpenRouter:TimeoutSeconds", 20));
 });
 
 // RSS / Atom / OpenAlex feeds — long timeout, custom UA
@@ -239,7 +243,6 @@ builder.Services.AddScoped<ILearnHubService, MongoLearnHubService>();
 builder.Services.AddScoped<IWeeklyBriefService, MongoWeeklyBriefService>();
 builder.Services.AddScoped<IProjectStudioService, MongoProjectStudioService>();
 builder.Services.AddScoped<INotebookService, MongoNotebookService>();
-builder.Services.AddScoped<IClipsService, MongoClipsService>();
 builder.Services.AddScoped<ICaptureService, MongoCaptureService>();
 builder.Services.AddScoped<ICompareService, MongoCompareService>();
 builder.Services.AddScoped<ISourceService, MongoSourceService>();
@@ -250,6 +253,8 @@ builder.Services.AddScoped<IAnalyticsService, MongoAnalyticsService>();
 builder.Services.AddScoped<IPersonalizedWhyService, PersonalizedWhyService>();
 builder.Services.AddScoped<IContentReportService, MongoContentReportService>();
 builder.Services.AddScoped<IBehavioralSignalService, BehavioralSignalService>();
+builder.Services.AddScoped<IUserLearningRecordService, UserLearningRecordService>();
+builder.Services.AddScoped<IHomeBriefService, HomeBriefService>();
 builder.Services.AddScoped<AiRelevanceService>();
 builder.Services.AddScoped<AiOpportunityMatchService>();
 

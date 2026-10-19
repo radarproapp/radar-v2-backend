@@ -246,10 +246,18 @@ public class MongoLearnHubService : ILearnHubService
                 }
                 """;
 
-            var payload = await _ai.GenerateJsonAsync<LearnHubPayload>(
-                "learnhub-synthesis",
-                "You are Radar's AI Learn Hub Architect. Create hyper-targeted, structured learning hubs and knowledge graphs.",
-                prompt);
+            // Cache-first: the Learn Hub always has a catalog fallback, so the page should render from
+            // it immediately and pick up the synthesised hub on a later visit rather than holding the
+            // first load open on a provider round trip. The prompt is stable per skill/stage, so the
+            // warm almost always lands before the user comes back.
+            const string feature = "learnhub-synthesis";
+            const string system = "You are Radar's AI Learn Hub Architect. Create hyper-targeted, structured learning hubs and knowledge graphs.";
+
+            if (!_ai.TryGetCachedJson<LearnHubPayload>(feature, system, prompt, out var payload) || payload is null)
+            {
+                _ai.WarmJson<LearnHubPayload>(feature, system, prompt);
+                return null;
+            }
 
             if (payload != null)
             {

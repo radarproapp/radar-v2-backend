@@ -75,12 +75,9 @@ public class MongoResearchService : IResearchService
             // If external OpenAlex call fails or times out, curated catalog still powers the response
         }
 
-        // 3. If still empty, synthesize an on-demand verified topic paper so the user gets immediate academic value
-        if (combined.Count == 0)
-        {
-            var synthetic = CreateSyntheticTopicPaper(query, yearFrom > 0 ? yearFrom : 2024);
-            combined.Add(synthetic);
-        }
+        // Deliberately no synthetic-paper fallback: an empty result set is the honest answer when
+        // no verifiable work matches. Inventing a plausible-looking paper, DOI or statistic would
+        // violate the "never invent academic information" rule the product is built on.
 
         return combined.Take(pageSize * page).ToList();
     }
@@ -178,33 +175,6 @@ public class MongoResearchService : IResearchService
     {
         if (string.IsNullOrWhiteSpace(title)) return string.Empty;
         return System.Text.RegularExpressions.Regex.Replace(title.ToLowerInvariant(), @"[^a-z0-9]", "");
-    }
-
-    private static ContentItem CreateSyntheticTopicPaper(string topicQuery, int year)
-    {
-        var cleanTopic = System.Globalization.CultureInfo.CurrentCulture.TextInfo.ToTitleCase(topicQuery.Trim().ToLowerInvariant());
-        var paper = new ContentItem
-        {
-            Id = $"synth-{Guid.NewGuid():N}",
-            Type = ContentType.ResearchPaper,
-            Title = $"{cleanTopic}: Critical Theoretical Foundations, Empirical Paradigms, and Future Directions",
-            Authors = ["O. A. Balogun", "M. K. Vance", "E. R. Chen", "A. S. Jenkins"],
-            Journal = "International Journal of Interdisciplinary Studies & Applied Sciences",
-            PublishedAt = new DateTime(Math.Max(2020, Math.Min(2026, year)), 5, 20, 0, 0, 0, DateTimeKind.Utc),
-            Doi = $"10.1016/j.ijis.{year}.{Math.Abs(cleanTopic.GetHashCode()) % 900000 + 100000}",
-            Url = $"https://doi.org/10.1016/j.ijis.{year}.{Math.Abs(cleanTopic.GetHashCode()) % 900000 + 100000}",
-            DocumentType = "Journal Article",
-            DatabaseSource = "OpenAlex / CrossRef",
-            Tags = [cleanTopic, "Research Synthesis", "Empirical Evaluation"],
-            Topic = cleanTopic,
-            AiSummary = $"A comprehensive peer-reviewed investigation into {cleanTopic.ToLowerInvariant()}, establishing foundational theoretical frameworks, resolving long-standing empirical contradictions, and presenting verified quantitative benchmarks across global cohorts.",
-            WhyItMatters = $"Directly addresses the operational and conceptual bottlenecks in {cleanTopic.ToLowerInvariant()} with reproducible empirical evidence.",
-            KeyFindings = $"Empirical models validate a 31.4% improvement in strategic efficacy and risk reduction across examined operational variables.",
-            Methodology = "Longitudinal multi-wave empirical modeling and multi-group structural equation analysis."
-        };
-
-        AcademicPaperSynthesizer.EnrichPaperWithStrictBreakdown(paper);
-        return paper;
     }
 
     private async Task EnsureAiPaperBreakdownAsync(ContentItem paper)

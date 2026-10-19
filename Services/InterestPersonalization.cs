@@ -142,21 +142,24 @@ public static class InterestPersonalization
         var capability = matches.FirstOrDefault(m => m.Dimension == "Capability")?.Phrase ?? profile.Capabilities.FirstOrDefault();
         var interest = matches.FirstOrDefault(m => m.Dimension == "Interest")?.Phrase ?? profile.Interests.FirstOrDefault() ?? "your domain";
         var problem = matches.FirstOrDefault(m => m.Dimension == "Problem")?.Phrase ?? profile.Problems.FirstOrDefault();
-        var location = !string.IsNullOrWhiteSpace(profile.City)
-            ? $"{profile.City}, {profile.Region}"
-            : (!string.IsNullOrWhiteSpace(profile.Region) ? profile.Region : "your target market");
+        var location = PlaceName(profile);
         var target = !string.IsNullOrWhiteSpace(profile.TargetRole)
             ? profile.TargetRole
             : (!string.IsNullOrWhiteSpace(profile.TargetIndustry) ? $"{profile.TargetIndustry} roles" : "technology-focused roles");
         var topic = !string.IsNullOrWhiteSpace(item.Topic) ? item.Topic : item.Title;
 
         var sb = new StringBuilder();
-        sb.Append($"This matters to you because your focus sits directly at the intersection of {Lower(interest)} and your goal to {Lower(goal)}. ");
-        sb.Append($"In {location}, developments in {Lower(topic)} create demand for professionals who understand both technical execution and business applications, particularly for {Lower(target)}. ");
+        // Interest and goal are frequently the same word, which produced "where cybersecurity meets
+        // your goal: Cybersecurity". Say it once when they match.
+        var goalPhrase = SubjectPhrase.Clean(goal);
+        sb.Append(goalPhrase.Equals(interest, StringComparison.OrdinalIgnoreCase)
+            ? $"This matters to you because it speaks directly to your goal: {goalPhrase}. "
+            : $"This matters to you because it sits where {Lower(interest)} meets your goal: {goalPhrase}. ");
+        sb.Append($"In {location}, movement in {Lower(topic)} is creating demand for people who can do the technical work and explain the business case, especially for a {Lower(target)}. ");
 
         if (!string.IsNullOrWhiteSpace(problem))
         {
-            sb.Append($"Given the challenge you flagged regarding {Lower(problem)}, understanding this development provides concrete foresight into how organizations and industry leaders are resolving similar hurdles. ");
+            sb.Append($"You said {Lower(problem)} is holding you back. This shows how other teams are solving the same thing. ");
         }
 
         if (!string.IsNullOrWhiteSpace(capability))
@@ -168,7 +171,7 @@ public static class InterestPersonalization
             sb.Append($"This makes your current learning path more urgent, particularly as practical expertise in {Lower(topic)} becomes a key market differentiator. ");
         }
 
-        sb.Append("Rather than general industry commentary, this directly impacts how you prioritize your learning modules and career positioning.");
+        sb.Append("This is not general industry news. It changes what you should learn next and how you position yourself.");
         return sb.ToString().Trim();
     }
 
@@ -210,6 +213,14 @@ public static class InterestPersonalization
         return string.Join("\n", lines);
     }
 
+    /// <summary>
+    /// Names the concrete artifact someone with this capability should build on this topic.
+    /// Public so the home screen can answer "what should I add to my portfolio?" with the same
+    /// specific answer the feed's next-move already gives, instead of its own generic phrasing.
+    /// </summary>
+    public static string PortfolioArtifactFor(string capability, string topic) =>
+        GetSpecificPortfolioArtifact(capability, topic);
+
     private static string GetSpecificPortfolioArtifact(string capability, string topic)
     {
         var text = $"{capability} {topic}".ToLowerInvariant();
@@ -219,6 +230,12 @@ public static class InterestPersonalization
 
         if (text.Contains("product") || text.Contains("prd") || text.Contains("user story") || text.Contains("feature"))
             return "a 1-page PRD and user journey map addressing this problem";
+
+        // Checked before the generic "data"/"system" branches below: a SOC analyst asking for a
+        // portfolio piece should be told to build a detection rule, not a metrics dashboard.
+        if (text.Contains("cyber") || text.Contains("security") || text.Contains("soc") || text.Contains("threat")
+            || text.Contains("malware") || text.Contains("pentest") || text.Contains("incident") || text.Contains("siem"))
+            return "a documented detection rule plus an incident write-up showing how you'd triage and contain it";
 
         if (text.Contains("ai") || text.Contains("prompt") || text.Contains("rag") || text.Contains("llm") || text.Contains("machine learning"))
             return "a working prototype or evaluation script testing this architecture";
@@ -309,7 +326,44 @@ public static class InterestPersonalization
     private static string Text(ContentItem item) =>
         $"{item.Title} {item.Topic} {string.Join(' ', item.SecondaryTopics)} {item.Signal} {item.AiSummary} {item.WhatHappened} {string.Join(' ', item.Tags)}".ToLowerInvariant();
 
-    private static string Lower(string value) => value.ToLowerInvariant();
+    /// <summary>
+    /// Lowercases for mid-sentence use, but leaves acronyms and the user's own capitalised terms
+    /// alone. Blanket ToLowerInvariant turned "SOC Analyst" into "soc analyst" and the user's own
+    /// goal into "cybersecurity: learn new skills", which reads like a bug even when the sentence
+    /// around it is right.
+    /// </summary>
+    private static string Lower(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return value;
+
+        return string.Join(" ", value.Split(' ').Select(word =>
+        {
+            if (word.Length == 0) return word;
+
+            // ALL-CAPS short tokens are acronyms: SOC, AI, SQL, API, SIEM.
+            var letters = new string(word.Where(char.IsLetter).ToArray());
+            if (letters.Length is > 1 and <= 5 && letters.ToUpperInvariant() == letters) return word;
+
+            // Internal capitals mean a brand or compound: PyTorch, OpenAI, JavaScript.
+            if (word.Length > 1 && word[1..].Any(char.IsUpper)) return word;
+
+            return word.ToLowerInvariant();
+        }));
+    }
+
+    /// <summary>City and region are often the same word ("Lagos, Lagos"). Say it once.</summary>
+    private static string PlaceName(UserProfile profile)
+    {
+        var city = (profile.City ?? string.Empty).Trim();
+        var region = (profile.Region ?? string.Empty).Trim();
+
+        if (city.Length > 0 && region.Length > 0)
+            return city.Equals(region, StringComparison.OrdinalIgnoreCase) ? city : $"{city}, {region}";
+
+        if (city.Length > 0) return city;
+        if (region.Length > 0) return region;
+        return "your target market";
+    }
 
     private static bool ContainsContext(string text, string value) =>
         !string.IsNullOrWhiteSpace(value) && text.Contains(value, StringComparison.OrdinalIgnoreCase);

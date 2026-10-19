@@ -10,13 +10,33 @@ public class MongoRoadmapService : IRoadmapService
 {
     private readonly RadarDatabase _db;
     private readonly IAiEngine _ai;
+    private readonly IUserLearningRecordService _records;
     private readonly ILogger<MongoRoadmapService> _log;
 
-    public MongoRoadmapService(RadarDatabase db, IAiEngine ai, ILogger<MongoRoadmapService> log)
+    public MongoRoadmapService(
+        RadarDatabase db,
+        IAiEngine ai,
+        IUserLearningRecordService records,
+        ILogger<MongoRoadmapService> log)
     {
         _db = db;
         _ai = ai;
+        _records = records;
         _log = log;
+    }
+
+    /// <summary>
+    /// Re-tailors a roadmap against everything Radar currently knows about the user. Runs on every
+    /// read, not just at creation, because the evidence keeps arriving: a topic failed twice should
+    /// resurface, and a stage already proven should not hold someone back.
+    /// </summary>
+    private async Task PersonalizeAsync(GrowthRoadmap roadmap, string userId, CancellationToken ct = default)
+    {
+        var profile = await _db.Profiles.Find(p => p.Id == userId).FirstOrDefaultAsync(ct);
+        if (profile is null) return;
+
+        var record = await _records.BuildAsync(profile, ct);
+        RoadmapPersonalizer.Apply(roadmap, record);
     }
 
     public async Task<List<GrowthRoadmap>> GetUserRoadmapsAsync(string userId)
@@ -37,6 +57,7 @@ public class MongoRoadmapService : IRoadmapService
         {
             // Re-enrich with latest catalog structure (4 stages, ordered resources, practical exercises)
             EnrichRoadmapWithResources(roadmap);
+            await PersonalizeAsync(roadmap, userId);
             await _db.Roadmaps.ReplaceOneAsync(r => r.Id == roadmap.Id, roadmap);
             return roadmap;
         }
@@ -50,7 +71,7 @@ public class MongoRoadmapService : IRoadmapService
             ?? InterestPersonalization.Contexts(profile).FirstOrDefault();
         var path = profile.InterestPaths.FirstOrDefault(p => p.IsPrimary);
         var roadmapGoal = path is null ? profile.PrimaryGoal : $"{profile.PrimaryGoal} {path.Title}";
-        var createdRoadmap = await CreateRoadmapAsync(userId, roadmapGoal);
+        var createdRoadmap = await CreateRoadmapAsync(userId, roadmapGoal, profile.PrimaryGoal);
         createdRoadmap.Goal = profile.PrimaryGoal;
         if (context is not null)
         {
@@ -75,13 +96,18 @@ public class MongoRoadmapService : IRoadmapService
         return createdRoadmap;
     }
 
-    public async Task<GrowthRoadmap> CreateRoadmapAsync(string userId, string goal)
+    public Task<GrowthRoadmap> CreateRoadmapAsync(string userId, string goal) =>
+        CreateRoadmapAsync(userId, goal, null);
+
+    public async Task<GrowthRoadmap> CreateRoadmapAsync(string userId, string goal, string? displayGoal)
     {
         // Deactivate any existing active roadmap
         var deactivate = Builders<GrowthRoadmap>.Update.Set(r => r.IsActive, false);
         await _db.Roadmaps.UpdateManyAsync(r => r.UserId == userId && r.IsActive, deactivate);
 
-        var roadmap = BuildFromTemplate(userId, goal);
+        var roadmap = BuildFromTemplate(userId, goal, displayGoal);
+        EnrichRoadmapWithResources(roadmap);
+        await PersonalizeAsync(roadmap, userId);
         await _db.Roadmaps.InsertOneAsync(roadmap);
         return roadmap;
     }
@@ -112,6 +138,7 @@ public class MongoRoadmapService : IRoadmapService
         roadmap.Interest = interest;
         roadmap.Level    = level;
         EnrichRoadmapWithResources(roadmap);
+        await PersonalizeAsync(roadmap, userId, ct);
 
         var deactivate = Builders<GrowthRoadmap>.Update.Set(r => r.IsActive, false);
         await _db.Roadmaps.UpdateManyAsync(r => r.UserId == userId && r.IsActive, deactivate, cancellationToken: ct);
@@ -430,9 +457,18 @@ public class MongoRoadmapService : IRoadmapService
 
     // ── Template builder (Clean 4-stage progression: Beginner → Intermediate → Advanced → Application) ──
 
-    private static GrowthRoadmap BuildFromTemplate(string userId, string goal)
+    /// <param name="goal">
+    /// Routing text. Callers deliberately widen this (goal + interest path) to give the keyword
+    /// match more to work with.
+    /// </param>
+    /// <param name="displayGoal">
+    /// What the user actually typed, used for anything they will read. Without this split, widening
+    /// the routing text leaked into titles as "Foundations of hospital nurse manager Nursing".
+    /// </param>
+    private static GrowthRoadmap BuildFromTemplate(string userId, string goal, string? displayGoal = null)
     {
         var normalized = goal.ToLowerInvariant();
+        var shown = string.IsNullOrWhiteSpace(displayGoal) ? goal : displayGoal;
 
         var modules = normalized switch
         {
@@ -442,14 +478,23 @@ public class MongoRoadmapService : IRoadmapService
             var g when g.Contains("finance") || g.Contains("investment") || g.Contains("banking") => FinanceModules(),
             var g when g.Contains("software") || g.Contains("engineer") || g.Contains("developer") || g.Contains("coding") => SoftwareEngModules(),
             var g when g.Contains("policy") || g.Contains("government") || g.Contains("public") => PublicPolicyModules(),
-            _ => DataAnalyticsModules(),
+            // Checked before the generic branches: "cybersecurity" contains none of the keywords
+            // above, so it used to fall through to the default and hand SOC analysts a path that
+            // opened with Excel fundamentals and Power BI.
+            var g when g.Contains("cyber") || g.Contains("security") || g.Contains("soc")
+                    || g.Contains("hacking") || g.Contains("threat") || g.Contains("malware")
+                    || g.Contains("forensic") || g.Contains("penetration") => CybersecurityModules(),
+            // No keyword matched. Build a skeleton named after the goal the user actually stated
+            // rather than quietly serving the data-analytics curriculum to everyone unmatched --
+            // a generic-but-honest path beats a confident, wrong one.
+            _ => GenericModules(shown),
         };
 
         var roadmap = new GrowthRoadmap
         {
             UserId   = userId,
-            Title    = goal,
-            Goal     = goal,
+            Title    = shown,
+            Goal     = shown,
             CurrentStage = "Beginner",
             IsActive = true,
             Modules  = modules,
@@ -823,6 +868,140 @@ public class MongoRoadmapService : IRoadmapService
     ];
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static List<RoadmapModule> CybersecurityModules() =>
+    [
+        new()
+        {
+            Order = 1,
+            Level = "Beginner",
+            Title = "Beginner: Networking & Security Foundations",
+            StageGoal = "Networking fundamentals, the CIA triad, operating system internals, common attack types",
+            IsLocked = false,
+            Lessons =
+            [
+                Lesson(1, "TCP/IP, DNS and HTTP: how traffic actually moves", "50 min"),
+                Lesson(2, "The CIA triad and core security principles", "30 min"),
+                Lesson(3, "Linux and Windows internals for defenders", "45 min"),
+                Lesson(4, "Common attack types: phishing, malware, credential theft", "40 min")
+            ]
+        },
+        new()
+        {
+            Order = 2,
+            Level = "Intermediate",
+            Title = "Intermediate: Defensive Operations & Monitoring",
+            StageGoal = "Firewalls, IDS/IPS, SIEM, log analysis, the incident response lifecycle",
+            IsLocked = true,
+            Lessons =
+            [
+                Lesson(1, "Firewalls, IDS/IPS and network segmentation", "50 min"),
+                Lesson(2, "SIEM fundamentals: ingesting and correlating logs", "55 min"),
+                Lesson(3, "Packet and log analysis with Wireshark and Zeek", "50 min"),
+                Lesson(4, "The incident response lifecycle: detect, contain, eradicate, recover", "45 min")
+            ]
+        },
+        new()
+        {
+            Order = 3,
+            Level = "Advanced",
+            Title = "Advanced: Threat Detection & Adversary Emulation",
+            StageGoal = "Threat hunting, detection engineering, MITRE ATT&CK, cloud and identity security",
+            IsLocked = true,
+            Lessons =
+            [
+                Lesson(1, "MITRE ATT&CK and threat-informed defence", "50 min"),
+                Lesson(2, "Detection engineering: writing and tuning Sigma rules", "55 min"),
+                Lesson(3, "Threat hunting hypotheses and proactive investigation", "50 min"),
+                Lesson(4, "Cloud and identity security: IAM misconfiguration and privilege escalation", "50 min")
+            ]
+        },
+        new()
+        {
+            Order = 4,
+            Level = "Application",
+            Title = "Application: Home Lab, Portfolio & Interview Prep",
+            StageGoal = "A working detection lab, documented incident write-ups, certification and interview readiness",
+            IsLocked = true,
+            Lessons =
+            [
+                Lesson(1, "Build a home SOC lab with Security Onion or Wazuh", "60 min"),
+                Lesson(2, "Write an incident report that a hiring manager will read", "45 min"),
+                Lesson(3, "Capture-the-flag practice and blue-team exercises", "55 min"),
+                Lesson(4, "SOC analyst interview preparation: triage scenarios and live questions", "50 min")
+            ]
+        }
+    ];
+
+    /// <summary>
+    /// Fallback path for a goal no template covers. Deliberately names the user's own goal at every
+    /// stage instead of pretending to be a curriculum Radar does not have, giving the AI pathway
+    /// generator and Learn Hub an honest scaffold to fill with real resources.
+    /// </summary>
+    private static List<RoadmapModule> GenericModules(string goal)
+    {
+        var subject = SubjectPhrase.Clean(goal);
+
+        return
+        [
+            new()
+            {
+                Order = 1,
+                Level = "Beginner",
+                Title = $"Beginner: Foundations of {subject}",
+                StageGoal = $"Core concepts, vocabulary and tools used in {subject}",
+                IsLocked = false,
+                Lessons =
+                [
+                    Lesson(1, $"What {subject} actually involves day to day", "40 min"),
+                    Lesson(2, $"Core concepts and vocabulary in {subject}", "40 min"),
+                    Lesson(3, $"The standard toolset for {subject}", "45 min")
+                ]
+            },
+            new()
+            {
+                Order = 2,
+                Level = "Intermediate",
+                Title = $"Intermediate: Applied {subject}",
+                StageGoal = $"Working through realistic {subject} problems end to end",
+                IsLocked = true,
+                Lessons =
+                [
+                    Lesson(1, $"Typical workflows in {subject}", "50 min"),
+                    Lesson(2, $"Working a realistic {subject} problem end to end", "55 min"),
+                    Lesson(3, "Common mistakes and how practitioners avoid them", "40 min")
+                ]
+            },
+            new()
+            {
+                Order = 3,
+                Level = "Advanced",
+                Title = $"Advanced: Depth in {subject}",
+                StageGoal = $"Specialisation, scale and judgement in {subject}",
+                IsLocked = true,
+                Lessons =
+                [
+                    Lesson(1, $"Specialised techniques in {subject}", "50 min"),
+                    Lesson(2, $"Operating at scale in {subject}", "50 min"),
+                    Lesson(3, "Judgement calls experienced practitioners make", "45 min")
+                ]
+            },
+            new()
+            {
+                Order = 4,
+                Level = "Application",
+                Title = $"Application: Portfolio & Career in {subject}",
+                StageGoal = $"Evidence of capability in {subject}, and the interview to prove it",
+                IsLocked = true,
+                Lessons =
+                [
+                    Lesson(1, $"Build a portfolio piece that demonstrates {subject}", "60 min"),
+                    Lesson(2, "Write up your work so a hiring manager can assess it", "45 min"),
+                    Lesson(3, $"Interview preparation for {subject} roles", "50 min")
+                ]
+            }
+        ];
+    }
 
     private static RoadmapLesson Lesson(int order, string title, string time) =>
         new() { Title = title, Order = order, EstimatedTime = time };

@@ -20,7 +20,15 @@ public static class LearningResourceCatalog
         var normalized = $"{interestOrGoal}".ToLowerInvariant();
 
         List<LearningResource> pool;
-        if (normalized.Contains("data") || normalized.Contains("analytics") || normalized.Contains("sql") || normalized.Contains("bi") || normalized.Contains("excel"))
+        // Checked first: a cybersecurity goal contains none of the keywords below, so it used to
+        // fall through to the software-engineering pool while the roadmap fell through to data
+        // analytics. That mismatch is what produced "how do Excel fundamentals relate to
+        // cybersecurity?".
+        if (normalized.Contains("cyber") || normalized.Contains("security") || normalized.Contains("soc")
+            || normalized.Contains("hacking") || normalized.Contains("threat") || normalized.Contains("malware")
+            || normalized.Contains("forensic") || normalized.Contains("penetration"))
+            pool = CybersecurityResourceCatalog.All();
+        else if (normalized.Contains("data") || normalized.Contains("analytics") || normalized.Contains("sql") || normalized.Contains("bi") || normalized.Contains("excel"))
             pool = DataAnalyticsResources();
         else if (normalized.Contains("ai") || normalized.Contains("machine learning") || normalized.Contains("artificial") || normalized.Contains("llm"))
             pool = AiAndMachineLearningResources();
@@ -33,7 +41,11 @@ public static class LearningResourceCatalog
         else if (normalized.Contains("policy") || normalized.Contains("govern") || normalized.Contains("regulation"))
             pool = TechnologyPolicyResources();
         else
-            pool = SoftwareEngineeringResources();
+            // No domain matched. Software engineering is NOT a safe default — handing a nurse or a
+            // policy analyst a Python course is the same failure that gave cybersecurity learners
+            // Excel. Return nothing so callers fall back to the learner's own roadmap and the Learn
+            // Hub's live search, instead of confidently serving the wrong curriculum.
+            pool = [];
 
         if (string.IsNullOrWhiteSpace(level)) return pool;
 

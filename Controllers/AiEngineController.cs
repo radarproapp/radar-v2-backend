@@ -22,7 +22,7 @@ public class AiEngineController : ControllerBase
 
     /// <summary>
     /// Returns the live operational status, token/spend metrics, and activity processing distribution
-    /// across all Radar subsystems (Feed, Learning Path, Learn Hub, Clips, Opportunities, Research, Mentor).
+    /// across all Radar subsystems (Feed, Learning Path, Learn Hub, Opportunities, Research, Mentor).
     /// </summary>
     [HttpGet("status")]
     public async Task<ActionResult<AiEngineStats>> GetStatusAsync(CancellationToken ct = default)

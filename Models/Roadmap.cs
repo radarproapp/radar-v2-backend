@@ -42,8 +42,35 @@ public class RoadmapModule
     public bool IsLocked { get; set; }
     public int MasteryPercent { get; set; }
     public List<RoadmapLesson> Lessons { get; set; } = [];
+
+    /// <summary>
+    /// The thing you build while learning this stage, not after it. Radar Learn is about building
+    /// skills and showing capability at the same time, so every stage carries a project rather than
+    /// leaving "make a portfolio" to the final stage.
+    /// </summary>
+    public StageProject? Project { get; set; }
     public List<string> ContentItemIds { get; set; } = [];
     public List<LearningResource> Resources { get; set; } = [];
+}
+
+/// <summary>
+/// A small, concrete build that runs alongside a stage's lessons. It exists so a learner finishes
+/// each stage holding evidence, not just having watched something.
+/// </summary>
+public class StageProject
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string Title { get; set; } = string.Empty;
+
+    /// <summary>What they will have at the end, in plain words.</summary>
+    public string Deliverable { get; set; } = string.Empty;
+
+    /// <summary>Why this proves something an employer or client cares about.</summary>
+    public string WhyItProvesCapability { get; set; } = string.Empty;
+
+    public string? EstimatedTime { get; set; }
+    public List<string> Steps { get; set; } = [];
+    public bool IsCompleted { get; set; }
 }
 
 public class RoadmapLesson

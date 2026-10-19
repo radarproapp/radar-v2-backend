@@ -15,6 +15,9 @@ public sealed class AiRelevanceService
         _signals = signals;
     }
 
+    private const string Feature = "feed-relevance";
+    private const string SystemPrompt = "You are Radar's relevance ranking engine. Be conservative, specific and evidence-based.";
+
     public async Task ApplyAsync(UserProfile profile, IList<ContentItem> items, CancellationToken ct = default)
     {
         if (items.Count == 0) return;
@@ -49,8 +52,17 @@ Candidates:
 Rank candidates for this person. Goal, problem and current intent must outrank generic interest matches.
 Do not invent facts. Return strict JSON with this shape:
 {{ ""rankings"": [{{""id"":""..."",""score"":0.0,""confidence"":0.0,""matchedSignals"":[],""whyShown"":""..."",""nextMove"":""...""}}] }}";
-        var result = await _ai.GenerateJsonAsync<RelevanceResult>("feed-relevance", "You are Radar's relevance ranking engine. Be conservative, specific and evidence-based.", request, ct);
-        if (result?.Rankings is null) return;
+        // Cache-first, never blocking. Ranking is a nice-to-have on top of the deterministic ordering
+        // the caller has already applied, so it is not worth making every feed render wait on a
+        // provider round trip. If the answer is warm, use it; if not, warm it for the next request
+        // and return immediately.
+        if (!_ai.TryGetCachedJson<RelevanceResult>(Feature, SystemPrompt, request, out var result) || result is null)
+        {
+            _ai.WarmJson<RelevanceResult>(Feature, SystemPrompt, request);
+            return;
+        }
+
+        if (result.Rankings is null) return;
         var byId = result.Rankings.ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
         foreach (var item in items)
         {

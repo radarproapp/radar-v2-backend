@@ -19,10 +19,31 @@ public class MongoOpportunityService : IOpportunityService
         _aiMatch = aiMatch;
     }
 
+    /// <summary>Ceiling on how many opportunities are scored for one request.</summary>
+    private const int MaxScoringCandidates = 500;
+
     public Task<List<Opportunity>> GetOpportunitiesAsync(
         UserProfile profile, OpportunityType? filterType = null, int page = 1, int pageSize = 20)
     {
         return GetOpportunitiesAsync(profile, filterType, null, null, null, null, page, pageSize);
+    }
+
+    /// <summary>
+    /// Candidate set for per-user scoring. Ranking is user-specific and computed in memory, so the
+    /// page itself cannot be pushed into Mongo — but the expiry filter and a hard ceiling can be,
+    /// which is what stops this from degrading into "load the entire collection on every request".
+    /// </summary>
+    private async Task<List<Opportunity>> GetScoringCandidatesAsync()
+    {
+        var cutoff = DateTime.UtcNow.AddDays(-1);
+        var notExpired = Builders<Opportunity>.Filter.Or(
+            Builders<Opportunity>.Filter.Eq(o => o.Deadline, null),
+            Builders<Opportunity>.Filter.Gte(o => o.Deadline, cutoff));
+
+        return await _db.Opportunities
+            .Find(notExpired)
+            .Limit(MaxScoringCandidates)
+            .ToListAsync();
     }
 
     public async Task<List<Opportunity>> GetOpportunitiesAsync(
@@ -37,7 +58,7 @@ public class MongoOpportunityService : IOpportunityService
     {
         await EnsureSeedAsync();
 
-        var all = await _db.Opportunities.Find(_ => true).ToListAsync();
+        var all = await GetScoringCandidatesAsync();
 
         // Reconcile user tracking & continuous learning weights
         var trackingMap = await GetTrackingMapAsync(profile.Id);
@@ -113,7 +134,7 @@ public class MongoOpportunityService : IOpportunityService
     {
         await EnsureSeedAsync();
 
-        var all = await _db.Opportunities.Find(_ => true).ToListAsync();
+        var all = await GetScoringCandidatesAsync();
         var trackingMap = await GetTrackingMapAsync(profile.Id);
         var activeRoadmap = await _db.Roadmaps.Find(r => r.UserId == profile.Id && r.IsActive).FirstOrDefaultAsync();
 

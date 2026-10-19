@@ -9,6 +9,9 @@ public sealed class AiOpportunityMatchService
 
     public AiOpportunityMatchService(IAiEngine ai) => _ai = ai;
 
+    private const string Feature = "opportunity-matching";
+    private const string SystemPrompt = "You are Radar's opportunity matching engine. Be conservative and never invent eligibility facts.";
+
     public async Task ApplyAsync(UserProfile profile, IList<Opportunity> opportunities, CancellationToken ct = default)
     {
         if (opportunities.Count == 0) return;
@@ -30,7 +33,14 @@ Opportunities:
 {System.Text.Json.JsonSerializer.Serialize(candidates)}
 
 For each opportunity, estimate fit as a decimal from 0.0 (no fit) to 1.0 (perfect fit) using the stated goal, problems and current situation. Do not reward generic interest matches over direct goal alignment. Every opportunity in the list must appear, even with a low score. Return strict JSON: {{ ""matches"": [{{""id"":""..."",""score"":0.0,""confidence"":0.0,""whyItFits"":""..."",""preparationSteps"":[]}}] }}";
-        var result = await _ai.GenerateJsonAsync<MatchResult>("opportunity-matching", "You are Radar's opportunity matching engine. Be conservative and never invent eligibility facts.", prompt, ct);
+        // Cache-first, same reasoning as the feed: deterministic scoring has already produced a
+        // usable ordering, so the AI refinement warms in the background rather than holding up the
+        // page. See AiRelevanceService for the matching pattern.
+        if (!_ai.TryGetCachedJson<MatchResult>(Feature, SystemPrompt, prompt, out var result) || result is null)
+        {
+            _ai.WarmJson<MatchResult>(Feature, SystemPrompt, prompt);
+            return;
+        }
         if (result?.Matches is null) return;
         var byId = result.Matches.ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
         foreach (var opportunity in opportunities)

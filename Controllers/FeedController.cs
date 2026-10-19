@@ -187,19 +187,19 @@ public class FeedController : ControllerBase
         var personalized = await _why.GetOrGenerateAsync(profile, item);
 
         var whyText = !string.IsNullOrWhiteSpace(personalized?.WhyText) ? personalized.WhyText : deterministic.Why;
-        var yourEdge = !string.IsNullOrWhiteSpace(personalized?.YourEdge) ? personalized.YourEdge : deterministic.YourEdge;
         var nextMove = !string.IsNullOrWhiteSpace(personalized?.NextMove) ? personalized.NextMove : deterministic.NextMove;
 
         return Ok(new
         {
             text = whyText,
-            yourEdge = yourEdge,
             whatToKnow = InterestPersonalization.WhatToKnow(item),
             nextMove = nextMove,
             relevanceScore = item.RelevanceScore,
             relevanceConfidence = item.RelevanceConfidence,
             matchedSignals = item.MatchedSignals.Count > 0 ? item.MatchedSignals : deterministic.MatchedSignals,
             isPersonalized = personalized?.IsGenerated ?? false,
+            // Surfaced so the feed can later drop weakly-connected items instead of explaining them.
+            relevance = personalized?.Relevance,
             isHelpful = personalized?.IsHelpful,
         });
     }

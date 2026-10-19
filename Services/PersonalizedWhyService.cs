@@ -19,24 +19,21 @@ namespace RadarV2.Services;
 /// </summary>
 public class PersonalizedWhyService : IPersonalizedWhyService
 {
-    private readonly IHttpClientFactory _httpFactory;
-    private readonly IConfiguration _config;
     private readonly RadarDatabase _db;
     private readonly ILogger<PersonalizedWhyService> _log;
     private readonly IAiEngine _ai;
+    private readonly IUserLearningRecordService _records;
 
     public PersonalizedWhyService(
-        IHttpClientFactory httpFactory,
-        IConfiguration config,
         RadarDatabase db,
         ILogger<PersonalizedWhyService> log,
-        IAiEngine ai)
+        IAiEngine ai,
+        IUserLearningRecordService records)
     {
-        _httpFactory = httpFactory;
-        _config = config;
         _db = db;
         _log = log;
         _ai = ai;
+        _records = records;
     }
 
     public async Task<UserContentWhy?> GetOrGenerateAsync(UserProfile profile, ContentItem item, CancellationToken ct = default)
@@ -50,7 +47,6 @@ public class PersonalizedWhyService : IPersonalizedWhyService
         if (existing is not null
             && existing.IsGenerated
             && !string.IsNullOrWhiteSpace(existing.WhyText)
-            && !string.IsNullOrWhiteSpace(existing.YourEdge)
             && !string.IsNullOrWhiteSpace(existing.NextMove)
             && existing.GoalSnapshot == profile.PrimaryGoal
             && existing.PersonaSnapshot == personaSnapshot
@@ -59,7 +55,8 @@ public class PersonalizedWhyService : IPersonalizedWhyService
             return existing;
         }
 
-        var generated = await GenerateAsync(profile, item, ct);
+        var record = await _records.BuildAsync(profile, ct);
+        var generated = await GenerateAsync(profile, item, record, ct);
         if (generated is null) return existing; // stale cache beats nothing if regeneration fails
 
         var doc = new UserContentWhy
@@ -68,7 +65,8 @@ public class PersonalizedWhyService : IPersonalizedWhyService
             UserId = profile.Id,
             ContentItemId = item.Id,
             WhyText = generated.Why,
-            YourEdge = generated.YourEdge,
+            CanConnect = generated.CanConnect,
+            Relevance = generated.Relevance,
             NextMove = generated.NextMove,
             GoalSnapshot = profile.PrimaryGoal,
             PersonaSnapshot = personaSnapshot,
@@ -124,21 +122,34 @@ public class PersonalizedWhyService : IPersonalizedWhyService
 
     // ── Generation ───────────────────────────────────────────────────────────
 
-    private async Task<WhyResponse?> GenerateAsync(UserProfile profile, ContentItem item, CancellationToken ct)
+    private async Task<WhyResponse?> GenerateAsync(
+        UserProfile profile, ContentItem item, UserLearningRecord? record, CancellationToken ct)
     {
         var result = await _ai.GenerateJsonAsync<WhyResponse>(
             "personalized-why",
             SystemPrompt,
-            BuildPrompt(profile, item),
+            BuildPrompt(profile, item, record),
             ct);
 
-        if (result is null || string.IsNullOrWhiteSpace(result.Why)) return null;
+        if (result is null) return null;
+
+        // The writer was asked to decline rather than manufacture a link. Taking that seriously is
+        // the whole point: returning null here lets the caller fall back to the grounded template,
+        // instead of showing a stretched explanation that teaches the reader to distrust Radar.
+        if (!result.CanConnect || string.IsNullOrWhiteSpace(result.Why))
+        {
+            _log.LogInformation(
+                "Personalised why declined for item {ItemId} and user {UserId} (relevance {Relevance:0.00}) - no honest connection.",
+                item.Id, profile.Id, result.Relevance);
+            return null;
+        }
 
         return new WhyResponse
         {
             Why = result.Why.Trim(),
-            YourEdge = result.YourEdge?.Trim() ?? string.Empty,
             NextMove = result.NextMove?.Trim() ?? string.Empty,
+            CanConnect = true,
+            Relevance = result.Relevance <= 0 ? 1.0 : Math.Clamp(result.Relevance, 0, 1),
         };
     }
 
@@ -147,115 +158,96 @@ public class PersonalizedWhyService : IPersonalizedWhyService
         public string Why { get; set; } = string.Empty;
         public string YourEdge { get; set; } = string.Empty;
         public string NextMove { get; set; } = string.Empty;
+        public bool CanConnect { get; set; } = true;
+        public double Relevance { get; set; } = 1.0;
     }
 
     private const string SystemPrompt = """
-        You are Radar's Personalized Intelligence Engine. You transform market developments and content items into high-utility, bespoke intelligence for a specific professional or founder.
+        You are Radar's personal intelligence writer. You take one piece of content and one real
+        person, and you explain what it means FOR THEM.
 
-        The Golden Rule:
-        Radar must never simply tell the user: "Here is some information."
-        It must tell them: "Here is what happened -> here is why it matters to YOU -> here is your edge/advantage -> here is what you can do about it."
-        The goal is to transform information into personalized intelligence and action.
-
-        You must answer three core questions in strict JSON format:
+        Return strict JSON only:
         {
+          "canConnect": true,
+          "relevance": 0.0,
           "why": "...",
-          "yourEdge": "...",
           "nextMove": "..."
         }
 
-        1. "why" (WHY IT MATTERS):
-        Explain why this information matters specifically to this user.
-        Connect the information to the user's:
-        - Stated goals and target role
-        - Interests and focus lenses
-        - Current skills and capabilities
-        - Problems and challenges they are tackling
-        - Geographic location (e.g., Lagos, Nairobi, Accra, London) and target industry
-        - Current learning roadmap and progress
-        Do not give generic statements such as: "This is important because AI is transforming the world."
-        Reason across intersections (e.g., user interested in AI + finance + data in Nigeria -> explain how financial institutions are adopting AI for credit/fraud and what gaps exist). Include concrete examples (e.g., 'A skill that becomes more valuable is...', 'This connects to something you are already learning...', 'A company that could be affected is...').
-        Must be at least 45-60 words.
+        STEP 1 - BE HONEST FIRST.
+        Before writing anything, ask: can I draw a real line from this content to this person's
+        goal, role, skills, problems, roadmap or market?
+        - If yes: set "canConnect" to true and "relevance" between 0.5 and 1.0.
+        - If no: set "canConnect" to false, "relevance" below 0.4, leave "why" and "nextMove" empty,
+          and stop. Do not invent a link.
 
-        2. "yourEdge" (YOUR EDGE):
-        Answer: "What can you understand, learn, build or do because you know this information?"
-        Identify a specific advantage available to the user.
-        Connect the information to relevant:
-        - Skills to develop
-        - Knowledge gaps to close
-        - Specific projects or artifacts to build
-        - People or organizations to watch
-        - Markets to explore
-        - Career opportunities or business ideas
-        Provide relevant examples. The Edge should make the user think: "I can actually do something with this."
-        Must be at least 45-60 words.
+        This matters. A SOC analyst was once told that a podcast about logistics and agriculture
+        "can align with your cybersecurity skills". That is the failure you are avoiding. A stretched
+        connection is worse than no connection, because it teaches the reader to stop trusting you.
 
-        3. "nextMove" (NEXT MOVE):
-        Give the user specific actions, not general advice.
-        Instead of: "Learn more about this."
-        Provide 4 to 5 numbered steps (1. ..., 2. ..., 3. ..., 4. ..., 5. ...) using direct action verbs:
-        - Read the official policy / paper / analysis
-        - Identify 2-3 specific organizations affected
-        - Spend 30 minutes researching their response
-        - Build a specific project / artifact / prototype
-        - Add this skill or topic to your roadmap and revisit in seven days
-        Must be formatted as a numbered list with steps 1 to 5.
+        STEP 2 - "why": WHY IT MATTERS TO THIS PERSON.
+        Tie the content to specifics from their profile: their goal, target role, industry, the
+        skills they have, the problem they said is blocking them, their city and market, and where
+        they currently are on their learning roadmap.
+        - Name the thing. "This affects SOC analysts because..." not "this is important for
+          professionals".
+        - Reason across the overlap. If they care about AI and finance in Lagos, talk about what
+          Nigerian banks are doing with AI for fraud and credit, and what gap that leaves.
+        - Give at least one concrete example: a company this affects, a skill that just became more
+          valuable, a market worth watching, or something they are already learning that connects.
+        - Never write a sentence that would be true for any reader. If you could paste it under a
+          different article, it is wrong.
+        - About 60 to 90 words.
 
-        Standard:
-        The combined Why It Matters + Your Edge + Next Move must be at least 100 words (typically 130-190 words). Every sentence must provide useful information. Return valid JSON only.
+        STEP 3 - "nextMove": WHAT THEY SHOULD DO.
+        Three to five numbered steps, each one something they could start today.
+        - Each step names a thing: a document to read, an organisation to look up, a skill to add to
+          the roadmap, something specific to build.
+        - No "learn more about this" and no "stay informed".
+        - Point at least one step at something they can show afterwards: a note, a rule, a small
+          project, a write-up.
+        - Put each step on its own line, numbered 1., 2., 3.
+
+        LENGTH.
+        "why" plus "nextMove" should normally come to at least 100 words. But never pad. If you have
+        said the useful thing in fewer words, stop. A short, sharp answer beats a long, vague one.
         """;
 
-    private static string BuildPrompt(UserProfile profile, ContentItem item) => $"""
-        User Profile:
-        - Persona: {profile.Persona}
-        - Location: {profile.City}, {profile.Region} (Geography: {string.Join(", ", profile.Geography)})
-        - Primary Goal: "{profile.PrimaryGoal}"
-        - Target Role: {profile.TargetRole}
-        - Target Industry: {profile.TargetIndustry}
-        - Current Intent: {profile.CurrentIntent}
-        - Capabilities / Skills: {string.Join(", ", profile.Capabilities)}
-        - Challenges / Problems: {string.Join(", ", profile.Problems)}
-        - Active Interest Path: {InterestPathService.Build(profile).FirstOrDefault(p => p.IsPrimary)?.Title ?? profile.PrimaryGoal}
-        - Interest Contexts: {string.Join("; ", InterestPersonalization.Contexts(profile).Select(c => $"{c.Interest} (Level: {c.Level}; Focus: {c.Lens}; Goal: {c.Goal})"))}
-        - Learning Activity: {profile.Stats.LessonsCompleted} lessons completed, {profile.Stats.ArticlesRead} articles read, {profile.Stats.ProjectsCompleted} projects completed.
+    /// <summary>
+    /// Everything the writer needs about this person. Includes the learning record, because spec
+    /// item 12 asks the explanation to connect to the user's current roadmap — and without it the
+    /// model could only ever talk about declared interests, never about where they actually are.
+    /// </summary>
+    private static string BuildPrompt(UserProfile profile, ContentItem item, UserLearningRecord? record) => $"""
+        THE PERSON
+        - Goal: "{profile.PrimaryGoal}"
+        - Target role: {Or(profile.TargetRole, "not stated")}
+        - Industry: {Or(profile.TargetIndustry, "not stated")}
+        - Location: {Or(profile.City, profile.Region)}
+        - Skills they have: {Or(string.Join(", ", profile.Capabilities), "none stated")}
+        - What is blocking them: {Or(string.Join(", ", profile.Problems), "nothing stated")}
+        - Interests: {Or(string.Join(", ", profile.Interests), "none stated")}
+        - Working on right now: {Or(profile.CurrentIntent, "not stated")}
 
-        Content Item:
+        WHERE THEY ARE IN THEIR LEARNING
+        - Stage: {Or(record?.RecommendedStartStage, "just starting")}
+        - Already proved: {Or(string.Join(", ", record?.MasteredTopics ?? []), "nothing yet")}
+        - Struggling with: {Or(string.Join(", ", record?.WeakAreas ?? []), "nothing recorded")}
+        - Keeps coming back to: {Or(string.Join(", ", (record?.Signals ?? []).Where(x => x.Source == "Inferred").Take(4).Select(x => x.Term)), "no pattern yet")}
+        - Done so far: {record?.LessonsCompleted ?? 0} lessons, {record?.QuizzesTaken ?? 0} quizzes
+
+        THE CONTENT
+        - Headline: "{Or(item.Signal, item.Title)}"
         - Title: "{item.Title}"
-        - Signal: "{item.Signal}"
-        - Topic: "{item.Topic}" (Secondary: {string.Join(", ", item.SecondaryTopics)})
-        - Source: "{item.Source}" (Credibility Tier: {item.CredibilityTier}, Layer: {item.Layer})
-        - What Happened: {item.WhatHappened}
-        - Key Insights: {string.Join("; ", item.KeyInsights)}
-        - Summary: {item.AiSummary}
+        - Topic: {Or(item.Topic, "unclassified")}{(item.SecondaryTopics.Count > 0 ? $" (also: {string.Join(", ", item.SecondaryTopics)})" : "")}
+        - Source: {item.Source}
+        - What happened: {Or(item.WhatHappened, item.AiSummary)}
+        - Key points: {Or(string.Join("; ", item.KeyInsights), "none extracted")}
 
-        Generate the bespoke, high-utility personalized intelligence answering "why", "yourEdge", and "nextMove" as strict JSON.
+        Decide honestly whether this content connects to this person, then write the JSON.
         """;
 
-    // ── Spend cap (separate small budget from ingestion enrichment) ────────────
+    private static string Or(string? value, string fallback) =>
+        string.IsNullOrWhiteSpace(value) ? fallback : value;
 
-    private async Task<bool> IsWithinSpendCapAsync(CancellationToken ct)
-    {
-        var cap = _config.GetValue<decimal>("OpenRouter:WhyMonthlySpendCapUsd", 10m);
-        var month = DateTime.UtcNow.ToString("yyyy-MM");
-        var filter = Builders<IngestionQuotaDoc>.Filter.Eq(q => q.Id, $"openrouter-why:{month}");
-        var doc = await _db.IngestionQuotas.Find(filter).FirstOrDefaultAsync(ct);
-        return doc is null || doc.SpendUsd < cap;
-    }
-
-    private async Task RecordUsageAsync(long inputTokens, long outputTokens, CancellationToken ct)
-    {
-        var month = DateTime.UtcNow.ToString("yyyy-MM");
-        var id = $"openrouter-why:{month}";
-        var spend = (inputTokens / 1_000_000m * 0.27m) + (outputTokens / 1_000_000m * 1.10m);
-        var filter = Builders<IngestionQuotaDoc>.Filter.Eq(q => q.Id, id);
-        var update = Builders<IngestionQuotaDoc>.Update
-            .SetOnInsert(q => q.Service, "openrouter-why")
-            .SetOnInsert(q => q.Month, month)
-            .Inc(q => q.RequestCount, 1)
-            .Inc(q => q.TotalInputTokens, inputTokens)
-            .Inc(q => q.TotalOutputTokens, outputTokens)
-            .Inc(q => q.SpendUsd, spend)
-            .Set(q => q.UpdatedAt, DateTime.UtcNow);
-        await _db.IngestionQuotas.UpdateOneAsync(filter, update, new UpdateOptions { IsUpsert = true }, ct);
-    }
 }

@@ -16,7 +16,7 @@ namespace RadarV2.Services;
 /// <summary>
 /// Central processor and single boundary for all Radar AI activities.
 /// Orchestrates cloud LLMs (OpenRouter) with an integrated resilient deterministic intelligence brain
-/// to ensure every activity (feed personalization, learning paths, learn hub, clips, opportunities,
+/// to ensure every activity (feed personalization, learning paths, learn hub, opportunities,
 /// academic synthesis, mentor tutoring, and roadmaps) is reliably processed and audited.
 /// </summary>
 public sealed class OpenRouterAiEngine : IAiEngine
@@ -26,6 +26,10 @@ public sealed class OpenRouterAiEngine : IAiEngine
     private readonly RadarDatabase _db;
     private readonly IMemoryCache _cache;
     private readonly ILogger<OpenRouterAiEngine> _log;
+
+    /// <summary>Prompts currently being generated in the background, so a burst of requests for
+    /// the same page triggers one provider call rather than one per request.</summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _inFlight = new();
 
     public OpenRouterAiEngine(
         IHttpClientFactory httpFactory,
@@ -43,8 +47,12 @@ public sealed class OpenRouterAiEngine : IAiEngine
 
     public async Task<T?> GenerateJsonAsync<T>(string feature, string systemPrompt, string userPrompt, CancellationToken ct = default)
     {
+        // Applied at the boundary rather than at each call site: every feature funnels through
+        // here, so the plain-English rule cannot drift between them or be forgotten on a new one.
+        systemPrompt = PlainEnglish.Apply(systemPrompt);
+
         var sw = Stopwatch.StartNew();
-        var cacheKey = $"radar:ai:{feature}:{Hash(systemPrompt + "\n" + userPrompt)}";
+        var cacheKey = CacheKey(feature, systemPrompt, userPrompt);
         if (_cache.TryGetValue(cacheKey, out T? cached) && cached is not null)
         {
             await RecordActivityAsync(feature, null, "Cached", true, sw.ElapsedMilliseconds, "Served from memory cache", ct);
@@ -69,6 +77,10 @@ public sealed class OpenRouterAiEngine : IAiEngine
                 temperature = 0.25,
             });
 
+            // Overall deadline across attempts. The per-request HttpClient timeout bounds one call;
+            // without this a retry could stack a second full timeout on top of the first, which is how
+            // a single slow provider turned into a 40-second page.
+            var deadline = TimeSpan.FromSeconds(_config.GetValue("OpenRouter:DeadlineSeconds", 25));
             for (var attempt = 1; attempt <= 2; attempt++)
             {
                 try
@@ -81,7 +93,7 @@ public sealed class OpenRouterAiEngine : IAiEngine
                     if (!response.IsSuccessStatusCode)
                     {
                         _log.LogWarning("OpenRouter feature {Feature} returned {Status} on attempt {Attempt}", feature, response.StatusCode, attempt);
-                        if (attempt == 2) break;
+                        if (attempt == 2 || sw.Elapsed >= deadline) break;
                         await Task.Delay(TimeSpan.FromMilliseconds(250 * attempt), ct);
                         continue;
                     }
@@ -102,7 +114,7 @@ public sealed class OpenRouterAiEngine : IAiEngine
                         }
                     }
                 }
-                catch (Exception ex) when (attempt < 2 && ex is not OperationCanceledException)
+                catch (Exception ex) when (attempt < 2 && sw.Elapsed < deadline && ex is not OperationCanceledException)
                 {
                     _log.LogWarning(ex, "OpenRouter feature {Feature} failed on attempt {Attempt}; retrying", feature, attempt);
                     await Task.Delay(250, ct);
@@ -127,6 +139,10 @@ public sealed class OpenRouterAiEngine : IAiEngine
 
     public async Task<string?> GenerateTextAsync(string feature, string systemPrompt, string userPrompt, CancellationToken ct = default)
     {
+        // Applied at the boundary rather than at each call site: every feature funnels through
+        // here, so the plain-English rule cannot drift between them or be forgotten on a new one.
+        systemPrompt = PlainEnglish.Apply(systemPrompt);
+
         var sw = Stopwatch.StartNew();
         var apiKey = _config["OpenRouter:ApiKey"];
         var hasApiKey = !string.IsNullOrWhiteSpace(apiKey);
@@ -182,6 +198,8 @@ public sealed class OpenRouterAiEngine : IAiEngine
         IReadOnlyCollection<ChatMessage> messages,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
+        systemPrompt = PlainEnglish.Apply(systemPrompt);
+
         var sw = Stopwatch.StartNew();
         var apiKey = _config["OpenRouter:ApiKey"];
         var hasApiKey = !string.IsNullOrWhiteSpace(apiKey);
@@ -328,13 +346,60 @@ public sealed class OpenRouterAiEngine : IAiEngine
         {
             EngineName = "Radar Central AI Engine",
             Model = _config["OpenRouter:Model"] ?? "deepseek/deepseek-chat",
-            IsCloudLlmActive = !string.IsNullOrWhiteSpace(apiKey),
+            IsCloudLlmActive = !string.IsNullOrWhiteSpace(apiKey) && (quota?.SpendUsd ?? 0m) < cap,
+            IsBudgetExhausted = !string.IsNullOrWhiteSpace(apiKey) && (quota?.SpendUsd ?? 0m) >= cap,
+            DegradedReason =
+                string.IsNullOrWhiteSpace(apiKey) ? "No OpenRouter API key is configured."
+                : (quota?.SpendUsd ?? 0m) >= cap
+                    ? $"Monthly spend cap of ${cap} reached (${quota?.SpendUsd ?? 0m:0.00} used). Radar is running on the deterministic brain until next month or until the cap is raised."
+                    : null,
             MonthlySpendUsd = quota?.SpendUsd ?? 0m,
             MonthlySpendCapUsd = cap,
             TotalActivitiesProcessed = totalActivities,
             ActivityCounts = featureCounts,
             RecentActivities = recentActivities
         };
+    }
+
+    private static string CacheKey(string feature, string systemPrompt, string userPrompt) =>
+        $"radar:ai:{feature}:{Hash(systemPrompt + "\n" + userPrompt)}";
+
+    public bool TryGetCachedJson<T>(string feature, string systemPrompt, string userPrompt, out T? value)
+    {
+        if (_cache.TryGetValue(CacheKey(feature, systemPrompt, userPrompt), out T? cached) && cached is not null)
+        {
+            value = cached;
+            return true;
+        }
+
+        value = default;
+        return false;
+    }
+
+    public void WarmJson<T>(string feature, string systemPrompt, string userPrompt)
+    {
+        var key = CacheKey(feature, systemPrompt, userPrompt);
+        if (_cache.TryGetValue(key, out T? existing) && existing is not null) return;
+        if (!_inFlight.TryAdd(key, 0)) return;
+
+        // Detached on purpose: nothing awaits this and the caller has already returned a response.
+        // Every dependency of this class is a singleton, so there is no scoped service to outlive.
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+                await GenerateJsonAsync<T>(feature, systemPrompt, userPrompt, cts.Token);
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "Background warm for {Feature} failed", feature);
+            }
+            finally
+            {
+                _inFlight.TryRemove(key, out _);
+            }
+        });
     }
 
     // ── Resilient Deterministic Intelligence Brain ─────────────────────────────
@@ -357,42 +422,18 @@ public sealed class OpenRouterAiEngine : IAiEngine
     {
         var lowerPrompt = prompt.ToLowerInvariant();
 
-        // 1. Personalized Why / Edge / NextMove
-        if (feature.Contains("why") || feature.Contains("personalized"))
-        {
-            return $$"""
-            {
-              "why": "This matters specifically to you because you are currently advancing technical and strategic capabilities to accelerate your career trajectory. The development addresses operational inefficiencies and skill requirements in your domain, making your current roadmap directly applicable to commercial demand.",
-              "yourEdge": "By understanding the technical underpinnings and practical execution of this concept, you can bridge theoretical concepts with real-world implementation, giving you an immediate competitive advantage over practitioners who rely on generic high-level summaries.",
-              "nextMove": "1. Analyze the core architecture and key variables.\n2. Replicate the baseline scenario in your local environment.\n3. Identify 2-3 specific applications within your target domain.\n4. Build a documented proof-of-concept for your portfolio."
-            }
-            """;
-        }
+        // Personalised why/edge/next-move is deliberately absent here.
+        //
+        // Returning anything for it is actively harmful: PersonalizedWhyService treats a non-empty
+        // "why" as a real answer, persists it with IsGenerated = true, and FeedController then
+        // prefers it over InterestPersonalization.Explain() — which produces a grounded sentence
+        // naming this user's own goal, capability and location for this specific item.
+        //
+        // So a canned string here does not fill a gap, it shadows the better answer and caches
+        // itself in its place. Falling through to "{}" leaves Why empty, GenerateAsync returns
+        // null, nothing is persisted, and the grounded explanation is used instead.
 
-        // 2. Clips Personalization
-        if (feature.Contains("clips"))
-        {
-            return $$"""
-            {
-              "personalizedClips": [
-                {
-                  "index": 1,
-                  "whyItMatters": "Deconstructs the core technical mechanism behind the signal, letting you grasp operational realities without unnecessary filler.",
-                  "yourEdge": "Equips you with practical troubleshooting diagnostics you can apply immediately in your environment.",
-                  "nextMove": "Test the demonstrated commands or workflow in a local sandbox today."
-                },
-                {
-                  "index": 2,
-                  "whyItMatters": "Exposes architectural trade-offs and common design pitfalls that directly impact production systems.",
-                  "yourEdge": "Helps you avoid costly configuration errors and design resilient, secure components.",
-                  "nextMove": "Audit your current project configurations against the demonstrated standards."
-                }
-              ]
-            }
-            """;
-        }
-
-        // 3. Opportunity Matching
+        // 2. Opportunity Matching
         if (feature.Contains("opportunity"))
         {
             var matches = new List<string>();
@@ -411,7 +452,7 @@ public sealed class OpenRouterAiEngine : IAiEngine
             return $$"""{ "matches": [{{string.Join(",", matches)}}] }""";
         }
 
-        // 4. Mentor Quiz Generation
+        // 3. Mentor Quiz Generation
         if (feature.Contains("quiz") || feature.Contains("mentor-generation"))
         {
             var topic = ExtractTopic(prompt);
@@ -473,7 +514,7 @@ public sealed class OpenRouterAiEngine : IAiEngine
             """;
         }
 
-        // 5. Dynamic Study Plan
+        // 4. Dynamic Study Plan
         if (feature.Contains("study-plan"))
         {
             var topic = ExtractTopic(prompt);
@@ -521,7 +562,7 @@ public sealed class OpenRouterAiEngine : IAiEngine
             """;
         }
 
-        // 6. Work Review
+        // 5. Work Review
         if (feature.Contains("review"))
         {
             return $$"""
@@ -549,7 +590,7 @@ public sealed class OpenRouterAiEngine : IAiEngine
             """;
         }
 
-        // 7. Academic Paper Breakdown (500-word 7-part breakdown)
+        // 6. Academic Paper Breakdown (500-word 7-part breakdown)
         if (feature.Contains("academic") || feature.Contains("breakdown") || feature.Contains("research"))
         {
             return $$"""
@@ -617,7 +658,15 @@ public sealed class OpenRouterAiEngine : IAiEngine
         var cap = _config.GetValue<decimal>("OpenRouter:MonthlySpendCapUsd", 25m);
         var month = DateTime.UtcNow.ToString("yyyy-MM");
         var quota = await _db.IngestionQuotas.Find(q => q.Id == $"openrouter:{month}").FirstOrDefaultAsync(ct);
-        return quota is null || quota.SpendUsd < cap;
+        if (quota is null || quota.SpendUsd < cap) return true;
+
+        // Previously this returned false silently, so the whole product quietly dropped to template
+        // text mid-month with nothing in the logs and a green dashboard. Say it out loud.
+        _log.LogWarning(
+            "OpenRouter monthly spend cap reached for {Feature}: {Spend:0.00} of {Cap:0.00} USD used in {Month}. "
+            + "Falling back to the deterministic brain until the cap is raised or the month rolls over.",
+            feature, quota.SpendUsd, cap, month);
+        return false;
     }
 
     private async Task RecordUsageAsync(string feature, JsonElement envelope, CancellationToken ct)

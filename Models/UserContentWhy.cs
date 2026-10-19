@@ -15,6 +15,16 @@ public class UserContentWhy
     public string YourEdge { get; set; } = string.Empty;
     public string NextMove { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Whether the generator could honestly tie this item to this user. False means it could not,
+    /// and said so instead of manufacturing a link — which is what produced explanations like
+    /// "logistics and agriculture can align with your cybersecurity skills" for a SOC analyst.
+    /// </summary>
+    public bool CanConnect { get; set; } = true;
+
+    /// <summary>0-1 self-reported strength of the connection, used to rank and to filter.</summary>
+    public double Relevance { get; set; } = 1.0;
+
     /// <summary>Profile fields the sentence was generated against — used to detect staleness.</summary>
     public string GoalSnapshot { get; set; } = string.Empty;
     public string PersonaSnapshot { get; set; } = string.Empty;
