@@ -1,14 +1,26 @@
-# Railway cron container for scheduled ingestion.
+# Railway cron container for scheduled jobs.
 #
 # This image is not the app — it is a tiny client the Railway cron service starts on schedule.
-# It calls the API's protected jobs endpoint (fire-and-forget mode) and exits, so the cron
-# container never has to stay alive for the whole ingestion cycle.
+# It calls the API's protected jobs endpoints (fire-and-forget where supported) and exits, so the
+# cron container never has to stay alive for the whole cycle.
 #
-# Railway service settings:
+# Run TWO Railway cron services from this one image, differing only in JOB and schedule:
+#
+#   1. Ingestion — pulls new content from sources.
+#      Variables: JOB=ingestion?async=true   Schedule: 0 */6 * * *   (every 6 hours)
+#
+#   2. Opportunity batch — builds each user's curated opportunities for the day.
+#      Variables: JOB=opportunity-batch      Schedule: 15 4 * * *    (daily, 04:15 UTC)
+#
+#      Run this AFTER ingestion so the day's batch can draw on whatever arrived overnight.
+#      Without it the batch is still built on first read, so the feature degrades rather than
+#      breaking — but every user then pays the scoring cost on their first visit of the day.
+#
+# Shared Railway service settings:
 #   - Dockerfile path: RadarV2/Dockerfile.cron
-#   - Cron schedule:   0 */6 * * *        (every 6 hours)
 #   - Variables:       API_BASE_URL = https://<your-api-host>
 #                      CRON_KEY     = <same value as Jobs__CronKey on the API service>
+#                      JOB          = one of the values above
 FROM curlimages/curl:latest
 
-CMD ["sh", "-c", "curl -fsS -X POST \"${API_BASE_URL}/api/jobs/ingestion?async=true\" -H \"X-Cron-Key: ${CRON_KEY}\" -w \"\\nHTTP %{http_code}\\n\" --max-time 120"]
+CMD ["sh", "-c", "curl -fsS -X POST \"${API_BASE_URL}/api/jobs/${JOB:-ingestion?async=true}\" -H \"X-Cron-Key: ${CRON_KEY}\" -w \"\nHTTP %{http_code}\n\" --max-time 600"]

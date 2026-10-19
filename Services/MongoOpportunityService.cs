@@ -130,7 +130,106 @@ public class MongoOpportunityService : IOpportunityService
             .ToList();
     }
 
+    /// <summary>
+    /// Serves today's batch. Reads the precomputed one when the scheduled job has already built it,
+    /// and builds on demand otherwise — a user who signs up between runs still gets a batch, and
+    /// the feature does not silently depend on the cron being healthy.
+    /// </summary>
     public async Task<DailyOpportunityFeed> GetDailyFeedAsync(UserProfile profile)
+    {
+        var today = DateTime.UtcNow.ToString("yyyy-MM-dd");
+        var stored = await _db.DailyOpportunityBatches
+            .Find(d => d.Id == $"{profile.Id}:{today}")
+            .FirstOrDefaultAsync();
+
+        if (stored is not null && stored.OpportunityIds.Count > 0)
+        {
+            var batch = await HydrateBatchAsync(profile, stored);
+            if (batch is not null) return batch;
+        }
+
+        return await BuildDailyFeedAsync(profile);
+    }
+
+    /// <summary>
+    /// Rebuilds the full feed object from stored ids. Returns null if the stored batch no longer
+    /// resolves — opportunities expire, so a stale batch must fall back to a fresh build rather
+    /// than showing the user a short or empty day.
+    /// </summary>
+    private async Task<DailyOpportunityFeed?> HydrateBatchAsync(UserProfile profile, DailyOpportunityBatchDoc stored)
+    {
+        var items = await _db.Opportunities
+            .Find(Builders<Opportunity>.Filter.In(o => o.Id, stored.OpportunityIds))
+            .ToListAsync();
+
+        if (items.Count == 0) return null;
+
+        var trackingMap = await GetTrackingMapAsync(profile.Id);
+        var activeRoadmap = await _db.Roadmaps.Find(r => r.UserId == profile.Id && r.IsActive).FirstOrDefaultAsync();
+        foreach (var opp in items) EnrichOpportunityWithPersonalization(opp, profile, activeRoadmap, trackingMap);
+
+        var ordered = stored.OpportunityIds
+            .Select(id => items.FirstOrDefault(i => i.Id == id))
+            .Where(i => i is not null)
+            .Select(i => i!)
+            .ToList();
+
+        return new DailyOpportunityFeed
+        {
+            TotalCount = ordered.Count,
+            Message = $"{ordered.Count} opportunities for you today",
+            PrimaryFocus = activeRoadmap?.Interest ?? profile.PrimaryGoal,
+            Items = ordered,
+            NewToYouCount = stored.NewToYouCount,
+            SeenEarlier = await GetSeenEarlierAsync(profile, stored.OpportunityIds),
+            TierCounts = new Dictionary<string, int>
+            {
+                ["StrongMatch"] = ordered.Count(c => c.MatchTier == "StrongMatch"),
+                ["Relevant"] = ordered.Count(c => c.MatchTier == "Relevant"),
+                ["Explore"] = ordered.Count(c => c.MatchTier == "Explore")
+            },
+            UrgencyCounts = new Dictionary<string, int>
+            {
+                ["Urgent"] = ordered.Count(c => c.DaysUntilDeadline <= 7),
+                ["TwoWeeks"] = ordered.Count(c => c.DaysUntilDeadline > 7 && c.DaysUntilDeadline <= 21),
+                ["Open"] = ordered.Count(c => c.DaysUntilDeadline > 21)
+            }
+        };
+    }
+
+    /// <summary>
+    /// Items shown on an earlier day that the user has not acted on, so a deadline cannot quietly
+    /// pass just because the item stopped being new.
+    /// </summary>
+    private async Task<List<Opportunity>> GetSeenEarlierAsync(UserProfile profile, List<string> excludeIds)
+    {
+        var today = DateTime.UtcNow.ToString("yyyy-MM-dd");
+        var seenIds = (await _db.OpportunityImpressions.Find(d => d.UserId == profile.Id).ToListAsync())
+            .Where(d => d.FirstShownOn != today && !excludeIds.Contains(d.OpportunityId))
+            .Select(d => d.OpportunityId)
+            .ToList();
+
+        if (seenIds.Count == 0) return [];
+
+        var now = DateTime.UtcNow;
+        var items = await _db.Opportunities
+            .Find(Builders<Opportunity>.Filter.In(o => o.Id, seenIds))
+            .ToListAsync();
+
+        var trackingMap = await GetTrackingMapAsync(profile.Id);
+        var activeRoadmap = await _db.Roadmaps.Find(r => r.UserId == profile.Id && r.IsActive).FirstOrDefaultAsync();
+
+        return items
+            .Where(o => !o.Deadline.HasValue || o.Deadline.Value >= now)
+            .Select(o => { EnrichOpportunityWithPersonalization(o, profile, activeRoadmap, trackingMap); return o; })
+            .Where(o => o.UserTrackingStatus != OpportunityTrackingStatus.NotRelevant)
+            .OrderBy(o => o.DaysUntilDeadline)
+            .Take(20)
+            .ToList();
+    }
+
+    /// <summary>Computes a fresh batch, stores it, and records what the user was shown.</summary>
+    public async Task<DailyOpportunityFeed> BuildDailyFeedAsync(UserProfile profile)
     {
         await EnsureSeedAsync();
 
@@ -150,10 +249,31 @@ public class MongoOpportunityService : IOpportunityService
                         o.UserTrackingStatus != OpportunityTrackingStatus.NotRelevant)
             .ToList();
 
+        // What this user has already been shown on a previous day. Without this the "daily" batch is
+        // just a deterministic ranking of a static set, so the same twelve items return every day —
+        // which is exactly what users reported.
+        var today = DateTime.UtcNow.ToString("yyyy-MM-dd");
+        var impressions = await _db.OpportunityImpressions
+            .Find(d => d.UserId == profile.Id)
+            .ToListAsync();
+
+        var seenBefore = impressions
+            .Where(d => d.FirstShownOn != today)
+            .Select(d => d.OpportunityId)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var opp in valid)
+            opp.IsNewToYou = !seenBefore.Contains(opp.Id);
+
+        // Unseen first within every tier. An item the user has already passed over should not keep
+        // taking a slot from something they have never been offered.
+        var fresh = valid.Where(o => o.IsNewToYou).ToList();
+        var pool = fresh.Count >= 12 ? fresh : valid;
+
         // Group into Tiers: Strong Match (80-100%), Relevant (60-79%), Explore (40-59%)
-        var strongMatches = valid.Where(o => o.MatchScorePercent >= 80).OrderByDescending(o => o.MatchScorePercent).ToList();
-        var relevantMatches = valid.Where(o => o.MatchScorePercent >= 60 && o.MatchScorePercent < 80).OrderByDescending(o => o.MatchScorePercent).ToList();
-        var exploreMatches = valid.Where(o => o.MatchScorePercent < 60).OrderByDescending(o => o.MatchScorePercent).ToList();
+        var strongMatches = pool.Where(o => o.MatchScorePercent >= 80).OrderByDescending(o => o.MatchScorePercent).ToList();
+        var relevantMatches = pool.Where(o => o.MatchScorePercent >= 60 && o.MatchScorePercent < 80).OrderByDescending(o => o.MatchScorePercent).ToList();
+        var exploreMatches = pool.Where(o => o.MatchScorePercent < 60).OrderByDescending(o => o.MatchScorePercent).ToList();
 
         // Curate the target 12 items: ~6 Strong, ~4 Relevant, ~2 Explore
         var curated = new List<Opportunity>();
@@ -161,10 +281,15 @@ public class MongoOpportunityService : IOpportunityService
         curated.AddRange(relevantMatches.Take(4));
         curated.AddRange(exploreMatches.Take(2));
 
-        // If not enough, fill from remaining valid items
+        // If not enough, fill from remaining items — unseen ones first, then anything valid.
         if (curated.Count < 12)
         {
-            var remaining = valid.Where(v => !curated.Any(c => c.Id == v.Id)).OrderByDescending(v => v.MatchScorePercent).Take(12 - curated.Count);
+            var remaining = pool.Where(v => !curated.Any(c => c.Id == v.Id))
+                .Concat(valid.Where(v => !curated.Any(c => c.Id == v.Id)))
+                .DistinctBy(v => v.Id)
+                .OrderByDescending(v => v.IsNewToYou)
+                .ThenByDescending(v => v.MatchScorePercent)
+                .Take(12 - curated.Count);
             curated.AddRange(remaining);
         }
 
@@ -197,7 +322,54 @@ public class MongoOpportunityService : IOpportunityService
             }
         };
 
+        var todayKey = DateTime.UtcNow.ToString("yyyy-MM-dd");
+        feed.NewToYouCount = curated.Count(c => c.IsNewToYou);
+        feed.Message = feed.NewToYouCount > 0
+            ? $"{feed.NewToYouCount} new opportunities for you today"
+            : $"{curated.Count} opportunities for you today";
+        feed.SeenEarlier = await GetSeenEarlierAsync(profile, curated.Select(c => c.Id).ToList());
+
+        await _db.DailyOpportunityBatches.ReplaceOneAsync(
+            d => d.Id == $"{profile.Id}:{todayKey}",
+            new DailyOpportunityBatchDoc
+            {
+                Id = $"{profile.Id}:{todayKey}",
+                UserId = profile.Id,
+                Date = todayKey,
+                OpportunityIds = curated.Select(c => c.Id).ToList(),
+                NewToYouCount = feed.NewToYouCount,
+                GeneratedAt = DateTime.UtcNow,
+            },
+            new ReplaceOptions { IsUpsert = true });
+
+        await RecordImpressionsAsync(profile.Id, curated, todayKey);
         return feed;
+    }
+
+    /// <summary>
+    /// Marks today's batch as shown. Upserted per user and opportunity so re-running the job is
+    /// idempotent and cannot make an item look older than it is.
+    /// </summary>
+    private async Task RecordImpressionsAsync(string userId, List<Opportunity> items, string today)
+    {
+        foreach (var item in items)
+        {
+            var id = $"{userId}:{item.Id}";
+            var existing = await _db.OpportunityImpressions.Find(d => d.Id == id).FirstOrDefaultAsync();
+
+            await _db.OpportunityImpressions.ReplaceOneAsync(
+                d => d.Id == id,
+                new OpportunityImpressionDoc
+                {
+                    Id = id,
+                    UserId = userId,
+                    OpportunityId = item.Id,
+                    FirstShownOn = existing?.FirstShownOn ?? today,
+                    FirstShownAt = existing?.FirstShownAt ?? DateTime.UtcNow,
+                    TimesShown = (existing?.TimesShown ?? 0) + 1,
+                },
+                new ReplaceOptions { IsUpsert = true });
+        }
     }
 
     public async Task<Opportunity?> GetByIdAsync(string id, UserProfile? profile = null)

@@ -11,6 +11,9 @@ public class Opportunity
     public DateTime? Deadline { get; set; }
     public List<string> Requirements { get; set; } = [];
     public int MatchScorePercent { get; set; }
+
+    /// <summary>True when this user has not been shown this opportunity in a previous daily batch.</summary>
+    public bool IsNewToYou { get; set; } = true;
     public string Url { get; set; } = string.Empty;
     public string? Location { get; set; }
     public bool IsRemote { get; set; }
@@ -53,6 +56,16 @@ public class DailyOpportunityFeed
     public List<Opportunity> Items { get; set; } = [];
     public Dictionary<string, int> TierCounts { get; set; } = [];
     public Dictionary<string, int> UrgencyCounts { get; set; } = [];
+
+    /// <summary>How many of today's batch this user has genuinely not seen before.</summary>
+    public int NewToYouCount { get; set; }
+
+    /// <summary>
+    /// Opportunities this user has already been shown on an earlier day and still has not acted on.
+    /// Kept out of the daily batch but still reachable, so a deadline cannot quietly pass just
+    /// because the item stopped being new.
+    /// </summary>
+    public List<Opportunity> SeenEarlier { get; set; } = [];
 }
 
 public class OpportunityStatusUpdateRequest

@@ -264,7 +264,17 @@ Four separate faults, one root cause: nothing interpreted the goal before genera
 
 ## Phase 7 — Opportunity Intelligence (spec #17, review item 5)
 
-- [ ] 7.1 Fresh opportunities every day; older ones move to a collection, not the daily view
+- [~] 7.1 **Daily batch mechanism done; supply is the blocker.** The "daily" feed was a
+  deterministic ranking of a static set — same score, same twelve items, every day. Now:
+  impressions track what each user has already been shown, unseen items are preferred, items seen
+  on an earlier day move to `seenEarlier`, and the batch is precomputed per user per day by
+  `POST /api/jobs/opportunity-batch` (Railway cron, daily, after ingestion). Verified day-over-day.
+  **But:** the ingestion pipeline never touches opportunities. There are **13 hardcoded seeded
+  opportunities and no source that adds more**, so "new every day" is structurally impossible until
+  opportunity ingestion exists. The batch correctly reports 0 new rather than pretending.
+- [ ] 7.1b **Build opportunity ingestion.** Without a source of new opportunities, everything above
+  is machinery with nothing to feed it. This is the actual fix for "I've been seeing the same
+  opportunities since you sent me the app to test".
 - [ ] 7.2 Match % + a specific reason it matches
 - [ ] 7.3 Deadline intelligence and reminders
 - [ ] 7.4 Detail page: what it is, why it matches, requirements, benefits, how to apply, Radar's advice

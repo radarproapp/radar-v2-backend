@@ -22,6 +22,12 @@ public interface IOpportunityService
 
     Task<DailyOpportunityFeed> GetDailyFeedAsync(UserProfile profile);
 
+    /// <summary>
+    /// Computes and stores one user's batch for today. Called by the scheduled job so the read
+    /// path serves a precomputed result rather than running the scoring loop per request.
+    /// </summary>
+    Task<DailyOpportunityFeed> BuildDailyFeedAsync(UserProfile profile);
+
     Task<Opportunity?> GetByIdAsync(string id, UserProfile? profile = null);
 
     Task SaveOpportunityAsync(string userId, string opportunityId);

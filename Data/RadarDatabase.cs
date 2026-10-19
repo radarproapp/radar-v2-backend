@@ -64,6 +64,8 @@ public class RadarDatabase
     public IMongoCollection<SpacedRevisionItem> SpacedRevisions => _db.GetCollection<SpacedRevisionItem>("spaced_revisions");
     public IMongoCollection<AiActivityLogDoc> AiActivities => _db.GetCollection<AiActivityLogDoc>("ai_activities");
     public IMongoCollection<YouTubeSearchCacheDoc> YouTubeSearches => _db.GetCollection<YouTubeSearchCacheDoc>("youtube_searches");
+    public IMongoCollection<OpportunityImpressionDoc> OpportunityImpressions => _db.GetCollection<OpportunityImpressionDoc>("opportunity_impressions");
+    public IMongoCollection<DailyOpportunityBatchDoc> DailyOpportunityBatches => _db.GetCollection<DailyOpportunityBatchDoc>("daily_opportunity_batches");
 
     private void EnsureIndexes()
     {
@@ -128,6 +130,16 @@ public class RadarDatabase
         Opportunities.Indexes.CreateOne(
             new CreateIndexModel<Opportunity>(
                 Builders<Opportunity>.IndexKeys.Ascending(o => o.Deadline)));
+
+        DailyOpportunityBatches.Indexes.CreateOne(
+            new CreateIndexModel<DailyOpportunityBatchDoc>(
+                Builders<DailyOpportunityBatchDoc>.IndexKeys
+                    .Ascending(d => d.UserId)
+                    .Descending(d => d.Date)));
+
+        OpportunityImpressions.Indexes.CreateOne(
+            new CreateIndexModel<OpportunityImpressionDoc>(
+                Builders<OpportunityImpressionDoc>.IndexKeys.Ascending(d => d.UserId)));
 
         AppliedOpportunities.Indexes.CreateOne(
             new CreateIndexModel<AppliedOpportunityDoc>(

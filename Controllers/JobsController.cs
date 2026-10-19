@@ -2,7 +2,10 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using MongoDB.Driver;
+using RadarV2.Data;
 using RadarV2.Services.Ingestion;
+using RadarV2.Services.Interfaces;
 
 namespace RadarV2.Controllers;
 
@@ -18,13 +21,86 @@ public class JobsController : ControllerBase
 
     private readonly IConfiguration _config;
     private readonly ContentIngestionService _ingestion;
+    private readonly IOpportunityService _opportunities;
+    private readonly RadarDatabase _db;
     private readonly ILogger<JobsController> _log;
 
-    public JobsController(IConfiguration config, ContentIngestionService ingestion, ILogger<JobsController> log)
+    public JobsController(
+        IConfiguration config,
+        ContentIngestionService ingestion,
+        IOpportunityService opportunities,
+        RadarDatabase db,
+        ILogger<JobsController> log)
     {
         _config = config;
         _ingestion = ingestion;
+        _opportunities = opportunities;
+        _db = db;
         _log = log;
+    }
+
+    /// <summary>
+    /// Builds every user's opportunity batch for today.
+    ///
+    /// This is what makes the daily batch daily. Computing it on read meant ranking a static set
+    /// by an unchanging score, so the same twelve items returned every day — the "I've been seeing
+    /// the same opportunities since you sent me the app" report. Running it on a schedule gives the
+    /// batch a date, keeps it stable while a user looks at it, and moves the per-user scoring loop
+    /// off the request path.
+    ///
+    /// Idempotent: a batch is upserted per user per day, so a retry or an overlapping run is safe.
+    /// </summary>
+    [AllowAnonymous]
+    [HttpPost("opportunity-batch")]
+    public async Task<IActionResult> RunOpportunityBatchAsync(CancellationToken ct)
+    {
+        if (!TryAuthorizeCron(out var failure)) return failure!;
+
+        var profiles = await _db.Profiles.Find(_ => true).ToListAsync(ct);
+        var built = 0;
+        var failed = 0;
+
+        foreach (var profile in profiles)
+        {
+            if (ct.IsCancellationRequested) break;
+            try
+            {
+                await _opportunities.BuildDailyFeedAsync(profile);
+                built++;
+            }
+            catch (Exception ex)
+            {
+                // One bad profile must not stop everyone else's batch from being built.
+                failed++;
+                _log.LogWarning(ex, "Daily opportunity batch failed for profile {ProfileId}", profile.Id);
+            }
+        }
+
+        _log.LogInformation("Daily opportunity batch complete: {Built} built, {Failed} failed.", built, failed);
+        return Ok(new { built, failed, total = profiles.Count });
+    }
+
+    /// <summary>Shared cron-key check, so every job authenticates the same way.</summary>
+    private bool TryAuthorizeCron(out IActionResult? failure)
+    {
+        var expected = _config["Jobs:CronKey"];
+        if (string.IsNullOrWhiteSpace(expected))
+        {
+            failure = StatusCode(StatusCodes.Status503ServiceUnavailable,
+                new { error = "Scheduled jobs are not enabled. Set Jobs__CronKey." });
+            return false;
+        }
+
+        var provided = Request.Headers[CronKeyHeader].FirstOrDefault() ?? string.Empty;
+        if (!FixedTimeEquals(provided, expected))
+        {
+            _log.LogWarning("Rejected a scheduled job trigger with an invalid cron key.");
+            failure = Unauthorized(new { error = "Invalid cron key." });
+            return false;
+        }
+
+        failure = null;
+        return true;
     }
 
     /// <summary>
