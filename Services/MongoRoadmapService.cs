@@ -74,7 +74,7 @@ public class MongoRoadmapService : IRoadmapService
             ?? InterestPersonalization.Contexts(profile).FirstOrDefault();
         var path = profile.InterestPaths.FirstOrDefault(p => p.IsPrimary);
         var roadmapGoal = path is null ? profile.PrimaryGoal : $"{profile.PrimaryGoal} {path.Title}";
-        var createdRoadmap = await CreateRoadmapAsync(userId, roadmapGoal, profile.PrimaryGoal);
+        var createdRoadmap = await CreateRoadmapAsync(userId, roadmapGoal, profile.PrimaryGoal, LearningIntentReader.Read(profile));
         createdRoadmap.Goal = profile.PrimaryGoal;
         if (context is not null)
         {
@@ -100,15 +100,16 @@ public class MongoRoadmapService : IRoadmapService
     }
 
     public Task<GrowthRoadmap> CreateRoadmapAsync(string userId, string goal) =>
-        CreateRoadmapAsync(userId, goal, null);
+        CreateRoadmapAsync(userId, goal, null, null);
 
-    public async Task<GrowthRoadmap> CreateRoadmapAsync(string userId, string goal, string? displayGoal)
+    public async Task<GrowthRoadmap> CreateRoadmapAsync(
+        string userId, string goal, string? displayGoal, LearningIntent? intent = null)
     {
         // Deactivate any existing active roadmap
         var deactivate = Builders<GrowthRoadmap>.Update.Set(r => r.IsActive, false);
         await _db.Roadmaps.UpdateManyAsync(r => r.UserId == userId && r.IsActive, deactivate);
 
-        var roadmap = BuildFromTemplate(userId, goal, displayGoal);
+        var roadmap = BuildFromTemplate(userId, goal, displayGoal, intent);
         await EnrichRoadmapWithResourcesAsync(roadmap);
         await PersonalizeAsync(roadmap, userId);
         await _db.Roadmaps.InsertOneAsync(roadmap);
@@ -423,12 +424,22 @@ public class MongoRoadmapService : IRoadmapService
     /// </summary>
     private async Task EnrichRoadmapWithResourcesAsync(GrowthRoadmap roadmap, CancellationToken ct = default)
     {
+        // Keyed on Interest, with Goal only as a fallback. Modules are built from the goal, so when
+        // these disagree the page shows one subject's lessons beside another subject's videos —
+        // which is how a user whose goal was "Get Promotion" got a Python machine learning course
+        // sitting under their promotion roadmap.
         var skill = !string.IsNullOrWhiteSpace(roadmap.Interest) ? roadmap.Interest : roadmap.Goal;
+
+        // An outcome path is about being promotable in a field, not about studying that field, so
+        // the field's curated curriculum is the wrong library to draw from.
+        var isOutcomePath = roadmap.Modules.Any(m =>
+            m.Title.Contains("Know Where You Actually Stand", StringComparison.OrdinalIgnoreCase)
+            || m.Title.Contains("Do Work That Gets Noticed", StringComparison.OrdinalIgnoreCase));
 
         // Curated pools first where one exists, because a hand-written lesson plan beats a generated
         // one. But they only cover the domains someone wrote by hand, so anything else is built from
         // the learner's own path rather than left empty.
-        var allResources = LearningResourceCatalog.GetResourcesForSkill(skill);
+        var allResources = isOutcomePath ? [] : LearningResourceCatalog.GetResourcesForSkill(skill);
         if (allResources.Count == 0)
         {
             var resolved = await ResolveLessonVideosAsync(roadmap, ct);
@@ -532,10 +543,30 @@ public class MongoRoadmapService : IRoadmapService
     /// What the user actually typed, used for anything they will read. Without this split, widening
     /// the routing text leaked into titles as "Foundations of hospital nurse manager Nursing".
     /// </param>
-    private static GrowthRoadmap BuildFromTemplate(string userId, string goal, string? displayGoal = null)
+    private static GrowthRoadmap BuildFromTemplate(
+        string userId, string goal, string? displayGoal = null, LearningIntent? intent = null)
     {
         var normalized = goal.ToLowerInvariant();
-        var shown = string.IsNullOrWhiteSpace(displayGoal) ? goal : displayGoal;
+
+        // An outcome goal ("Get Promotion") names a result, not a subject. Teaching the words in it
+        // produced "Foundations of Get Promotion"; what the user needs is how to be promotable in
+        // their own field, so it gets its own path rather than a keyword match.
+        if (intent is { IsOutcomeDriven: true })
+        {
+            var outcomeRoadmap = new GrowthRoadmap
+            {
+                UserId = userId,
+                Title = Capitalise(intent.Subject),
+                Goal = string.IsNullOrWhiteSpace(displayGoal) ? goal : displayGoal,
+                Interest = intent.Domain,
+                CurrentStage = "Beginner",
+                IsActive = true,
+                Modules = CareerAdvancementModules(intent),
+            };
+            return outcomeRoadmap;
+        }
+
+        var shown = intent?.Subject ?? (string.IsNullOrWhiteSpace(displayGoal) ? goal : displayGoal);
 
         var modules = normalized switch
         {
@@ -1071,9 +1102,104 @@ public class MongoRoadmapService : IRoadmapService
         ];
     }
 
+    /// <summary>
+    /// Path for someone chasing an outcome — a promotion, a first job, a step into leadership —
+    /// rather than a subject. The lessons are about being promotable in their own field, which is
+    /// the real work; "Foundations of Get Promotion" was the old template trying to teach the word.
+    /// </summary>
+    private static List<RoadmapModule> CareerAdvancementModules(LearningIntent intent)
+    {
+        var field = SubjectPhrase.Lower(intent.Domain);
+        var outcome = intent.Outcome;
+
+        var finalStage = outcome switch
+        {
+            LearningOutcome.NewJob => "Application: Interviews & Offers",
+            LearningOutcome.Leadership => "Application: Leading Your First Team",
+            LearningOutcome.EarnMore => "Application: Negotiating Your Value",
+            _ => "Application: Making the Case",
+        };
+
+        return
+        [
+            new()
+            {
+                Order = 1,
+                Level = "Beginner",
+                Title = "Beginner: Know Where You Actually Stand",
+                StageGoal = $"An honest read of your current level in {field}, and what the next level requires",
+                IsLocked = false,
+                Lessons =
+                [
+                    Hinted(1, $"What the next level up actually requires in {field}", "40 min",
+                        $"{field} career levels explained"),
+                    Hinted(2, "Read your own role against that bar, honestly", "35 min",
+                        $"{field} skills gap assessment"),
+                    Hinted(3, "Find the two gaps that matter most", "30 min",
+                        $"how to identify skill gaps career"),
+                ]
+            },
+            new()
+            {
+                Order = 2,
+                Level = "Intermediate",
+                Title = "Intermediate: Do Work That Gets Noticed",
+                StageGoal = $"Deliver visible, measurable results in {field} and keep a record of them",
+                IsLocked = true,
+                Lessons =
+                [
+                    Hinted(1, "Pick work that is visible and actually matters", "45 min",
+                        $"high impact projects {field}"),
+                    Hinted(2, "Measure your results so you can prove them later", "40 min",
+                        "how to quantify your work impact"),
+                    Hinted(3, "Keep a running record of what you delivered", "30 min",
+                        "brag document career achievements"),
+                ]
+            },
+            new()
+            {
+                Order = 3,
+                Level = "Advanced",
+                Title = "Advanced: Influence Beyond Your Own Desk",
+                StageGoal = "Communicate, mentor and build the relationships that decisions depend on",
+                IsLocked = true,
+                Lessons =
+                [
+                    Hinted(1, "Explain technical work to people who decide budgets", "45 min",
+                        "explaining technical work to executives"),
+                    Hinted(2, "Mentor someone, and let your judgement show", "40 min",
+                        "how to mentor junior colleagues"),
+                    Hinted(3, "Find a sponsor, not just a mentor", "35 min",
+                        "career sponsor vs mentor"),
+                ]
+            },
+            new()
+            {
+                Order = 4,
+                Level = "Application",
+                Title = finalStage,
+                StageGoal = "Put the evidence together and have the conversation",
+                IsLocked = true,
+                Lessons =
+                [
+                    Hinted(1, "Write the one page case for your step up", "50 min",
+                        "how to ask for a promotion"),
+                    Hinted(2, "Handle the conversation and the pushback", "45 min",
+                        "salary negotiation conversation"),
+                    Hinted(3, "Agree what happens next, in writing", "30 min",
+                        "career development plan with manager"),
+                ]
+            }
+        ];
+    }
+
     /// <summary>A lesson that also carries a concise phrase to search for it.</summary>
     private static RoadmapLesson Hinted(int order, string title, string time, string searchHint) =>
         new() { Title = title, Order = order, EstimatedTime = time, SearchHint = searchHint };
+
+
+    private static string Capitalise(string value) =>
+        string.IsNullOrWhiteSpace(value) ? value : char.ToUpperInvariant(value[0]) + value[1..];
 
     private static RoadmapLesson Lesson(int order, string title, string time) =>
         new() { Title = title, Order = order, EstimatedTime = time };

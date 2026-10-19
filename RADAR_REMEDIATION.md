@@ -221,6 +221,30 @@ work was worth doing, but it was not the cause.
 - [ ] 5e.8 Transcript summarisation (Supadata / TranscriptAPI) so each video carries a Radar
   summary. Deferred until 5e.7 is in and we can see real titles first.
 
+## Phase 5f — Intelligence processing before recommending (user direction, 2026-10-19)
+
+> _"Radar needs an intelligence processing system... where it processes information before
+> recommending to users."_ Shown with a roadmap for the goal "Get Promotion".
+
+The screenshot showed "Beginner: Beginner: Foundations of Get Promotion", "Applied Get Promotion",
+"What Get Promotion actually involves day to day" — and a Python machine learning course underneath.
+Four separate faults, one root cause: nothing interpreted the goal before generating against it.
+
+- [x] 5f.1 ~~`LearningIntent`~~ — the missing distinction is that a goal and a subject are not the
+  same thing. "Get promoted" is an **outcome**: the thing to learn is how to be promotable in your
+  field, not the word "promotion". "Cybersecurity" is a **subject**. Reads outcome from the goal and
+  domain from role/industry/interests, so an outcome never becomes the subject.
+- [x] 5f.2 ~~`CareerAdvancementModules`~~ — outcome goals get a real path (know where you stand →
+  do visible work → build influence → make the case), with the final stage varying by outcome:
+  Interviews & Offers, Leading Your First Team, Negotiating Your Value.
+- [x] 5f.3 ~~Subject mismatch~~ — modules were built from the goal while resources were keyed on the
+  interest, so the page showed one subject's lessons beside another subject's videos. Outcome paths
+  no longer pull a field's curated curriculum at all.
+- [x] 5f.4 ~~Doubled stage prefix~~ — module titles already carry their stage, and the page printed
+  it again.
+- [ ] 5f.5 Extend the same interpretation to the feed and opportunity matching, which still read the
+  raw goal string.
+
 ## Phase 6 — Learn Hub + Knowledge Graph (spec #14)
 
 - [ ] 6.1 Learn Hub scoped to the active learning path: primary skill + 1–3 sub-interests
