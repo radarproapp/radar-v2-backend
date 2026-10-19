@@ -65,6 +65,12 @@ public class ContentItem
     public double RelevanceScore { get; set; }
     public double RelevanceConfidence { get; set; }
     public List<string> MatchedSignals { get; set; } = [];
+
+    /// <summary>
+    /// One line explaining why this user is seeing this item, computed next to the scorer that
+    /// produced MatchedSignals. Server-side so the feed card and the home brief cannot disagree.
+    /// </summary>
+    public string? WhyYoureSeeingThis { get; set; }
     public string? NextMove { get; set; }
     public string? YourEdge { get; set; }
 }

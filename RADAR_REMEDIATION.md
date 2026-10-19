@@ -90,8 +90,14 @@ The fastest way to simplify is to delete. Also the fastest way to restore trust.
 
 ## Phase 4 — Feed card + full brief (spec #11, #12)
 
-- [ ] 4.1 Feed card = big image, title, "read brief", one line on why you're seeing it. Nothing else
-- [ ] 4.2 Full brief = what happened → why it matters → next move → add to roadmap
+- [x] 4.1 ~~Feed card = four parts~~ — the structure was already there, but the "why you're seeing
+  it" line was computed client-side by a second implementation that had drifted: it pasted the raw
+  goal into a noun slot ("Relevant to your goal of \"Get Promotion\" in AI Fundamentals"), printed
+  signals with their internal dimension prefix attached ("your interest in Goal: AI"), and never
+  deduped. Now one shared server-side `WhyShown`, computed next to the scorer that produces the
+  signals, so the card cannot disagree with the brief it links to.
+- [x] 4.2 ~~Full brief~~ — done across 1.2/1.7/4.3: Your Edge removed, empty sections suppressed,
+  the invented next-move catch-all dropped, and add-to-roadmap retained.
 - [x] 4.3 ~~Rewrite intelligence generation to the spec #12 standard~~ — prompt rebuilt. Names the
   reader's own goal/role/city/blocker, demands a concrete example, bans sentences that would be true
   for any reader, and drops `yourEdge` (folded into why + next move per the user's instruction).
@@ -115,7 +121,9 @@ The fastest way to simplify is to delete. Also the fastest way to restore trust.
 - [ ] 5.4 Ordered "start with this" sequencing with time estimates and a reason per resource
 - [ ] 5.5 Tutorial summaries in step-by-step format; article/video summaries in what-happened format
 - [ ] 5.6 Every resource answers "why am I learning this" against the user's goal (spec #13 §7)
-- [ ] 5.7 Project Studio: domain-aware, specific projects; fix duplicate rows
+- [x] 5.7 ~~Project Studio: fix duplicate rows~~ — done (`556a470`). Starting a template twice
+  inserted a second identical project; that was the doubled "Business Model Canvas" in the original
+  review. Domain-aware projects landed earlier via `StageProjectCatalog`.
 
 ## Phase 5b — Verified channel catalogue (added 2026-10-19 at the user's request)
 
@@ -216,8 +224,8 @@ work was worth doing, but it was not the cause.
 - [x] 5e.6 ~~Do not scope to the wrong channel~~ — an earlier pass fell back to general teaching
   channels, so a nursing query was scoped to Khan Academy and would return an empty page. No domain
   match now means an unscoped search, which covers every subject.
-- [ ] 5e.7 **Set `YouTube:ApiKey`.** Without it, resources stay as search links — useful, but not
-  real resolved videos. The free quota is enough given the caching.
+- [x] 5e.7 ~~Set `YouTube:ApiKey`~~ — added on Railway by the user. `/api/health/ai` now runs a live
+  probe, because a present key and a working key are not the same thing.
 - [ ] 5e.8 Transcript summarisation (Supadata / TranscriptAPI) so each video carries a Radar
   summary. Deferred until 5e.7 is in and we can see real titles first.
 
@@ -242,8 +250,9 @@ Four separate faults, one root cause: nothing interpreted the goal before genera
   no longer pull a field's curated curriculum at all.
 - [x] 5f.4 ~~Doubled stage prefix~~ — module titles already carry their stage, and the page printed
   it again.
-- [ ] 5f.5 Extend the same interpretation to the feed and opportunity matching, which still read the
-  raw goal string.
+- [x] 5f.5 ~~Extend the interpretation to feed and opportunity matching~~ — done (`3b1f99c`).
+  `GoalPhrases` includes the interpreted domain, opportunity scoring reads the outcome, and both AI
+  prompts receive the stated goal, what it means, and the field to match against.
 
 ## Phase 6 — Learn Hub + Knowledge Graph (spec #14)
 
@@ -286,8 +295,11 @@ Four separate faults, one root cause: nothing interpreted the goal before genera
 - [ ] 9.2 Ask (Tutor) suggestions seeded from the user's actual interest ("how to become a cybersecurity expert")
 - [ ] 9.3 Quiz: advanced questions, and show right/wrong with an explanation of why
 - [ ] 9.4 Study plan: short relevance note per topic, suggested resources, "make this my learning path"
-- [ ] 9.5 Capture: make photo and voice actually work, or remove them; clarify what Note is for
-- [ ] 9.6 Capture must deliver what its own header promises, or the header changes
+- [~] 9.5 Capture — **link done** (`df4d2c7`): real title, source and a personalised why. **Note
+  clarified** by rebuilding it on Google Keep (`fba2158`). **Photo and voice still do not work** —
+  they need file-upload plumbing that does not exist.
+- [x] 9.6 ~~Capture delivers what its header promises~~ — done (`df4d2c7`): signal headline, why it
+  matters, and an "Add to roadmap" action.
 - [ ] 9.7 Summarize file: ask which chapter/section, or all; keep output concise
 
 ## Phase 10 — Profile and persona

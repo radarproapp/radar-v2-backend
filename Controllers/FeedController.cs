@@ -52,6 +52,7 @@ public class FeedController : ControllerBase
         ["thumbnailUrl"] = i => i.ThumbnailUrl,
         ["publishedAt"] = i => i.PublishedAt,
         ["whyItMatters"] = i => i.WhyItMatters,
+        ["whyYoureSeeingThis"] = i => i.WhyYoureSeeingThis,
         ["aiSummary"] = i => i.AiSummary,
         ["whatHappened"] = i => i.WhatHappened,
         ["personalizedWhy"] = i => i.PersonalizedWhy,

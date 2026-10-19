@@ -53,7 +53,7 @@ public class HomeBriefService : IHomeBriefService
                 Topic = x.item.Topic,
                 ThumbnailUrl = x.item.ThumbnailUrl,
                 PublishedAt = x.item.PublishedAt,
-                WhyYoureSeeingThis = BuildWhyShown(x.item, x.explanation),
+                WhyYoureSeeingThis = WhyShown.Build(x.item, x.explanation.MatchedSignals),
             })
             .ToList();
 
@@ -97,50 +97,6 @@ public class HomeBriefService : IHomeBriefService
     /// actually fired on, so it names the user's own words back to them ("Cybersecurity", "SOC
     /// Analyst") rather than asserting a connection nothing computed.
     /// </summary>
-    private static string BuildWhyShown(ContentItem item, InterestPersonalization.Explanation explanation)
-    {
-        // Signals arrive as "Dimension: Phrase". Keeping the dimension lets this read like a
-        // sentence ("Matches your goal to learn cybersecurity") instead of jamming the raw goal
-        // string into a generic template ("Matches your Cybersecurity: Learn New Skills and AI").
-        // Dedupe on the underlying phrase, not the formatted sentence: the goal domain and the
-        // stated interest are frequently the same word, which produced "your goal: AI and your
-        // interest in AI".
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        var phrases = explanation.MatchedSignals
-            .Select(signal =>
-            {
-                var split = signal.IndexOf(':');
-                if (split < 0) return signal.Trim();
-
-                var dimension = signal[..split].Trim();
-                var phrase = signal[(split + 1)..].Trim();
-                if (string.IsNullOrWhiteSpace(phrase)) return string.Empty;
-                if (!seen.Add(phrase)) return string.Empty;
-
-                return dimension switch
-                {
-                    "Goal" => $"your goal: {phrase}",
-                    "Interest" => $"your interest in {phrase}",
-                    "Capability" => $"your {phrase} experience",
-                    "Problem" => $"what you said is holding you back ({phrase})",
-                    "Intent" => $"what you're working on right now ({phrase})",
-                    _ => phrase,
-                };
-            })
-            .Where(p => !string.IsNullOrWhiteSpace(p))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Take(2)
-            .ToList();
-
-        if (phrases.Count > 0)
-            return $"Matches {string.Join(" and ", phrases)}";
-
-        return !string.IsNullOrWhiteSpace(item.Topic)
-            ? $"Recent in {item.Topic}"
-            : $"Recent from {item.Source}";
-    }
-
     /// <summary>
     /// Spec item 2: the top things the user has actually been interacting with. Inferred signals
     /// only — declared interests are what they told us at onboarding, not what Radar noticed.

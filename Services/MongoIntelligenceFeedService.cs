@@ -147,6 +147,8 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
             item.NextMove ??= explanation.NextMove;
             if (item.MatchedSignals.Count == 0)
                 item.MatchedSignals = explanation.MatchedSignals.ToList();
+
+            item.WhyYoureSeeingThis ??= WhyShown.Build(item, item.MatchedSignals);
         }
     }
 
