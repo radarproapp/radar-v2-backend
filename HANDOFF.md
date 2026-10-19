@@ -187,7 +187,7 @@ running first:
 
 ```bash
 docker run -d --name radar-mongo -p 27017:27017 mongo:7
-ASPNETCORE_ENVIRONMENT=Development dotnet run --project RadarV2/RadarV2.csproj \
+ASPNETCORE_ENVIRONMENT=Development dotnet run --project RadarV2.csproj \
   --no-launch-profile --urls http://127.0.0.1:5080
 ```
 
@@ -202,7 +202,7 @@ The Vite dev server proxies nothing — it calls the API directly at
 `VITE_API_BASE_URL` if the API runs elsewhere. Visiting `http://localhost:5173` should
 redirect to `/login`; use "Get started" to go through onboarding and land on Today.
 
-Build checks: `dotnet build RadarV2/RadarV2.csproj` and `cd web && npm run build`
+Build checks: `dotnet build RadarV2.csproj` and `cd web && npm run build`
 (runs `tsc -b` then `vite build`).
 
 ## 8. Suggested next steps (next session)

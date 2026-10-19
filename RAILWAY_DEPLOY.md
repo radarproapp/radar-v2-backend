@@ -5,7 +5,7 @@ This backend is an **API-only .NET 10 host** (Blazor/Razor UI retired — see
 **separately** (Netlify/Vercel) and calls this API cross-origin with a JWT. Nothing from
 `web/dist` is served by this service.
 
-`RadarV2/Dockerfile` is already Railway-ready: it listens on `${PORT}` (Railway injects
+`Dockerfile` is already Railway-ready: it listens on `${PORT}` (Railway injects
 `PORT`) and falls back to 80. No `railway.json` is required — point Railway at the repo
 and it builds the `RadarV2/` Dockerfile.
 
@@ -21,7 +21,12 @@ and it builds the `RadarV2/` Dockerfile.
 
 1. Railway → **New Project** → **Deploy from GitHub repo** → pick this repo.
 2. In the service **Settings → Build**, set:
-   - **Dockerfile path**: `RadarV2/Dockerfile`
+   - **Dockerfile path**: `Dockerfile`
+
+  > Paths are relative to the **repository root**, and this repository's root *is* the `RadarV2`
+  > folder. So it is `Dockerfile`, not `RadarV2/Dockerfile` — the latter fails the build with
+  > "couldn't locate the dockerfile at path". The prefix is a leftover from when this project
+  > lived one directory below the workspace root.
    - (Root directory can stay at the repo root; the Dockerfile copies its own context.)
 3. Railway builds and deploys. First boot will log the ingestion worker starting up.
 
@@ -99,7 +104,7 @@ The endpoint refuses to run until this is set (`503`), so it can never be trigge
 **2. Create a second Railway service in the same project** for the cron container:
 
 - **New Service → Deploy from the same GitHub repo**
-- **Settings → Build → Dockerfile path**: `RadarV2/Dockerfile.cron`
+- **Settings → Build → Dockerfile path**: `Dockerfile.cron`
 - **Settings → Deploy → Cron Schedule**: `0 */6 * * *` (every 6 hours)
 - **Variables**:
 
@@ -126,7 +131,7 @@ weekly brief). DST/UTC: Railway cron uses UTC.
 
 ### Adding more cron services
 
-Each scheduled job is one more Railway service built from the **same** `RadarV2/Dockerfile.cron`.
+Each scheduled job is one more Railway service built from the **same** `Dockerfile.cron`.
 They differ only in the `JOB` variable and the schedule, so adding one is a copy of Step 5.2:
 
 | Service | `JOB` | Suggested schedule | What it does |

@@ -17,7 +17,7 @@
 #      breaking — but every user then pays the scoring cost on their first visit of the day.
 #
 # Shared Railway service settings:
-#   - Dockerfile path: RadarV2/Dockerfile.cron
+#   - Dockerfile path: Dockerfile.cron
 #   - Variables:       API_BASE_URL = https://<your-api-host>
 #                      CRON_KEY     = <same value as Jobs__CronKey on the API service>
 #                      JOB          = one of the values above
