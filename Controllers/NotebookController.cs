@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using RadarV2.Models;
 using RadarV2.Services.Interfaces;
 
 namespace RadarV2.Controllers;
@@ -20,12 +21,12 @@ public class NotebookController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> GetAllAsync()
+    public async Task<IActionResult> GetAllAsync([FromQuery] bool archived = false)
     {
         var profile = await _profiles.GetCurrentUserAsync();
         if (profile is null) return NotFound(new { error = "Profile not found" });
 
-        return Ok(await _notebook.GetNotesAsync(profile.Id));
+        return Ok(await _notebook.GetNotesAsync(profile.Id, archived));
     }
 
     [HttpGet("{id}")]
@@ -51,11 +52,20 @@ public class NotebookController : ControllerBase
         return Ok(note);
     }
 
+    /// <summary>
+    /// Every field is optional. The grid edits one property at a time — tick a box, pin, recolour —
+    /// and requiring the whole note on each of those would make every small action able to clobber
+    /// a concurrent edit.
+    /// </summary>
     public sealed class UpdateNoteRequest
     {
-        [Required] public string Title { get; set; } = string.Empty;
-        [Required] public string Body { get; set; } = string.Empty;
-        public List<string> Tags { get; set; } = [];
+        public string? Title { get; set; }
+        public string? Body { get; set; }
+        public List<string>? Tags { get; set; }
+        public bool? IsPinned { get; set; }
+        public bool? IsArchived { get; set; }
+        public string? Color { get; set; }
+        public List<NoteChecklistItem>? Checklist { get; set; }
     }
 
     [HttpPut("{id}")]
@@ -63,8 +73,12 @@ public class NotebookController : ControllerBase
     {
         if (!ModelState.IsValid) return ValidationProblem();
 
-        await _notebook.UpdateNoteAsync(id, request.Title, request.Body, request.Tags);
-        return NoContent();
+        var note = await _notebook.UpdateNoteAsync(
+            id, request.Title, request.Body, request.Tags,
+            request.IsPinned, request.IsArchived, request.Color, request.Checklist);
+
+        // Returns the saved note so the grid can reconcile without a second round trip.
+        return note is null ? NotFound(new { error = "Note not found" }) : Ok(note);
     }
 
     [HttpDelete("{id}")]

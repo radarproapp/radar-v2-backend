@@ -11,12 +11,20 @@ public class MongoNotebookService : INotebookService
 
     public MongoNotebookService(RadarDatabase db) => _db = db;
 
-    public async Task<List<Note>> GetNotesAsync(string userId)
+    /// <summary>
+    /// Pinned notes first, then most recently edited. Archived notes are excluded unless asked for,
+    /// which is what makes archiving worth doing instead of deleting.
+    /// </summary>
+    public async Task<List<Note>> GetNotesAsync(string userId, bool includeArchived = false)
     {
-        return await _db.Notes
-            .Find(n => n.UserId == userId)
-            .SortByDescending(n => n.EditedAt)
+        var notes = await _db.Notes
+            .Find(n => n.UserId == userId && (includeArchived || !n.IsArchived))
             .ToListAsync();
+
+        return notes
+            .OrderByDescending(n => n.IsPinned)
+            .ThenByDescending(n => n.EditedAt)
+            .ToList();
     }
 
     public async Task<Note?> GetNoteByIdAsync(string noteId)
@@ -40,17 +48,39 @@ public class MongoNotebookService : INotebookService
         return note;
     }
 
-    public async Task UpdateNoteAsync(string noteId, string title, string body, List<string> tags)
+    /// <summary>
+    /// Partial update: anything left null is untouched. The grid edits one property at a time —
+    /// ticking a checkbox, pinning, picking a colour — and a whole-object write would make each of
+    /// those clobber whatever else had changed since the page loaded.
+    /// </summary>
+    public async Task<Note?> UpdateNoteAsync(
+        string noteId,
+        string? title = null,
+        string? body = null,
+        List<string>? tags = null,
+        bool? isPinned = null,
+        bool? isArchived = null,
+        string? color = null,
+        List<NoteChecklistItem>? checklist = null)
     {
         var note = await _db.Notes.Find(n => n.Id == noteId).FirstOrDefaultAsync();
-        if (note is null) return;
+        if (note is null) return null;
 
-        note.Title = title;
-        note.Body = body;
-        note.Tags = tags;
-        note.EditedAt = DateTime.UtcNow;
+        if (title is not null) note.Title = title;
+        if (body is not null) note.Body = body;
+        if (tags is not null) note.Tags = tags;
+        if (isPinned is not null) note.IsPinned = isPinned.Value;
+        if (isArchived is not null) note.IsArchived = isArchived.Value;
+        if (color is not null) note.Color = string.IsNullOrWhiteSpace(color) ? null : color;
+        if (checklist is not null) note.Checklist = checklist;
+
+        // Only a content change counts as an edit. Pinning or archiving should not reorder the grid
+        // under the user's cursor.
+        if (title is not null || body is not null || checklist is not null)
+            note.EditedAt = DateTime.UtcNow;
 
         await _db.Notes.ReplaceOneAsync(n => n.Id == noteId, note);
+        return note;
     }
 
     public async Task DeleteNoteAsync(string noteId)
