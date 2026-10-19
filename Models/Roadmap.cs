@@ -9,6 +9,14 @@ public class GrowthRoadmap
     public string Interest { get; set; } = string.Empty;
     public string Level { get; set; } = "Beginner";
     public string CurrentStage { get; set; } = "Beginner"; // "Beginner", "Intermediate", "Advanced", "Application"
+
+    /// <summary>
+    /// Which template produced these modules. Without it there is no way to tell a roadmap built
+    /// by an older, worse template from a current one — so a user who had "Foundations of Get
+    /// Promotion" generated before the goal interpreter existed kept it forever, because the read
+    /// path only ever re-tailored stages and never rebuilt modules.
+    /// </summary>
+    public string? TemplateKey { get; set; }
     public List<RoadmapModule> Modules { get; set; } = [];
     public List<LearningResource> Resources { get; set; } = [];
     public int ProgressPercent { get; set; }

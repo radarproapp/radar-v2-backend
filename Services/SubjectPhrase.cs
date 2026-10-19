@@ -15,6 +15,14 @@ public static partial class SubjectPhrase
         RegexOptions.IgnoreCase)]
     private static partial Regex LeadingRoleVerb();
 
+    /// <summary>
+    /// Bare verb phrases with no article — "Get Promotion", "Find Remote Work". These slipped past
+    /// LeadingRoleVerb, which requires "a"/"an", so they were pasted into noun slots verbatim:
+    /// "Foundations of Get Promotion".
+    /// </summary>
+    [GeneratedRegex(@"^\s*(get|find|earn|build|grow|gain|secure|land)\s+(?=[a-z])", RegexOptions.IgnoreCase)]
+    private static partial Regex BareActionVerb();
+
     [GeneratedRegex(@"^\s*(learn|study|master|move\s+into|switch\s+to|transition\s+to|break\s+into|start)\s+",
         RegexOptions.IgnoreCase)]
     private static partial Regex LeadingLearnVerb();
@@ -38,6 +46,10 @@ public static partial class SubjectPhrase
 
         text = LeadingRoleVerb().Replace(text, string.Empty);
         text = LeadingLearnVerb().Replace(text, string.Empty);
+
+        // "Get Promotion" -> "Promotion". Done after the article-bearing forms so "get a job"
+        // is handled by the rule that knows about articles.
+        text = BareActionVerb().Replace(text, string.Empty);
         text = Whitespace().Replace(text, " ").Trim().TrimEnd('.', ',');
 
         if (string.IsNullOrWhiteSpace(text)) return (goal ?? fallbackInterest ?? "this field").Trim();

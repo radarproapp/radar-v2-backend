@@ -42,6 +42,45 @@ public class MongoRoadmapService : IRoadmapService
         RoadmapPersonalizer.Apply(roadmap, record);
     }
 
+
+    /// <summary>
+    /// Replaces a roadmap's modules when the template that should build them has changed, keeping
+    /// everything the user earned: completed lessons are carried across by title, so a rebuild
+    /// never costs someone their progress.
+    /// </summary>
+    private async Task<GrowthRoadmap> RebuildIfStaleAsync(GrowthRoadmap roadmap, string userId)
+    {
+        var profile = await _db.Profiles.Find(p => p.Id == userId).FirstOrDefaultAsync();
+        if (profile is null) return roadmap;
+
+        var goal = !string.IsNullOrWhiteSpace(roadmap.Goal) ? roadmap.Goal : profile.PrimaryGoal;
+        var intent = LearningIntentReader.Read(profile);
+        var expected = TemplateKeyFor(goal, intent);
+
+        if (string.Equals(roadmap.TemplateKey, expected, StringComparison.Ordinal)) return roadmap;
+
+        var previous = roadmap.TemplateKey ?? "(none)";
+        var rebuilt = BuildFromTemplate(userId, goal, profile.PrimaryGoal, intent);
+
+        // Carry progress across by lesson title, which survives a template change better than an id.
+        var completedTitles = roadmap.Modules
+            .SelectMany(m => m.Lessons)
+            .Where(l => l.IsCompleted)
+            .Select(l => l.Title)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var lesson in rebuilt.Modules.SelectMany(m => m.Lessons))
+            lesson.IsCompleted = completedTitles.Contains(lesson.Title);
+
+        roadmap.Modules = rebuilt.Modules;
+        roadmap.TemplateKey = rebuilt.TemplateKey;
+        roadmap.Title = rebuilt.Title;
+        if (!string.IsNullOrWhiteSpace(rebuilt.Interest)) roadmap.Interest = rebuilt.Interest;
+
+        _log.LogInformation("Rebuilt roadmap {RoadmapId}: template {Old} -> {New}.", roadmap.Id, previous, expected);
+        return roadmap;
+    }
+
     public async Task<List<GrowthRoadmap>> GetUserRoadmapsAsync(string userId)
     {
         return await _db.Roadmaps
@@ -58,6 +97,12 @@ public class MongoRoadmapService : IRoadmapService
 
         if (roadmap is not null)
         {
+            // Rebuild the modules when the stored roadmap came from a template this goal would no
+            // longer choose. Without this, a path generated before the goal interpreter existed
+            // keeps its old titles forever — the read path only ever re-tailored stages, so a user
+            // whose goal is "Get Promotion" went on seeing "Foundations of Get Promotion".
+            roadmap = await RebuildIfStaleAsync(roadmap, userId);
+
             // Re-enrich with latest catalog structure (4 stages, ordered resources, practical exercises)
             await EnrichRoadmapWithResourcesAsync(roadmap);
             await PersonalizeAsync(roadmap, userId);
@@ -81,7 +126,12 @@ public class MongoRoadmapService : IRoadmapService
             createdRoadmap.Interest = context.Interest;
             createdRoadmap.Level = context.Level;
             createdRoadmap.Interest = path?.Title ?? context.Interest;
-            createdRoadmap.Title = $"{createdRoadmap.Interest}: {profile.PrimaryGoal}";
+            // Uses the interpreted subject, not the raw goal, so an outcome goal does not come back
+            // as "Cybersecurity: Get Promotion" after BuildFromTemplate already phrased it properly.
+            var titleIntent = LearningIntentReader.Read(profile);
+            createdRoadmap.Title = titleIntent.IsOutcomeDriven
+                ? Capitalise(titleIntent.Subject)
+                : $"{createdRoadmap.Interest}: {profile.PrimaryGoal}";
             await EnrichRoadmapWithResourcesAsync(createdRoadmap);
 
             if (profile.Persona == PersonaType.Student && profile.PersonaDetails.TryGetValue("difficultCourses", out var diffCourses) && !string.IsNullOrWhiteSpace(diffCourses))
@@ -533,6 +583,28 @@ public class MongoRoadmapService : IRoadmapService
         });
     }
 
+
+    /// <summary>
+    /// Names the template a goal should use, so a stored roadmap can be compared against what the
+    /// current code would build for the same person and rebuilt when it no longer matches.
+    /// </summary>
+    public static string TemplateKeyFor(string goal, LearningIntent? intent)
+    {
+        if (intent is { IsOutcomeDriven: true }) return $"career-advancement:{intent.Outcome}";
+
+        var g = (goal ?? string.Empty).ToLowerInvariant();
+        if (g.Contains("product")) return "product";
+        if (g.Contains("data") || g.Contains("analytics") || g.Contains("sql") || g.Contains("excel") || g.Contains("bi")) return "data";
+        if (g.Contains("entrepreneur") || g.Contains("startup") || g.Contains("business")) return "entrepreneurship";
+        if (g.Contains("finance") || g.Contains("investment") || g.Contains("banking")) return "finance";
+        if (g.Contains("software") || g.Contains("engineer") || g.Contains("developer") || g.Contains("coding")) return "software";
+        if (g.Contains("policy") || g.Contains("government") || g.Contains("public")) return "policy";
+        if (g.Contains("cyber") || g.Contains("security") || g.Contains("soc") || g.Contains("hacking")
+            || g.Contains("threat") || g.Contains("malware") || g.Contains("forensic") || g.Contains("penetration")) return "cybersecurity";
+
+        return "generic";
+    }
+
     // ── Template builder (Clean 4-stage progression: Beginner → Intermediate → Advanced → Application) ──
 
     /// <param name="goal">
@@ -561,6 +633,7 @@ public class MongoRoadmapService : IRoadmapService
                 Interest = intent.Domain,
                 CurrentStage = "Beginner",
                 IsActive = true,
+                TemplateKey = TemplateKeyFor(goal, intent),
                 Modules = CareerAdvancementModules(intent),
             };
             return outcomeRoadmap;
@@ -595,6 +668,7 @@ public class MongoRoadmapService : IRoadmapService
             Goal     = shown,
             CurrentStage = "Beginner",
             IsActive = true,
+            TemplateKey = TemplateKeyFor(goal, intent),
             Modules  = modules,
         };
         // Resources are attached by the caller, which can await. Keeping this builder pure also
