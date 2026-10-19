@@ -219,6 +219,7 @@ builder.Services.AddHttpClient("YouTube", client =>
 });
 builder.Services.AddScoped<YouTubeClient>();
 builder.Services.AddScoped<YouTubeIngestionService>();
+builder.Services.AddScoped<OpportunityIngestionService>();
 
 // Ingestion services
 builder.Services.AddScoped<RssIngestionService>();

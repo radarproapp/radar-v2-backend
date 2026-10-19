@@ -204,6 +204,19 @@ public class ContentIngestionService : BackgroundService
             var taddy         = sp.GetRequiredService<TaddyClient>();
             var groqWhisper   = sp.GetRequiredService<GroqWhisperClient>();
             var youtube       = sp.GetRequiredService<YouTubeIngestionService>();
+            var opportunities = sp.GetRequiredService<OpportunityIngestionService>();
+
+            // Opportunities are stored in their own collection rather than as ContentItems, so they
+            // do not go through RunFetchBatchAsync. Run first: they are the scarcest supply and the
+            // daily batch job downstream depends on them existing.
+            try
+            {
+                await opportunities.RunAsync(ct);
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "Opportunity ingestion failed; continuing with content sources.");
+            }
 
             // YouTube channels (public Atom feeds; first run resolves and caches channel ids).
             var youtubeItems = await youtube.FetchAllAsync(ct);

@@ -272,9 +272,13 @@ Four separate faults, one root cause: nothing interpreted the goal before genera
   **But:** the ingestion pipeline never touches opportunities. There are **13 hardcoded seeded
   opportunities and no source that adds more**, so "new every day" is structurally impossible until
   opportunity ingestion exists. The batch correctly reports 0 new rather than pretending.
-- [ ] 7.1b **Build opportunity ingestion.** Without a source of new opportunities, everything above
-  is machinery with nothing to feed it. This is the actual fix for "I've been seeing the same
-  opportunities since you sent me the app to test".
+- [x] 7.1b ~~Build opportunity ingestion~~ — done. `OpportunityIngestionService` + five verified
+  RSS feeds (Opportunity Desk, Opportunities For Africans, Opportunities For Youth, We Work
+  Remotely, Remotive). **Verified live: 56 real opportunities ingested on the first run, 0 on the
+  second** (deduped by URL), with real deadlines parsed and types inferred. Runs inside the normal
+  ingestion cycle and as its own job at `POST /api/jobs/opportunity-ingestion`. Four candidate
+  feeds were checked and rejected — 403, 410 or zero entries — and are named in the registry so
+  nobody re-adds them hopefully.
 - [ ] 7.2 Match % + a specific reason it matches
 - [ ] 7.3 Deadline intelligence and reminders
 - [ ] 7.4 Detail page: what it is, why it matches, requirements, benefits, how to apply, Radar's advice

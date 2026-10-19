@@ -22,6 +22,7 @@ public class JobsController : ControllerBase
     private readonly IConfiguration _config;
     private readonly ContentIngestionService _ingestion;
     private readonly IOpportunityService _opportunities;
+    private readonly OpportunityIngestionService _opportunityIngestion;
     private readonly RadarDatabase _db;
     private readonly ILogger<JobsController> _log;
 
@@ -29,12 +30,14 @@ public class JobsController : ControllerBase
         IConfiguration config,
         ContentIngestionService ingestion,
         IOpportunityService opportunities,
+        OpportunityIngestionService opportunityIngestion,
         RadarDatabase db,
         ILogger<JobsController> log)
     {
         _config = config;
         _ingestion = ingestion;
         _opportunities = opportunities;
+        _opportunityIngestion = opportunityIngestion;
         _db = db;
         _log = log;
     }
@@ -78,6 +81,23 @@ public class JobsController : ControllerBase
 
         _log.LogInformation("Daily opportunity batch complete: {Built} built, {Failed} failed.", built, failed);
         return Ok(new { built, failed, total = profiles.Count });
+    }
+
+    /// <summary>
+    /// Fetches opportunities from their source feeds. Separate from the content ingestion job so
+    /// it can run on its own schedule and be triggered independently when debugging supply.
+    /// </summary>
+    [AllowAnonymous]
+    [HttpPost("opportunity-ingestion")]
+    public async Task<IActionResult> RunOpportunityIngestionAsync(CancellationToken ct)
+    {
+        if (!TryAuthorizeCron(out var failure)) return failure!;
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromMinutes(5));
+
+        var added = await _opportunityIngestion.RunAsync(cts.Token);
+        return Ok(new { added });
     }
 
     /// <summary>Shared cron-key check, so every job authenticates the same way.</summary>

@@ -124,6 +124,31 @@ curl -X POST https://<railway-url>/api/jobs/ingestion \
 Adjust the schedule to taste, e.g. `0 */3 * * *` (3-hourly) or `30 23 * * 6` (Saturdays for a
 weekly brief). DST/UTC: Railway cron uses UTC.
 
+### Adding more cron services
+
+Each scheduled job is one more Railway service built from the **same** `RadarV2/Dockerfile.cron`.
+They differ only in the `JOB` variable and the schedule, so adding one is a copy of Step 5.2:
+
+| Service | `JOB` | Suggested schedule | What it does |
+|---|---|---|---|
+| Content ingestion | `ingestion?async=true` | `0 */6 * * *` | Pulls articles, videos, podcasts, papers |
+| Opportunity ingestion | `opportunity-ingestion` | `0 3 * * *` | Fetches opportunities from their source feeds |
+| Opportunity batch | `opportunity-batch` | `15 4 * * *` | Builds each user's curated 12 for the day |
+
+Order matters for the last two: the batch should run **after** ingestion, so the day's selection
+can draw on whatever arrived overnight. The gap above is deliberate.
+
+All three take the same `API_BASE_URL` and `CRON_KEY` variables. Every job refuses to run with a
+`503` until `Jobs__CronKey` is set on the API service, and returns `401` on a wrong key.
+
+```bash
+# Check any job by hand
+curl -X POST https://<railway-url>/api/jobs/opportunity-ingestion   -H "X-Cron-Key: <your CronKey>" -w "
+HTTP %{http_code}
+"
+# → 200 {"added":56}
+```
+
 ---
 
 ## Troubleshooting
