@@ -38,7 +38,9 @@ public class ProjectsController : ControllerBase
         if (profile is null) return NotFound(new { error = "Profile not found" });
 
         var project = await _projects.StartProjectAsync(profile.Id, templateId);
-        return Ok(project);
+        return project is null
+            ? NotFound(new { error = $"No project template with id '{templateId}'." })
+            : Ok(project);
     }
 
     public sealed class CreateProjectRequest

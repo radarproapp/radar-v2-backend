@@ -6,7 +6,7 @@ public interface IProjectStudioService
 {
     Task<List<ProjectTemplate>> GetTemplatesAsync();
     Task<List<StudioProject>> GetUserProjectsAsync(string userId);
-    Task<StudioProject> StartProjectAsync(string userId, string templateId);
+    Task<StudioProject?> StartProjectAsync(string userId, string templateId);
     Task<StudioProject> CreateProjectAsync(string userId, string title, string description, string category);
     Task CompleteProjectAsync(string userId, string projectId);
 

@@ -42,11 +42,25 @@ public class MongoProjectStudioService : IProjectStudioService
             .ToListAsync();
     }
 
-    public async Task<StudioProject> StartProjectAsync(string userId, string templateId)
+    /// <summary>
+    /// Starts a template project, or returns the one already in progress.
+    ///
+    /// This used to throw when the template id was unknown, which surfaced as a 500 — the page
+    /// simply failed with no explanation. It also inserted a new project on every call, so clicking
+    /// "start" twice left two identical rows in the studio, which is exactly what users reported.
+    /// </summary>
+    public async Task<StudioProject?> StartProjectAsync(string userId, string templateId)
     {
+        await EnsureSeededAsync();
+
         var template = await _db.ProjectTemplates.Find(t => t.Id == templateId).FirstOrDefaultAsync();
-        if (template is null)
-            throw new InvalidOperationException("Template not found: " + templateId);
+        if (template is null) return null;
+
+        var existing = await _db.UserProjects
+            .Find(p => p.UserId == userId && p.TemplateId == templateId && !p.IsCompleted)
+            .FirstOrDefaultAsync();
+
+        if (existing is not null) return existing;
 
         var project = new StudioProject
         {
