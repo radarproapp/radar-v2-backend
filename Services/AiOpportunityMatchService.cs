@@ -18,7 +18,9 @@ public sealed class AiOpportunityMatchService
         var candidates = opportunities.Take(30).Select(o => new { id = o.Id, title = o.Title, type = o.Type.ToString(), organisation = o.Organisation, description = o.Description, requirements = o.Requirements, location = o.Location });
         var prompt = $@"Profile:
 persona: {profile.Persona}
-goal: {profile.PrimaryGoal}
+goal as they stated it: {profile.PrimaryGoal}
+what that means: {LearningIntentReader.Read(profile).Subject}
+field to match against: {LearningIntentReader.Read(profile).Domain}
 problems: {string.Join(", ", profile.Problems)}
 current intent: {profile.CurrentIntent}
 target role: {profile.TargetRole}

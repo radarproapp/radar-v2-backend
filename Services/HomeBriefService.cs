@@ -102,6 +102,11 @@ public class HomeBriefService : IHomeBriefService
         // Signals arrive as "Dimension: Phrase". Keeping the dimension lets this read like a
         // sentence ("Matches your goal to learn cybersecurity") instead of jamming the raw goal
         // string into a generic template ("Matches your Cybersecurity: Learn New Skills and AI").
+        // Dedupe on the underlying phrase, not the formatted sentence: the goal domain and the
+        // stated interest are frequently the same word, which produced "your goal: AI and your
+        // interest in AI".
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         var phrases = explanation.MatchedSignals
             .Select(signal =>
             {
@@ -111,6 +116,7 @@ public class HomeBriefService : IHomeBriefService
                 var dimension = signal[..split].Trim();
                 var phrase = signal[(split + 1)..].Trim();
                 if (string.IsNullOrWhiteSpace(phrase)) return string.Empty;
+                if (!seen.Add(phrase)) return string.Empty;
 
                 return dimension switch
                 {

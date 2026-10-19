@@ -186,7 +186,9 @@ public class MongoNavigatorService : INavigatorService
         // 2. Derive specific skill or topic from user profile: Capabilities, Intent, Target Role, and Interests
         var primaryInterest = profile.DominantInterests.FirstOrDefault()
             ?? profile.Interests.FirstOrDefault()
-            ?? profile.PrimaryGoal;
+        // Falls back to the interpreted field, not the raw goal: this becomes a topic to study,
+        // and "Get Promotion" is not something anyone can study.
+            ?? LearningIntentReader.Read(profile).Domain;
 
         // A) Explicit capability/skill the user listed
         var topCapability = profile.Capabilities.FirstOrDefault(c => !string.IsNullOrWhiteSpace(c));
@@ -444,7 +446,9 @@ public class MongoNavigatorService : INavigatorService
     {
         var primaryInterest = profile.DominantInterests.FirstOrDefault()
             ?? profile.Interests.FirstOrDefault()
-            ?? profile.PrimaryGoal;
+        // Falls back to the interpreted field, not the raw goal: this becomes a topic to study,
+        // and "Get Promotion" is not something anyone can study.
+            ?? LearningIntentReader.Read(profile).Domain;
 
         var capability = profile.Capabilities.FirstOrDefault(c => !string.IsNullOrWhiteSpace(c));
         var targetRole = profile.TargetRole;

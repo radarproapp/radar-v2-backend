@@ -14,6 +14,15 @@ using RadarV2.Services.Interfaces;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Local secret overrides. ".gitignore" has covered "appsettings.*.local.json" since the repo was
+// created, but nothing ever loaded it, so there was no safe place to put a real key while working
+// locally — the only options were an env var or editing a tracked file. Optional, and last in, so
+// it wins over the committed defaults without ever being committed itself.
+builder.Configuration.AddJsonFile(
+    $"appsettings.{builder.Environment.EnvironmentName}.local.json",
+    optional: true,
+    reloadOnChange: true);
+
 // Compress text payloads (JSON, HTML, CSS, JS) before they leave the process. On Railway and
 // Azure this also covers the proxy hop, since TLS terminates at their edge and the internal
 // request is plain HTTP — but EnableForHttps is on anyway so a direct HTTPS hit to Kestrel is

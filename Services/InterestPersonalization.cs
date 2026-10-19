@@ -108,7 +108,7 @@ public static class InterestPersonalization
             if (InterestPathService.ActiveInterests(profile).Contains(context.Interest, StringComparer.OrdinalIgnoreCase)) score += 14;
         }
 
-        foreach (var phrase in new[] { profile.PrimaryGoal }.Concat(profile.Capabilities))
+        foreach (var phrase in GoalPhrases(profile).Concat(profile.Capabilities))
             if (ContainsContext(text, phrase)) score += 10;
 
         if (profile.Geography.Count > 0 && profile.Geography.Any(g => ContainsContext(text, g))) score += 8;
@@ -116,6 +116,18 @@ public static class InterestPersonalization
         var normalizedGoal = profile.PrimaryGoal.ToLowerInvariant();
         if (normalizedGoal.Contains("intern") && opportunity.Type == OpportunityType.Internship) score += 12;
         if ((normalizedGoal.Contains("startup") || normalizedGoal.Contains("fund")) && opportunity.Type == OpportunityType.StartupAccelerator) score += 12;
+
+        // Read the outcome rather than hunting for keywords that an outcome goal does not contain.
+        var outcome = LearningIntentReader.Read(profile).Outcome;
+        score += outcome switch
+        {
+            LearningOutcome.NewJob when opportunity.Type is OpportunityType.Job or OpportunityType.Internship => 12,
+            LearningOutcome.StartBusiness when opportunity.Type is OpportunityType.StartupAccelerator or OpportunityType.ResearchGrant => 12,
+            LearningOutcome.Promotion or LearningOutcome.Leadership
+                when opportunity.Type is OpportunityType.Fellowship or OpportunityType.Conference => 10,
+            LearningOutcome.EarnMore when opportunity.Type is OpportunityType.Job => 10,
+            _ => 0,
+        };
         if (profile.Persona == PersonaType.Researcher && opportunity.Type == OpportunityType.ResearchGrant) score += 10;
         if (profile.Persona == PersonaType.Student && opportunity.Type is OpportunityType.Internship or OpportunityType.Scholarship) score += 8;
         if (profile.Persona == PersonaType.Entrepreneur && opportunity.Type is OpportunityType.StartupAccelerator or OpportunityType.Competition) score += 8;
@@ -303,8 +315,24 @@ public static class InterestPersonalization
             .Distinct()
             .ToList();
 
-    private static IEnumerable<string> GoalPhrases(UserProfile profile) =>
-        new[] { profile.PrimaryGoal }.Concat(Contexts(profile).Select(c => c.Goal));
+    /// <summary>
+    /// Phrases that stand for the user's goal when scoring content.
+    ///
+    /// Includes the interpreted domain, not just the raw goal. A goal of "Get Promotion" appears in
+    /// no article ever written, so matching on it alone scored every item at zero on this dimension
+    /// — and the user saw content that had nothing to do with them. What such a person actually
+    /// wants to read about is their field.
+    /// </summary>
+    private static IEnumerable<string> GoalPhrases(UserProfile profile)
+    {
+        var phrases = new List<string> { profile.PrimaryGoal };
+
+        var intent = LearningIntentReader.Read(profile);
+        if (intent.IsOutcomeDriven && !string.IsNullOrWhiteSpace(intent.Domain))
+            phrases.Add(intent.Domain);
+
+        return phrases.Concat(Contexts(profile).Select(c => c.Goal));
+    }
 
     private static IEnumerable<string> IntentPhrases(UserProfile profile) =>
         new[] { profile.CurrentIntent }.Concat(Contexts(profile).Select(c => c.Lens));

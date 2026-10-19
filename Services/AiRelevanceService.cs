@@ -34,7 +34,9 @@ public sealed class AiRelevanceService
         });
         var request = $@"User profile:
 persona: {profile.Persona}
-goal: {profile.PrimaryGoal}
+goal as they stated it: {profile.PrimaryGoal}
+what that means: {LearningIntentReader.Read(profile).Subject}
+field to match content against: {LearningIntentReader.Read(profile).Domain}
 problems: {string.Join(", ", profile.Problems)}
 current intent: {profile.CurrentIntent}
 target role: {profile.TargetRole}

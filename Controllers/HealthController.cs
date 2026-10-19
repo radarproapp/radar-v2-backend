@@ -59,6 +59,55 @@ public class HealthController : ControllerBase
             }
         }
 
-        return Ok(new { configured, keyLength = key.Length, model, baseUrl, probe });
+        // YouTube reported here too: without a key, Learn silently degrades to search links rather
+        // than resolved videos, and there is otherwise no way to tell which mode you are in.
+        var youTubeKey = _config["YouTube:ApiKey"] ?? string.Empty;
+
+        // A present key and a working key are different things. A restricted, wrong or
+        // quota-exhausted key fails silently and looks identical to "no results for that topic",
+        // so this spends one real search (100 units) to prove the key actually works.
+        object? youTubeProbe = null;
+        if (!string.IsNullOrWhiteSpace(youTubeKey))
+        {
+            try
+            {
+                var ytClient = _httpFactory.CreateClient("YouTube");
+                var probeUrl = "https://www.googleapis.com/youtube/v3/search"
+                    + "?part=snippet&type=video&maxResults=1&q=networking%20basics"
+                    + $"&key={Uri.EscapeDataString(youTubeKey)}";
+                var ytResponse = await ytClient.GetAsync(probeUrl, ct);
+                var ytBody = await ytResponse.Content.ReadAsStringAsync(ct);
+                youTubeProbe = new
+                {
+                    status = (int)ytResponse.StatusCode,
+                    ok = ytResponse.IsSuccessStatusCode,
+                    // Enough to read "quotaExceeded", "keyInvalid" or a referer restriction.
+                    snippet = ytBody.Length > 400 ? ytBody[..400] : ytBody,
+                };
+            }
+            catch (Exception ex)
+            {
+                youTubeProbe = new { error = ex.GetType().Name, message = ex.Message };
+            }
+        }
+
+        return Ok(new
+        {
+            configured,
+            keyLength = key.Length,
+            model,
+            baseUrl,
+            probe,
+            youTube = new
+            {
+                configured = !string.IsNullOrWhiteSpace(youTubeKey),
+                keyLength = youTubeKey.Length,
+                cacheDays = _config.GetValue("YouTube:CacheDays", 30),
+                probe = youTubeProbe,
+                note = string.IsNullOrWhiteSpace(youTubeKey)
+                    ? "No key: Learn resources fall back to YouTube search links instead of resolved videos. Set YouTube__ApiKey."
+                    : "Resolving real videos. search.list costs 100 quota units; results are cached and shared across users.",
+            },
+        });
     }
 }

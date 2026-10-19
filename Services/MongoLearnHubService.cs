@@ -26,7 +26,9 @@ public class MongoLearnHubService : ILearnHubService
         var profile = await _db.Profiles.Find(p => p.Id == userId).FirstOrDefaultAsync();
 
         // Check if user has cybersecurity interest or goal
-        var skillCandidate = $"{roadmap?.Interest} {roadmap?.Goal} {profile?.PrimaryGoal} {string.Join(" ", profile?.Interests ?? [])}";
+        // Includes the interpreted field so an outcome goal still routes to the right domain.
+        var interpretedDomain = profile is not null ? LearningIntentReader.Read(profile).Domain : "";
+        var skillCandidate = $"{roadmap?.Interest} {roadmap?.Goal} {interpretedDomain} {string.Join(" ", profile?.Interests ?? [])}";
         var skill = skillCandidate.Contains("cyber", StringComparison.OrdinalIgnoreCase) ||
                     skillCandidate.Contains("security", StringComparison.OrdinalIgnoreCase) ||
                     skillCandidate.Contains("infosec", StringComparison.OrdinalIgnoreCase)

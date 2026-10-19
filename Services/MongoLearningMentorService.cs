@@ -513,7 +513,11 @@ public class MongoLearningMentorService : ILearningMentorService
         {
             UserId = userId,
             PrimaryGoal = profile?.PrimaryGoal ?? "Master Tech & Business Intelligence",
-            ActiveSkill = roadmap?.Interest ?? (!string.IsNullOrEmpty(profile?.PrimaryGoal) ? profile.PrimaryGoal : "Data & Systems"),
+            // The skill being tutored, so it must be a subject. An outcome goal ("Get Promotion")
+            // would otherwise become the thing the mentor tries to teach.
+            ActiveSkill = roadmap?.Interest
+                ?? (profile is not null ? LearningIntentReader.Read(profile).Domain : null)
+                ?? "Data & Systems",
             CurrentStage = roadmap?.CurrentStage ?? "Beginner",
             WeakAreas = weakList,
             StrongAreas = strongList,
