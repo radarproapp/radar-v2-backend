@@ -19,6 +19,12 @@ public class CapturedItem
     public string? AiSummary { get; set; }
     public string? Source { get; set; }
     public string? LinkedRoadmapId { get; set; }
+
+    /// <summary>
+    /// Subject of the capture, in two or three words. This is the "route into your roadmap" the
+    /// Capture page promises: it is what gets added when the user acts on the item.
+    /// </summary>
+    public string? Topic { get; set; }
     public bool IsProcessing { get; set; }
     public DateTime CapturedAt { get; set; } = DateTime.UtcNow;
 }
