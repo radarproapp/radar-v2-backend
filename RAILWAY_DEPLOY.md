@@ -99,6 +99,13 @@ protected endpoint on the API.
 |---|---|
 | `Jobs__CronKey` | a long random secret |
 
+> **Two underscores, not one.** ASP.NET Core maps `__` to the `:` separator, so `Jobs__CronKey`
+> becomes `Jobs:CronKey`. A single underscore makes a flat key nothing reads: the variable shows in
+> the dashboard, the feature stays off, and the only symptom is a `503` identical to the variable
+> not existing. The same applies to `MongoDB__ConnectionString`, `OpenRouter__ApiKey`,
+> `YouTube__ApiKey` and `Auth__Jwt`. The service logs a warning at startup if it spots a
+> single-underscore variant, and `GET /api/version` reports which secrets it can actually see.
+
 The endpoint refuses to run until this is set (`503`), so it can never be triggered accidentally.
 
 **2. Create a second Railway service in the same project** for the cron container:

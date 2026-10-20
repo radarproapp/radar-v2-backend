@@ -276,6 +276,12 @@ builder.Services.AddScoped<AiOpportunityMatchService>();
 
 var app = builder.Build();
 
+// Surfaces variables that are set but misnamed, which otherwise present as the feature simply
+// being off. Logged once at startup so it appears at the top of the deploy log.
+ConfigurationCheck.WarnAboutMisnamedKeys(
+    app.Configuration,
+    app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("RadarV2.Configuration"));
+
 // Railway (and most PaaS hosts) terminate TLS at their edge and forward plain
 // HTTP internally with X-Forwarded-Proto: https. Without this, UseHttpsRedirection
 // below never sees the request as HTTPS and redirects every single request,
