@@ -192,30 +192,51 @@ The database is the one that matters most. `appsettings.Staging.json` pins `Data
 `radar_staging`, so even a staging service accidentally pointed at the production **cluster** still
 writes to a different database rather than into real user data. Keep that pin.
 
-## Backend (Railway)
+## Backend (Railway): environments, not extra services
 
-Rename the current API service to something like `radar-api-staging` and set:
+Railway gives you three ways to do this. Which is right depends on how much isolation you want
+versus how much duplicated setup you are willing to maintain.
 
-| Name | Value |
-|---|---|
-| `ASPNETCORE_ENVIRONMENT` | `Staging` |
-| `MongoDB__ConnectionString` | staging cluster, or the same cluster — the database name differs |
-| `OpenRouter__ApiKey` | ideally its own key, so test traffic cannot exhaust the production budget |
-| `Jobs__CronKey` | its own secret |
+### Option A — Railway Environments (recommended here)
 
-Then create a second service from the same repo and `Dockerfile` for production, with
-`ASPNETCORE_ENVIRONMENT=Production` and its own connection string, keys and cron key.
+One project, two environments. "Duplicate Environment" copies the services, variables and
+configuration, so the whole topology — the API and all three cron services — is recreated for you,
+and each environment then keeps its own variables, private network and deployments. Changes to a
+service are scoped to the environment you are in.
 
-**Confirm which is which before trusting either:**
+This is the right default for this project specifically because the topology is already four
+services. Recreating and then hand-syncing four services forever is where drift comes from.
 
-```bash
-curl https://<host>/api/version
-# {"environment":"Staging","isProduction":false,"commit":"...","database":"radar_staging"}
-```
+1. In the project, open the environment switcher and **Duplicate** the current environment.
+2. Name the original `staging` and the copy `production` (or vice versa — whichever has the real
+   data should become production).
+3. Set per environment: `ASPNETCORE_ENVIRONMENT`, `MongoDB__ConnectionString`,
+   `OpenRouter__ApiKey`, `Jobs__CronKey`, and each cron service's `API_BASE_URL` and `CRON_KEY`.
+4. Confirm with `/api/version` before trusting either.
 
-That endpoint is unauthenticated on purpose — a health check that needs a token cannot be used by a
-health checker, and during the last deploy investigation there was no way to ask a running instance
-what it was.
+Two things Railway does **not** isolate, worth knowing:
+
+- **Public networking.** Every service with a domain is reachable from the internet regardless of
+  environment, so staging is public too. The API requires a JWT on everything except `/api/version`
+  and the cron endpoints, which take a shared secret — keep it that way.
+- **Service names.** Names are shared across environments, so you cannot have two services with the
+  same name but independent identities.
+
+### Option B — Two projects
+
+Harder isolation: separate access control, separate billing view, and no way to edit the wrong
+environment's variables by accident because they are not in the same place. Railway staff have
+suggested this when fully independent service naming is needed.
+
+The cost is that you recreate all four services by hand and keep them in step yourself. Choose this
+if someone other than you will have dashboard access, or if isolation needs to be demonstrable
+rather than merely true.
+
+### Not recommended — a second set of services in one environment
+
+Adding `radar-api-production` alongside `radar-api-staging` in a single environment means eight
+services distinguished only by name, sharing one variable namespace. It is the easiest to set up
+and the easiest to make a mistake in.
 
 ## Frontend (Vercel)
 
@@ -232,7 +253,20 @@ naming the environment and the API it is calling.
 
 Each environment needs its own cron services, pointed at its own `API_BASE_URL` and holding its own
 `CRON_KEY`. Staging crons against staging data are useful; staging crons against production are a
-way to corrupt it.
+way to corrupt it. Duplicating the environment (Option A) carries the cron services across, so this
+is mostly a matter of setting the right variables on each copy.
+
+**A cron service showing "Last run succeeded" does not mean the job ran.** Railway reports whether
+the container exited, and the container is a one-line `curl` — so a run where the API answered
+`503 Jobs__CronKey not set` still exits and still looks green. The only reliable check is to ask
+the API:
+
+```bash
+curl -X POST https://<host>/api/jobs/ingestion -H "X-Cron-Key: <key>" -w "
+HTTP %{http_code}
+"
+# 200 = ran · 401 = wrong key · 503 = Jobs__CronKey not set on the API service
+```
 
 ## Promotion
 
