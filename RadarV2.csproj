@@ -4,7 +4,20 @@
         <TargetFramework>net10.0</TargetFramework>
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
+
+        <!-- The build is warning-free today; this keeps it that way. A warning that nobody has to
+             fix is a warning everybody learns to scroll past. -->
+        <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     </PropertyGroup>
+
+    <!-- The web SDK globs **/*.cs, which would pull the test project's sources into the app.
+         Tests live under tests/ and belong to their own project. -->
+    <ItemGroup>
+      <Compile Remove="tests/**" />
+      <Content Remove="tests/**" />
+      <None Remove="tests/**" />
+      <EmbeddedResource Remove="tests/**" />
+    </ItemGroup>
 
     <ItemGroup>
       <PackageReference Include="BCrypt.Net-Next" Version="4.2.0" />

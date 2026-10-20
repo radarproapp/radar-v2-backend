@@ -3,11 +3,13 @@ WORKDIR /src
 
 # Copy csproj and restore as distinct layers
 COPY *.csproj ./
-RUN dotnet restore
+RUN dotnet restore RadarV2.csproj
 
-# Copy everything else and build
+# Copy everything else and build.
+# The project is named explicitly: a test project now lives alongside this one, and a bare
+# `dotnet publish` would have to guess which to build once there is more than one.
 COPY . ./
-RUN dotnet publish -c Release -o /app/publish /p:UseAppHost=false
+RUN dotnet publish RadarV2.csproj -c Release -o /app/publish /p:UseAppHost=false
 
 # Runtime image
 # API-only host: the React SPA is built and deployed separately (Vercel/Netlify) and

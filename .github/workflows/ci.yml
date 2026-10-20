@@ -1,0 +1,40 @@
+name: CI
+
+# Runs on every push and every pull request. main deploys straight to Railway, so this is the
+# only gate between a broken commit and the running service.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      # Restored separately so a dependency failure is distinguishable from a compile failure.
+      - name: Restore
+        run: |
+          dotnet restore RadarV2.csproj
+          dotnet restore tests/RadarV2.Tests/RadarV2.Tests.csproj
+
+      - name: Build
+        run: dotnet build RadarV2.csproj --no-restore -c Release
+
+      - name: Test
+        run: dotnet test tests/RadarV2.Tests/RadarV2.Tests.csproj --no-restore -c Release --verbosity normal
+
+  docker:
+    # The app ships as a container, so a Dockerfile that no longer builds breaks the deploy even
+    # when the solution compiles. Cheap to check here, expensive to discover in Railway's logs.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the runtime image
+        run: docker build -f Dockerfile -t radar-api:ci .

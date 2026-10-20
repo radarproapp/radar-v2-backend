@@ -1,9 +1,24 @@
+# Keep the image build context small and deterministic. Anything not needed to produce the runtime
+# image is excluded, which also means a change to a test or a doc cannot invalidate the Docker
+# layer cache for the app itself.
+
+# Editor and VCS
 **/.git
 **/.vs
 **/.vscode
-**/bin
-**/obj
-**/node_modules
 **/.idea
 *.user
 *.suo
+
+# Build output
+**/bin
+**/obj
+**/node_modules
+
+# Not part of the API image
+tests/
+.github/
+radar-v2-frontend/
+*.md
+Dockerfile*
+.dockerignore
