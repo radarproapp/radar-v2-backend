@@ -49,6 +49,19 @@ public class VersionController : ControllerBase
             // Named so a staging instance accidentally pointed at the production database is
             // visible at a glance rather than discovered through its effects.
             database = _config["MongoDB:DatabaseName"],
+
+            // Whether each required secret is visible to this instance. Booleans only — never the
+            // values. Without this, a missing variable is only discoverable by triggering the
+            // feature and reading a 503, and a cron container reports "succeeded" either way
+            // because it only reports that the container exited.
+            configured = new
+            {
+                cronJobs = !string.IsNullOrWhiteSpace(_config["Jobs:CronKey"]),
+                openRouter = !string.IsNullOrWhiteSpace(_config["OpenRouter:ApiKey"]),
+                youTube = !string.IsNullOrWhiteSpace(_config["YouTube:ApiKey"]),
+                mongo = !string.IsNullOrWhiteSpace(_config["MongoDB:ConnectionString"]),
+            },
+
             utcNow = DateTime.UtcNow,
         });
     }

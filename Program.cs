@@ -16,12 +16,17 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Local secret overrides. ".gitignore" has covered "appsettings.*.local.json" since the repo was
 // created, but nothing ever loaded it, so there was no safe place to put a real key while working
-// locally — the only options were an env var or editing a tracked file. Optional, and last in, so
-// it wins over the committed defaults without ever being committed itself.
+// locally — the only options were an env var or editing a tracked file.
 builder.Configuration.AddJsonFile(
     $"appsettings.{builder.Environment.EnvironmentName}.local.json",
     optional: true,
     reloadOnChange: true);
+
+// Re-applied so they sit above the file just added. CreateBuilder already registered these, but a
+// provider added afterwards outranks everything before it — which would have let a stray local
+// file silently beat a variable set on the host. A deployed environment variable must always win.
+builder.Configuration.AddEnvironmentVariables();
+if (args.Length > 0) builder.Configuration.AddCommandLine(args);
 
 // Compress text payloads (JSON, HTML, CSS, JS) before they leave the process. On Railway and
 // Azure this also covers the proxy hop, since TLS terminates at their edge and the internal
