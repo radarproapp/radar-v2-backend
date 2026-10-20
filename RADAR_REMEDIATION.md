@@ -306,8 +306,16 @@ Four separate faults, one root cause: nothing interpreted the goal before genera
 ## Phase 9 — Mentor, Capture, Summarize (spec #20, #15, #8)
 
 - [ ] 9.1 Fix whatever Phase 0.3 finds in Review Work / Mastery / Spaced Revision; give every one a real cold-start state
-- [ ] 9.2 Ask (Tutor) suggestions seeded from the user's actual interest ("how to become a cybersecurity expert")
-- [ ] 9.3 Quiz: advanced questions, and show right/wrong with an explanation of why
+- [x] 9.2 ~~Ask (Tutor) suggestions seeded from the user's actual interest~~ — done. They were
+  hardcoded to SQL JOINs and Zero Trust, so a cybersecurity learner was offered SQL and a nurse
+  would have been offered both. Now built from the learning memory: "How do I become a {role}?"
+  (the question the review asked for), recorded weak areas first, then the active skill. Quiz
+  shortcut topics come from the same place instead of a fixed six-item list.
+- [~] 9.3 **End-of-quiz review done.** Per-question explanations already existed *during* the
+  quiz, but the completion screen showed only a score — so the one moment you want to learn from
+  your mistakes showed none of them. Every question now appears at the end with your answer, the
+  correct answer and the reason, plus the detected weak areas. **Still open:** difficulty.
+  Advanced-tier question generation has not been reviewed against real model output.
 - [ ] 9.4 Study plan: short relevance note per topic, suggested resources, "make this my learning path"
 - [~] 9.5 Capture — **link done** (`df4d2c7`): real title, source and a personalised why. **Note
   clarified** by rebuilding it on Google Keep (`fba2158`). **Photo and voice still do not work** —
