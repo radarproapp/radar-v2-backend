@@ -168,3 +168,79 @@ HTTP %{http_code}
 - **No content in the feed**: the ingestion worker runs on a 6h/24h cycle; a fresh
   database starts empty. Seeded demo content inserts only when the collection is empty.
 - **Logs**: Railway → your service → **Deployments → View logs**.
+
+---
+
+# Staging and production
+
+The deployment that exists today becomes **staging**. Production is stood up alongside it, so the
+thing people use is never the thing you are testing on.
+
+## What makes them separate
+
+Two environments are only genuinely separate if **all three** of these differ. Sharing any one of
+them means a staging mistake can reach real users.
+
+| | Staging | Production |
+|---|---|---|
+| `ASPNETCORE_ENVIRONMENT` | `Staging` | `Production` |
+| Mongo database | `radar_staging` | `radar` |
+| OpenRouter spend cap | `5` | `25` |
+| Frontend build mode | `staging` | `production` |
+
+The database is the one that matters most. `appsettings.Staging.json` pins `DatabaseName` to
+`radar_staging`, so even a staging service accidentally pointed at the production **cluster** still
+writes to a different database rather than into real user data. Keep that pin.
+
+## Backend (Railway)
+
+Rename the current API service to something like `radar-api-staging` and set:
+
+| Name | Value |
+|---|---|
+| `ASPNETCORE_ENVIRONMENT` | `Staging` |
+| `MongoDB__ConnectionString` | staging cluster, or the same cluster — the database name differs |
+| `OpenRouter__ApiKey` | ideally its own key, so test traffic cannot exhaust the production budget |
+| `Jobs__CronKey` | its own secret |
+
+Then create a second service from the same repo and `Dockerfile` for production, with
+`ASPNETCORE_ENVIRONMENT=Production` and its own connection string, keys and cron key.
+
+**Confirm which is which before trusting either:**
+
+```bash
+curl https://<host>/api/version
+# {"environment":"Staging","isProduction":false,"commit":"...","database":"radar_staging"}
+```
+
+That endpoint is unauthenticated on purpose — a health check that needs a token cannot be used by a
+health checker, and during the last deploy investigation there was no way to ask a running instance
+what it was.
+
+## Frontend (Vercel)
+
+Vercel's **Production** environment builds `main` with `VITE_API_BASE_URL` pointing at the
+production API. Point **Preview** at staging, either through `.env.staging` or by setting the
+variable per environment in the dashboard (dashboard wins).
+
+`VITE_API_BASE_URL` has **no production fallback any more**. A build without it fails loudly rather
+than quietly talking to the production API, which is the worst possible default once two
+environments exist. Any build where `VITE_ENVIRONMENT` is not `production` also shows a banner
+naming the environment and the API it is calling.
+
+## Cron
+
+Each environment needs its own cron services, pointed at its own `API_BASE_URL` and holding its own
+`CRON_KEY`. Staging crons against staging data are useful; staging crons against production are a
+way to corrupt it.
+
+## Promotion
+
+`main` builds both. Promote by letting staging settle first:
+
+1. Push to `main`. CI must pass.
+2. Staging deploys. Check `/api/version` reports the commit you just pushed.
+3. Exercise the change on staging.
+4. Promote the same image or redeploy production from the same commit.
+
+A production deploy should never be the first time a commit runs anywhere.

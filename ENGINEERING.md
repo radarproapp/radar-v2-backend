@@ -52,8 +52,9 @@ and production.
 
 Listed rather than quietly carried:
 
-- **No environment separation yet.** The current deployment is the only one. The plan is to treat
-  it as test/staging and stand up a separate production environment.
+- **Environment separation is coded but not yet provisioned.** `appsettings.Staging.json`, the
+  `/api/version` endpoint, per-environment frontend builds and the non-production banner are in.
+  The Railway and Vercel services still need creating — runbook in `RAILWAY_DEPLOY.md`.
 - **Everything goes directly to `main`** — no branches, no PRs, no review. CI helps, but it cannot
   catch a bad decision, only a broken build.
 - **No rate limiting.** AI calls cost real money against a monthly cap; one loop can exhaust it,
