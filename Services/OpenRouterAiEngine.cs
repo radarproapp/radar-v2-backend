@@ -562,33 +562,15 @@ public sealed class OpenRouterAiEngine : IAiEngine
             """;
         }
 
-        // 5. Work Review
-        if (feature.Contains("review"))
-        {
-            return $$"""
-            {
-              "score": 82,
-              "strengths": [
-                "Clear conceptual structure and logical organization",
-                "Strong technical alignment with standard industry practices",
-                "Concise, readable articulation of the core premise"
-              ],
-              "weaknesses": [
-                "Lacks explicit quantitative benchmarks or real-world metrics",
-                "Edge cases and error-handling conditions could be more rigorously specified",
-                "The conclusion could be more actionable"
-              ],
-              "mainIssue": "The submission describes the ideal execution path well but omits concrete operational failure handling and specific metrics.",
-              "improvements": [
-                "Add 2-3 specific quantitative metrics (e.g., latency threshold, resource constraints).",
-                "Include a dedicated section or code block demonstrating exception handling.",
-                "Sharpen the executive summary with direct business impact."
-              ],
-              "nextStep": "Incorporate the quantitative benchmarks and error handling, then re-submit for revision comparison.",
-              "feedback": "Strong baseline submission showing solid command of the material. Addressing the specified failure modes and benchmarks will elevate this to production standards."
-            }
-            """;
-        }
+        // Work review is deliberately absent.
+        //
+        // A canned review is worse here than anywhere else in the product. Verified: a banana
+        // bread recipe and a security incident report came back with byte-identical strengths,
+        // weaknesses, main issue and a score of 74 — because none of it was read. Someone acting
+        // on that feedback is being misled about work they are trying to improve, and a fabricated
+        // score is a judgement Radar has not actually made.
+        //
+        // Falling through to "{}" lets the caller detect that no review happened and say so.
 
         // 6. Academic Paper Breakdown (500-word 7-part breakdown)
         if (feature.Contains("academic") || feature.Contains("breakdown") || feature.Contains("research"))

@@ -99,6 +99,14 @@ public class MentorStudyPlan
 
 public class MentorWorkReview
 {
+    /// <summary>
+    /// False when Radar could not actually evaluate the work. Previously a parse failure produced
+    /// a fabricated review — verified identical for a security incident report and a banana bread
+    /// recipe, down to the score — which is worse than no review: it is misleading feedback on
+    /// something the user is trying to improve, and a judgement Radar never made.
+    /// </summary>
+    public bool WasReviewed { get; set; } = true;
+
     public string Id { get; set; } = Guid.NewGuid().ToString();
     public string UserId { get; set; } = string.Empty;
     public string WorkTitle { get; set; } = string.Empty;

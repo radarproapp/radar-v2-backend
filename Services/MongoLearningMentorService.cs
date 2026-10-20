@@ -459,14 +459,25 @@ public class MongoLearningMentorService : ILearningMentorService
         }
         catch
         {
-            review.Score = previousReview != null ? Math.Min(100, previousReview.Score + 8) : 74;
-            review.Feedback = "Work evaluated. Good foundational structure with key areas for analytical improvement.";
-            review.Strengths = ["Clear structure", "Directly addresses the primary question"];
-            review.Weaknesses = ["Depth of analytical synthesis", "Conclusion needs stronger implications"];
-            review.MainIssue = "You cited observational facts but did not analyze the underlying causal mechanisms.";
-            review.Improvements = ["Add a comparative counter-example", "Explicitly link findings to your primary thesis"];
-            review.Suggestions = ["Consult benchmark case studies in this topic", "Quantify metrics where possible"];
-            review.NextStep = "Rewrite the core analysis section using the claim-evidence-impact framework.";
+            // No fabricated assessment. The work is kept so the user does not lose it and can
+            // resubmit, but Radar says plainly that it did not manage to read it.
+            review.WasReviewed = false;
+            review.Score = 0;
+            review.Feedback = "Radar could not review this just now. Your work is saved — try submitting it again in a moment.";
+            review.NextStep = "Submit again to get your review.";
+        }
+
+        // An empty or partial response is the same failure wearing a different hat: a review with
+        // no main issue and no strengths tells the user nothing while looking like it did.
+        if (review.WasReviewed
+            && string.IsNullOrWhiteSpace(review.MainIssue)
+            && review.Strengths.Count == 0
+            && review.Weaknesses.Count == 0)
+        {
+            review.WasReviewed = false;
+            review.Score = 0;
+            review.Feedback = "Radar could not review this just now. Your work is saved — try submitting it again in a moment.";
+            review.NextStep = "Submit again to get your review.";
         }
 
         // Clean formatting

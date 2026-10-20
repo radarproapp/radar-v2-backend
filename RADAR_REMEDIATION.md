@@ -305,7 +305,13 @@ Four separate faults, one root cause: nothing interpreted the goal before genera
 
 ## Phase 9 — Mentor, Capture, Summarize (spec #20, #15, #8)
 
-- [ ] 9.1 Fix whatever Phase 0.3 finds in Review Work / Mastery / Spaced Revision; give every one a real cold-start state
+- [~] 9.1 **Review Work root cause found and fixed.** It was not empty — it was fabricating.
+  Verified live: a **banana bread recipe and a security incident report came back byte-identical**,
+  same strengths, same weaknesses, same main issue, same score of 74. Two layers of canned output:
+  one in the AI engine's deterministic brain, one in the service's own `catch`. Both removed. A
+  review that cannot be produced now reports `wasReviewed: false`, keeps the user's work, and the
+  UI says so instead of rendering a 0/100 card. **Still open:** cold-start states for Mastery and
+  Spaced Revision.
 - [x] 9.2 ~~Ask (Tutor) suggestions seeded from the user's actual interest~~ — done. They were
   hardcoded to SQL JOINs and Zero Trust, so a cybersecurity learner was offered SQL and a nurse
   would have been offered both. Now built from the learning memory: "How do I become a {role}?"
