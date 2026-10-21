@@ -250,6 +250,28 @@ Adding `radar-api-production` alongside `radar-api-staging` in a single environm
 services distinguished only by name, sharing one variable namespace. It is the easiest to set up
 and the easiest to make a mistake in.
 
+### Duplicating an environment doubles what you pay for
+
+Four services become eight, each its own always-on container. That is enough to cross a Hobby
+plan's included credit, and Railway's response is a workspace-wide **"Limited Access — deploys have
+been paused temporarily"**. It is not a staging problem: no environment can deploy, so a production
+hotfix is blocked too, and the symptom in the meantime is a service that serves happily from its
+old container while ignoring every variable you set.
+
+Diagnose it from outside with `startedAt` on `/api/version`. If it has not moved, nothing you
+changed has been read, and the dashboard showing the new value means only that it was saved.
+
+Staging does not need the cron services. They cost resources on a schedule to do work nobody is
+watching, and a duplicated cron service still points at the **production** API until you change its
+target - so it fires real jobs against real data. Delete them from staging and trigger jobs by hand
+when a test needs one:
+
+```
+curl -X POST https://stagingapi.radarproapp.com/api/jobs/opportunity-batch   -H "X-Cron-Key: $STAGING_CRON_KEY"
+```
+
+That leaves staging as one service, which is the only one the staging frontend talks to.
+
 ## Domains, and which side sets what
 
 | | Frontend (Vercel) | API (Railway) |
