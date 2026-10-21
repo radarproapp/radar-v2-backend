@@ -335,6 +335,30 @@ So, in full:
 | Railway production | `Cors__AllowedOrigins__0=https://radarproapp.com`, `Cors__Strict=true` |
 | Railway staging | `Cors__AllowedOrigins__0=https://staging.radarproapp.com`, `Cors__Strict=true` |
 
+### Rotating the cron key
+
+`Jobs__CronKey` has to match in four places in production: the API service, and each of the three
+cron services as `CRON_KEY`. The API compares the `X-Cron-Key` header against its own value, and
+each cron container sends whatever it holds.
+
+Deploy them together. If the API comes up with a new key while a cron service still carries the
+old one, those jobs return 503 - and you will not see it, because Railway's cron reports success
+whenever the *container* exits, whatever HTTP status it got back. The symptom is "ingestion
+quietly stopped", days later.
+
+Confirm by hand rather than waiting for a schedule:
+
+```
+read -rs KEY                      # paste it; nothing is echoed, nothing reaches shell history
+curl -i -X POST https://api.radarproapp.com/api/jobs/ingestion -H "X-Cron-Key: $KEY"
+```
+
+200 or 204 means it matches; 503 means it does not.
+
+Note that a saved variable is not a live one. Configuration is read once at process start, so a
+rotated key does nothing until the service redeploys - check `startedAt` on `/api/version` to see
+whether the process has actually picked it up.
+
 ### Order matters
 
 Setting `Cors__Strict=true` before the domain resolves locks you out of your own API, because the
