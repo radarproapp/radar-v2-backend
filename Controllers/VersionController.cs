@@ -20,6 +20,9 @@ namespace RadarV2.Controllers;
 [Route("api/version")]
 public class VersionController : ControllerBase
 {
+    /// <summary>Process start, captured once when the type is first touched.</summary>
+    private static readonly DateTime StartedAt = DateTime.UtcNow;
+
     private readonly IWebHostEnvironment _environment;
     private readonly IConfiguration _config;
 
@@ -61,6 +64,13 @@ public class VersionController : ControllerBase
                 youTube = !string.IsNullOrWhiteSpace(_config["YouTube:ApiKey"]),
                 mongo = !string.IsNullOrWhiteSpace(_config["MongoDB:ConnectionString"]),
             },
+
+            // When this process started. Variables are read once at startup, so a variable changed
+            // on the host does nothing until the container restarts — and a redeploy of the same
+            // commit looks identical by sha. Without this there is no way to tell "the rename did
+            // not take" from "the service has not restarted yet".
+            startedAt = StartedAt,
+            uptimeMinutes = (int)(DateTime.UtcNow - StartedAt).TotalMinutes,
 
             utcNow = DateTime.UtcNow,
         });
