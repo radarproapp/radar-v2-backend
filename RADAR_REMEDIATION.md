@@ -175,7 +175,13 @@ The fastest way to simplify is to delete. Also the fastest way to restore trust.
   cannot drift. The generic deterministic "why" paragraph is replaced with an honest placeholder.
 - [x] 5c.8 ~~Expose the record~~ — `GET /api/me/learning-record`. Personalisation the user cannot
   see or correct is indistinguishable from personalisation that is not happening.
-- [ ] 5c.9 Surface the record in the UI so users can correct what Radar thinks it knows.
+- [x] 5c.9 ~~Surface the record in the UI so users can correct it~~ — `WhatRadarKnows` on the
+  Settings page. Separates what the user *told* Radar (edited on the profile, where they said it)
+  from what Radar *inferred* from behaviour, which each carry a "Not me" button. A correction is
+  stored as a `Declared` `RemoveInterest` signal via `POST /api/me/learning-record/corrections`
+  rather than deleting the signal, because a deletion would simply be re-inferred by the next
+  thing the user clicks, whereas a declared correction outranks inference and survives it.
+  Confidence is stated in words, not as a bare percentage.
 - [x] 5c.10 ~~Feed the record into opportunity matching~~ — `UserLearningRecord` now reaches the
   opportunity scorer: target role (+12), next priority topic (+10) and weak areas (+6), each
   carrying its own reason. Gated at `Confidence >= 0.35`, the same threshold the roadmap
