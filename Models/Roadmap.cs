@@ -150,7 +150,6 @@ public class LearningResource
     // Detailed 4-part intelligence format (for news / developments / blogs):
     public string WhatHappened { get; set; } = string.Empty;
     public string WhyItMatters { get; set; } = string.Empty;
-    public string YourEdge { get; set; } = string.Empty;
     public string NextMove { get; set; } = string.Empty;
 
     public bool IsCompleted { get; set; }

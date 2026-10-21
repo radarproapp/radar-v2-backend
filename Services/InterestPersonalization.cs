@@ -16,7 +16,7 @@ namespace RadarV2.Services;
 public static class InterestPersonalization
 {
     public sealed record DimensionMatch(string Dimension, string Phrase, double Coverage);
-    public sealed record Explanation(int Score, string Why, string YourEdge, string NextMove, IReadOnlyList<string> MatchedSignals);
+    public sealed record Explanation(int Score, string Why, string NextMove, IReadOnlyList<string> MatchedSignals);
 
     private static readonly HashSet<string> StopWords = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -87,17 +87,14 @@ public static class InterestPersonalization
             .ToList();
 
         var why = BuildWhy(profile, item, matches);
-        var edge = BuildYourEdge(profile, item, matches);
         var nextMove = BuildNextMove(profile, item, matches);
 
-        return new Explanation(score, why, edge, nextMove, signals);
+        return new Explanation(score, why, nextMove, signals);
     }
 
     public static int ContentScore(ContentItem item, UserProfile profile, UserLearningRecord? record = null) => Explain(profile, item, record).Score;
 
     public static string BuildWhy(UserProfile profile, ContentItem item) => Explain(profile, item).Why;
-
-    public static string BuildYourEdge(UserProfile profile, ContentItem item) => Explain(profile, item).YourEdge;
 
     public static string NextMove(UserProfile profile, ContentItem item) => Explain(profile, item).NextMove;
 
@@ -204,26 +201,6 @@ public static class InterestPersonalization
         sb.Append("This is not general industry news. It changes what you should learn next and how you position yourself.");
         return sb.ToString().Trim();
     }
-
-    /// <summary>
-    /// Suppressed. Spec 4.5 offers "per-item grounded output, or suppress the section" - this is
-    /// the second.
-    ///
-    /// What it used to produce was the same four sentences for every item in the feed, ending
-    /// with "a market worth watching is the emergence of specialized X workflows tailored for Y
-    /// infrastructure constraints" - a claim about a market nobody had looked at, written out for
-    /// every article. Where the user had stated no capability it filled the gap with "market
-    /// research" and told them it demonstrated theirs.
-    ///
-    /// The section was already removed from the interface in 1.2 and dropped from the AI contract
-    /// in 4.3, so nothing renders it. Generating it anyway meant the API kept asserting things
-    /// about readers that no screen would ever show them, and that they could not correct.
-    ///
-    /// The field itself still exists on the models and is now always empty; removing it touches
-    /// 67 sites across 13 files and is filed as 4.5b rather than done carelessly here.
-    /// </summary>
-    private static string BuildYourEdge(UserProfile profile, ContentItem item, List<DimensionMatch> matches) =>
-        string.Empty;
 
     /// <summary>
     /// What to actually do with this item.

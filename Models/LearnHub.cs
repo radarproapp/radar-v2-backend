@@ -82,7 +82,6 @@ public class HubResourceItem
     // Standard 4-part intelligence (Understand / Stay Current)
     public string WhatHappened { get; set; } = string.Empty;
     public string WhyItMatters { get; set; } = string.Empty;
-    public string YourEdge { get; set; } = string.Empty;
     public string NextMove { get; set; } = string.Empty;
 
     // Academic Paper 8-part Breakdown (Research)

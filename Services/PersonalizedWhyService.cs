@@ -156,7 +156,6 @@ public class PersonalizedWhyService : IPersonalizedWhyService
     private sealed class WhyResponse
     {
         public string Why { get; set; } = string.Empty;
-        public string YourEdge { get; set; } = string.Empty;
         public string NextMove { get; set; } = string.Empty;
         public bool CanConnect { get; set; } = true;
         public double Relevance { get; set; } = 1.0;

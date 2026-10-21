@@ -189,7 +189,6 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
             // then fills whatever is still empty so the UI always has a grounded reason and action.
             var explanation = InterestPersonalization.Explain(profile, item);
             item.PersonalizedWhy ??= explanation.Why;
-            item.YourEdge ??= explanation.YourEdge;
             item.NextMove ??= explanation.NextMove;
             if (item.MatchedSignals.Count == 0)
                 item.MatchedSignals = explanation.MatchedSignals.ToList();

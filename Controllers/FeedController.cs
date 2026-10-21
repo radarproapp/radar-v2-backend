@@ -71,7 +71,6 @@ public class FeedController : ControllerBase
         ["durationSeconds"] = i => i.DurationSeconds,
         ["authors"] = i => i.Authors,
         ["journal"] = i => i.Journal,
-        ["yourEdge"] = i => i.YourEdge,
         ["hasSummary"] = i => i.IsEnriched,
     };
 

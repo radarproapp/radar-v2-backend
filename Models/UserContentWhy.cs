@@ -12,7 +12,6 @@ public class UserContentWhy
     public string UserId { get; set; } = string.Empty;
     public string ContentItemId { get; set; } = string.Empty;
     public string WhyText { get; set; } = string.Empty;
-    public string YourEdge { get; set; } = string.Empty;
     public string NextMove { get; set; } = string.Empty;
 
     /// <summary>

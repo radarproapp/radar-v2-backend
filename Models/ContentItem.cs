@@ -72,7 +72,6 @@ public class ContentItem
     /// </summary>
     public string? WhyYoureSeeingThis { get; set; }
     public string? NextMove { get; set; }
-    public string? YourEdge { get; set; }
 }
 
 public class ChapterBreakdown

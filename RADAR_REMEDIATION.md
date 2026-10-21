@@ -140,8 +140,12 @@ The fastest way to simplify is to delete. Also the fastest way to restore trust.
   Also removed **56 catalogue strings** asserting what the reader can already do ("You write
   precise, minimal firewall rules…"), and extended `CatalogueClaimsTests` to cover `YourEdge` and
   plain second-person claims — the first version only caught time-based ones.
-- [ ] 4.5b Remove the now-always-empty `YourEdge` field from the models and the client (67 sites
-  across 13 files; deliberately not bundled into the behaviour change).
+- [x] 4.5b ~~Remove the now-always-empty `YourEdge` field~~ — gone from the four models, the
+  `Explanation` record, the feed's field projector and the client's type declarations. The 67-site
+  estimate was wrong: most of it was the 56 catalogue strings removed in 4.5 itself, leaving 11
+  backend sites and 4 in the client. Keeping it separate from the behaviour change was still the
+  right call — it is a pure deletion, and the build caught the one place a positional record
+  constructor still passed it.
 
 ## Phase 5 — Domain coverage + Learning Path (spec #13)
 
