@@ -48,6 +48,29 @@ endpoint.
 `main` deploys straight to Railway and Vercel, so CI is currently the *only* gate between a commit
 and production.
 
+## Branching
+
+```
+feature/something ──PR──> staging ──PR──> main
+                          (staging env)    (production)
+```
+
+- **`main`** is production. Nothing lands here that has not run on staging.
+- **`staging`** deploys the staging environment. This is where a change is actually exercised.
+- **`feature/*`**, **`fix/*`** — one branch per piece of work, branched from `staging`.
+
+Both branches run the same CI, and every pull request runs it too. Branch names are a convention,
+not enforcement: GitHub branch protection on `main` is what makes the flow real rather than
+optional, and is worth turning on.
+
+Why a feature branch rather than committing to `staging` directly: a branch is reviewable and
+revertible as a unit. Most of this codebase's worst bugs — a canned work review identical for any
+input, a goal pasted into a title, a field rendered but never requested — were small, plausible
+diffs that nobody looked at twice. A PR is the cheapest place to look twice.
+
+Keep a change on one branch per concern. Two unrelated fixes in one branch means reverting one
+reverts both.
+
 ## Known gaps
 
 Listed rather than quietly carried:
@@ -55,8 +78,9 @@ Listed rather than quietly carried:
 - **Environment separation is coded but not yet provisioned.** `appsettings.Staging.json`, the
   `/api/version` endpoint, per-environment frontend builds and the non-production banner are in.
   The Railway and Vercel services still need creating — runbook in `RAILWAY_DEPLOY.md`.
-- **Everything goes directly to `main`** — no branches, no PRs, no review. CI helps, but it cannot
-  catch a bad decision, only a broken build.
+- **Branch protection is not enabled.** The `staging` → `main` flow is documented and the branches
+  exist, but nothing prevents a direct push to `main`. Enable protection on `main` (require a PR,
+  require CI to pass) to make it real.
 - **No rate limiting.** AI calls cost real money against a monthly cap; one loop can exhaust it,
   and the only symptom is output quality quietly degrading.
 - **Input validation on roughly a third of controllers.**
