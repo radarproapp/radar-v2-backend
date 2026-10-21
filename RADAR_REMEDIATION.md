@@ -399,7 +399,13 @@ Four separate faults, one root cause: nothing interpreted the goal before genera
   (≤5 years), Established (≤15), or "Foundational - predates current practice by design".
   Derived from the publication date, not asserted. A 1998 paper can be the foundational text of
   its field and still be the wrong thing to copy as current practice.
-- [ ] 8.5 "Why this paper?" personalised to the user's research context
+- [x] 8.5 ~~"Why this paper?" personalised~~ — search and fetch now take the signed-in reader and
+  run the same `InterestPersonalization.Explain` the feed uses. Reusing it matters beyond saving
+  code: that scorer builds its sentence from the dimensions it actually matched on, so it cannot
+  claim a connection nothing computed. A hand-written "relevant to your research interests" is
+  true of everything and therefore worth nothing. With no profile the paper carries no "why" at
+  all — an unsigned-in reader is better served by silence than by a sentence about interests Radar
+  does not know.
 - [ ] 8.7 Broaden the Library to 100+ areas across academic and professional interests
 
 ## Phase 9 — Mentor, Capture, Summarize (spec #20, #15, #8)

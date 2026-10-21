@@ -10,10 +10,12 @@ namespace RadarV2.Controllers;
 public class ResearchController : ControllerBase
 {
     private readonly IResearchService _research;
+    private readonly IUserProfileService _profiles;
 
-    public ResearchController(IResearchService research)
+    public ResearchController(IResearchService research, IUserProfileService profiles)
     {
         _research = research;
+        _profiles = profiles;
     }
 
     [HttpGet("search")]
@@ -27,14 +29,16 @@ public class ResearchController : ControllerBase
         if (string.IsNullOrWhiteSpace(q))
             return BadRequest(new { error = "A search query 'q' is required." });
 
-        var results = await _research.SearchPapersAsync(q.Trim(), yearFrom, paperType, Math.Max(1, page), Math.Clamp(pageSize, 5, 50));
+        var profile = await _profiles.GetCurrentUserAsync();
+        var results = await _research.SearchPapersAsync(q.Trim(), yearFrom, paperType, Math.Max(1, page), Math.Clamp(pageSize, 5, 50), profile);
         return Ok(results);
     }
 
     [HttpGet("{id}")]
     public async Task<IActionResult> GetByIdAsync(string id)
     {
-        var paper = await _research.GetPaperByIdAsync(id);
+        var profile = await _profiles.GetCurrentUserAsync();
+        var paper = await _research.GetPaperByIdAsync(id, profile);
         if (paper == null)
             return NotFound(new { error = "Academic paper not found." });
 

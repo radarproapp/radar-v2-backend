@@ -29,7 +29,14 @@ public class MongoResearchService : IResearchService
         _ai = ai;
     }
 
-    public async Task<List<ContentItem>> SearchPapersAsync(string query, int yearFrom = 0, string? paperType = null, int page = 1, int pageSize = 25)
+    /// <summary>
+    /// Finds papers, and says why each one is in front of this reader.
+    ///
+    /// <paramref name="profile"/> is optional because several callers have no user in scope. When
+    /// it is absent the paper carries no "why", which is better than a generic one: "relevant to
+    /// your research interests" is the sentence a reader learns to skip.
+    /// </summary>
+    public async Task<List<ContentItem>> SearchPapersAsync(string query, int yearFrom = 0, string? paperType = null, int page = 1, int pageSize = 25, UserProfile? profile = null)
     {
         var combined = new List<ContentItem>();
         var seenDois = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -79,10 +86,12 @@ public class MongoResearchService : IResearchService
         // no verifiable work matches. Inventing a plausible-looking paper, DOI or statistic would
         // violate the "never invent academic information" rule the product is built on.
 
-        return combined.Take(pageSize * page).ToList();
+        var papers = combined.Take(pageSize * page).ToList();
+        ExplainForReader(papers, profile);
+        return papers;
     }
 
-    public async Task<ContentItem?> GetPaperByIdAsync(string id)
+    public async Task<ContentItem?> GetPaperByIdAsync(string id, UserProfile? profile = null)
     {
         // Check curated catalog first
         var local = ResearchPaperCatalog.GetAll().FirstOrDefault(p =>
@@ -106,6 +115,7 @@ public class MongoResearchService : IResearchService
             await EnsureAiPaperBreakdownAsync(paper);
         }
 
+        if (paper is not null) ExplainForReader([paper], profile);
         return paper;
     }
 
@@ -224,4 +234,28 @@ public class MongoResearchService : IResearchService
 
         AcademicPaperSynthesizer.EnrichPaperWithStrictBreakdown(paper);
     }
+    /// <summary>
+    /// Says why each paper is in front of this particular reader.
+    ///
+    /// Spec 8.5. Reuses the scorer the feed uses rather than writing a second one, which matters
+    /// for a reason beyond saving code: that scorer builds its sentence out of the dimensions it
+    /// actually matched on, so it cannot claim a connection nothing computed. A hand-written
+    /// "relevant to your research interests" would be true of everything and therefore worth
+    /// nothing.
+    ///
+    /// With no profile the paper carries no "why" at all. An unsigned-in reader is better served
+    /// by silence than by a sentence about interests Radar does not know.
+    /// </summary>
+    private static void ExplainForReader(IReadOnlyList<ContentItem> papers, UserProfile? profile)
+    {
+        if (profile is null) return;
+
+        foreach (var paper in papers)
+        {
+            var explanation = InterestPersonalization.Explain(profile, paper);
+            paper.MatchedSignals = explanation.MatchedSignals.ToList();
+            paper.WhyYoureSeeingThis = WhyShown.Build(paper, explanation.MatchedSignals);
+        }
+    }
+
 }
