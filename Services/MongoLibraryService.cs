@@ -14,12 +14,32 @@ public class MongoLibraryService : ILibraryService
 
     public MongoLibraryService(RadarDatabase db) => _db = db;
 
-    public async Task<List<LibraryDocument>> GetAllAsync(string? category = null, int? year = null, string? search = null)
+    /// <summary>
+    /// Library documents, newest first.
+    ///
+    /// <paramref name="recentOnly"/> is spec 8.6's "last five years". It is a parameter rather
+    /// than a hardcoded rule because the Library also holds foundational work that is older by
+    /// nature - silently hiding it would make the collection look thinner than it is, and the
+    /// reader would never know what had been withheld.
+    /// </summary>
+    public async Task<List<LibraryDocument>> GetAllAsync(
+        string? category = null,
+        int? year = null,
+        string? search = null,
+        bool recentOnly = false)
     {
         await EnsureSeededAsync();
 
         var builder = Builders<LibraryDocument>.Filter;
         var filter = builder.Empty;
+
+        // Never return a row whose original cannot be opened: the summary would be unverifiable.
+        filter &= builder.Ne(d => d.Url, null) & builder.Ne(d => d.Url, string.Empty);
+
+        if (recentOnly)
+        {
+            filter &= builder.Gte(d => d.Year, DateTime.UtcNow.Year - RecentYears);
+        }
 
         if (!string.IsNullOrWhiteSpace(category))
             filter &= builder.Eq(d => d.Category, category);
@@ -42,6 +62,9 @@ public class MongoLibraryService : ILibraryService
             .ThenBy(d => d.Title)
             .ToListAsync();
     }
+
+    /// <summary>What "recent" means for the Library. Spec 8.6.</summary>
+    private const int RecentYears = 5;
 
     public async Task<List<string>> GetCategoriesAsync()
     {

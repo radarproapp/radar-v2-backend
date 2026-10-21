@@ -24,20 +24,59 @@ public static class AcademicPaperSynthesizer
     /// from the paper's title, abstract, authors, journal, and citation signals.
     /// </summary>
     /// <summary>
-    /// Fills in <c>Era</c> when a paper already arrived with a breakdown.
+    /// Fills in the derived parts of a breakdown that arrived already built.
     ///
-    /// Search results do not go through the full enricher - they come straight from the
-    /// catalogue or from OpenAlex with a breakdown already built - so papers reached a reader
-    /// with an empty Era, which is the one field 8.4 exists for. Derived from the publication
-    /// date, so it never invents anything and costs a comparison.
+    /// Search results skip the full enricher - they come straight from the catalogue or from
+    /// OpenAlex with a breakdown attached - so any section added after those breakdowns were
+    /// written reaches the reader empty. That happened once with <c>Era</c> and again with
+    /// Limitations and FutureWork, which is why this is now a general backfill rather than a
+    /// fix for one field: the next part added will be covered without anyone remembering.
+    ///
+    /// Only fills what is empty, and only from what the paper already carries. Era comes from
+    /// the publication date; the other two are extracted from the abstract on the same terms as
+    /// every other section, and say <see cref="NotStated"/> when the abstract is silent.
     /// </summary>
-    public static void EnsureEra(ContentItem paper)
+    public static void EnsureDerivedParts(ContentItem paper)
     {
         if (paper.PaperBreakdown is null) return;
-        if (!string.IsNullOrWhiteSpace(paper.PaperBreakdown.Era)) return;
 
-        paper.PaperBreakdown.Era = EraFor(paper.PublishedAt.Year);
+        if (string.IsNullOrWhiteSpace(paper.PaperBreakdown.Era))
+        {
+            paper.PaperBreakdown.Era = EraFor(paper.PublishedAt.Year);
+        }
+
+        var abstractText = CleanText(
+            !string.IsNullOrWhiteSpace(paper.WhatHappened) ? paper.WhatHappened : paper.AiSummary ?? string.Empty);
+
+        if (string.IsNullOrWhiteSpace(paper.PaperBreakdown.Limitations))
+        {
+            paper.PaperBreakdown.Limitations = FromSource(
+                abstractText, "limitation", "however", "caveat", "constrain", "we did not", "does not", "cannot", "small sample", "future");
+        }
+
+        if (string.IsNullOrWhiteSpace(paper.PaperBreakdown.FutureWork))
+        {
+            paper.PaperBreakdown.FutureWork = FromSource(
+                abstractText, "future work", "further research", "next step", "remains to be", "we plan", "should be investigated", "open question");
+        }
+
+        if (string.IsNullOrWhiteSpace(paper.PaperBreakdown.WhyItMatters))
+        {
+            // Facts only, exactly as the full enricher states them. A hand-written catalogue
+            // entry that skipped this line left the reader with no provenance at all.
+            var journal = !string.IsNullOrWhiteSpace(paper.Journal)
+                ? paper.Journal
+                : (!string.IsNullOrWhiteSpace(paper.Source) ? paper.Source : "Source not recorded");
+            var year = paper.PublishedAt.Year > 1900 ? paper.PublishedAt.Year : DateTime.UtcNow.Year;
+
+            paper.PaperBreakdown.WhyItMatters = string.IsNullOrWhiteSpace(paper.Doi)
+                ? $"Published in {journal} ({year}). No DOI on record."
+                : $"Published in {journal} ({year}). DOI: {paper.Doi}";
+        }
     }
+
+    /// <summary>Kept for callers that only wanted the era. Delegates, so there is one backfill.</summary>
+    public static void EnsureEra(ContentItem paper) => EnsureDerivedParts(paper);
 
     public static void EnrichPaperWithStrictBreakdown(ContentItem paper)
     {
@@ -92,7 +131,12 @@ public static class AcademicPaperSynthesizer
 
             // Spec 8.4: where the work sits in time, so a 1998 foundational paper is not read as
             // current practice. Derived from the publication date rather than asserted.
-            Era = EraFor(year)
+            Era = EraFor(year),
+
+            // Spec 8.2. Both extracted from the abstract on the same terms as every other
+            // section: present when the authors said it, NotStated when they did not.
+            Limitations = FromSource(abstractText, "limitation", "however", "caveat", "constrain", "we did not", "does not", "cannot", "small sample", "future"),
+            FutureWork = FromSource(abstractText, "future work", "further research", "next step", "remains to be", "we plan", "should be investigated", "open question")
         };
 
         // Calculate total word count

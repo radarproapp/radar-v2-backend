@@ -83,6 +83,16 @@ public class MentorStudyTask
     /// than asserting importance.
     /// </summary>
     public string Relevance { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Where to go to do this task.
+    ///
+    /// Spec 9.4b. A search URL built from the task's own title and the plan's subject, not a
+    /// specific video: Radar has watched none of these, and a fixed link would rot the way the
+    /// 21 dead video ids in the catalogue did. "Here is where to look" is the honest form of a
+    /// suggestion nobody has verified.
+    /// </summary>
+    public string SuggestedSearchUrl { get; set; } = string.Empty;
 }
 
 public class MentorStudyWeek

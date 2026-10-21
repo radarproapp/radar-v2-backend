@@ -99,10 +99,76 @@ public class MongoLearnHubService : ILearnHubService
 
             ScopeToActivePath(payload, roadmap);
             SetNextStep(payload, roadmap);
+            AddNodesFromBehaviour(payload, roadmap);
         }
 
         return payload;
     }
+
+    /// <summary>
+    /// Adds graph nodes for topics the learner has actually touched.
+    ///
+    /// Spec 6.4b. Node *status* already came from behaviour - weak areas pull confidence down,
+    /// passed quizzes mark a node mastered - but the nodes themselves were whatever the catalogue
+    /// listed. So a learner who had spent three weeks on something outside the catalogue saw a
+    /// graph with no trace of it, and the one thing they had actually done was the one thing
+    /// missing.
+    ///
+    /// Only adds topics with real evidence behind them: a quiz sat, or a weak area the roadmap
+    /// recorded. A topic someone merely clicked once is not knowledge, and a graph that says it
+    /// is becomes decoration.
+    /// </summary>
+    private static void AddNodesFromBehaviour(LearnHubPayload payload, GrowthRoadmap roadmap)
+    {
+        var known = payload.GraphNodes
+            .Select(n => n.Label)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        // Topics the learner has been quizzed on, with how they did.
+        foreach (var quiz in roadmap.QuizResults)
+        {
+            if (string.IsNullOrWhiteSpace(quiz.Topic)) continue;
+            if (!known.Add(quiz.Topic)) continue;
+
+            payload.GraphNodes.Add(new KnowledgeGraphNode
+            {
+                Id = $"behaviour-{Slug(quiz.Topic)}",
+                Label = quiz.Topic,
+                Category = "Topic",
+                Status = quiz.Passed ? "Mastered" : "WeakArea",
+                ConfidencePercent = quiz.Passed ? 85 : 30,
+                Summary = quiz.Passed
+                    ? "You passed a quiz on this."
+                    : "You sat a quiz on this and it did not go well yet.",
+                Stage = roadmap.CurrentStage,
+            });
+        }
+
+        // Weak areas the roadmap recorded that are not otherwise on the graph.
+        foreach (var weak in roadmap.WeakAreas)
+        {
+            if (string.IsNullOrWhiteSpace(weak)) continue;
+            if (!known.Add(weak)) continue;
+
+            payload.GraphNodes.Add(new KnowledgeGraphNode
+            {
+                Id = $"behaviour-{Slug(weak)}",
+                Label = weak,
+                Category = "Topic",
+                Status = "WeakArea",
+                ConfidencePercent = 30,
+                Summary = "Your answers keep pointing back here.",
+                Stage = roadmap.CurrentStage,
+            });
+        }
+
+        payload.TotalMasteredNodes = payload.GraphNodes.Count(n => n.Status == "Mastered");
+        payload.TotalLearningNodes = payload.GraphNodes.Count(n => n.Status == "Learning");
+        payload.TotalWeakNodes = payload.GraphNodes.Count(n => n.Status == "WeakArea");
+    }
+
+    private static string Slug(string value) =>
+        new(value.ToLowerInvariant().Where(char.IsLetterOrDigit).ToArray());
 
     /// <summary>
     /// Narrows the hub to what this learner is actually working on.

@@ -365,7 +365,12 @@ Four separate faults, one root cause: nothing interpreted the goal before genera
   for them, and a search link dressed up as a podcast would be a format in name only. Filed as
   6.2b rather than counted.
 - [ ] 6.2b Podcasts, papers and docs in the Learn Hub mix (needs a source for each).
-- [ ] 6.4b Knowledge graph *nodes* derived from behaviour, not only their status.
+- [x] 6.4b ~~Knowledge graph nodes derived from behaviour~~ — node *status* already came from
+  real activity; the nodes were whatever the catalogue listed, so a learner who had spent weeks on
+  something outside it saw a graph with no trace of the one thing they had actually done. Topics
+  with real evidence behind them — a quiz sat, a weak area recorded — now become nodes. A topic
+  merely clicked once does not: that is not knowledge, and a graph that says it is becomes
+  decoration.
 - [x] 6.3 ~~"Why this resource?" on every item~~ — the field was already populated; the problem
   was what two of them said. A static catalogue entry read "recommended because you are currently
   learning network security and **have not yet completed the fundamentals of firewalls**" — shown
@@ -461,12 +466,22 @@ Four separate faults, one root cause: nothing interpreted the goal before genera
 > claiming a summary when one genuinely is absent.
 
 - [x] 8.1 ~~Generate the structured breakdown for search results~~ — already true at HEAD; verified live, see note above
-- [ ] 8.2 Full 10-part summary format per spec #18 §5. **Note:** the word-count floor is dropped.
-  A guaranteed length and "do not invent" cannot both hold — the old padding sentence existed only
-  to reach the count. All parts are present; parts the source does not support say so, and the
-  summary is shorter.
-- [ ] 8.6 Library: last five years, original always accessible. **The 500-word floor is dropped
-  for the same reason as 8.2** — length is now a ceiling, not a target.
+- [x] 8.2 ~~Full multi-part summary format~~ — eleven parts now, all extracted or derived:
+  Introduction, Problem, Aim, Methodology, Key Arguments, Findings, Contribution, Why It Matters,
+  Era, **Limitations** and **Future Work**. The last two are the useful ones a summary usually
+  drops: a reader deciding whether to act on a finding needs to know the sample was 40
+  undergraduates. Verified live — 4/4 papers carry all eleven.
+  **Two caveats, stated rather than buried.** The word-count floor is gone: a guaranteed length
+  and "do not invent" cannot both hold, and the old padding sentence existed only to reach the
+  count. And spec #18 §5's exact tenth part is not recorded anywhere in this repo, so rather than
+  invent a section heading to hit a number, I added the two that are standard *and* extractable.
+  If the spec names something else, it is one more `FromSource` call.
+- [x] 8.6 ~~Library: last five years, original always accessible~~ — `?recentOnly=true` filters
+  to five years; verified live, 205 of 208 documents. **A document with no URL is never returned
+  at all**: a summary of something the reader cannot open asks them to take Radar's word for what
+  it said, which is the position this whole effort has been getting out of. Recency is opt-in
+  rather than always-on because the Library also holds foundational work that is older by nature,
+  and hiding it silently would make the collection look thinner without telling anyone.
 - [x] 8.3 ~~"Not clearly stated in the available source" instead of inventing~~ — the summariser
   was inventing scholarship. A paper with no stated methodology was credited with "an empirical,
   multi-tiered methodological framework combining quantitative modeling, systematic observational
@@ -516,7 +531,17 @@ Four separate faults, one root cause: nothing interpreted the goal before genera
   **Suggested resources and "make this my learning path" are not done** and are filed as 9.4b;
   both need the plan's topics resolved against the resource builder, which is its own piece of
   work rather than a line in this one.
-- [ ] 9.4b Study plan: suggested resources per task, and "make this my learning path".
+- [x] 9.4b ~~Study plan: suggested resources, and "make this my learning path"~~ — each task
+  carries a search URL built from its own title and the plan's subject (a search, never a fixed
+  link: 21 of this codebase's 33 hardcoded video ids were already dead). `POST
+  /api/mentor/study-plan/{id}/adopt` turns the plan into the active roadmap, built from the plan's
+  own goal so the two agree instead of being assembled separately from the same intention.
+  Verified live: a nursing plan adopted into a 4-module roadmap.
+  **Found while testing:** the no-API-key fallback gave *every* subject data-analytics weeks —
+  week two "Data Preparation, Ingestion & Tool Setup", week three "Advanced Modeling &
+  Analytical Techniques" — so a nursing learner got a modelling week. That is the path most
+  learners hit, since it runs whenever the model is unavailable. Themes are phrased against the
+  learner's own topic now.
 - [~] 9.5 Capture — **link done** (`df4d2c7`): real title, source and a personalised why. **Note
   clarified** by rebuilding it on Google Keep (`fba2158`). **Photo and voice still do not work** —
   they need file-upload plumbing that does not exist.

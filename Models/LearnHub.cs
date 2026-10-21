@@ -39,6 +39,20 @@ public class AcademicPaperBreakdown
     /// </summary>
     public string Era { get; set; } = string.Empty;
 
+    /// <summary>
+    /// What the authors say their work cannot do.
+    ///
+    /// The most useful section of any paper and the one most often dropped. A reader deciding
+    /// whether to act on a finding needs to know the sample was 40 undergraduates before they
+    /// generalise it to a company. Extracted, never inferred - a paper that states no limitation
+    /// gets <see cref="AcademicPaperSynthesizer.NotStated"/> rather than a polite one invented on
+    /// its behalf.
+    /// </summary>
+    public string Limitations { get; set; } = string.Empty;
+
+    /// <summary>What the authors say should be studied next, where they say it.</summary>
+    public string FutureWork { get; set; } = string.Empty;
+
     public int TotalWordCount =>
         (Introduction + " " + Problem + " " + AimAndObjectives + " " + Methodology + " " + KeyArguments + " " + Findings + " " + Contribution)
         .Split(new[] { ' ', '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries).Length;

@@ -20,12 +20,17 @@ public class LibraryController : ControllerBase
     public async Task<IActionResult> GetAllAsync(
         [FromQuery] string? category = null,
         [FromQuery] int? year = null,
-        [FromQuery] string? search = null)
+        [FromQuery] string? search = null,
+        // Spec 8.6's "last five years". Opt-in rather than always-on: the Library also holds
+        // foundational work that is older by nature, and hiding it silently would make the
+        // collection look thinner than it is without telling the reader anything was withheld.
+        [FromQuery] bool recentOnly = false)
     {
         return Ok(await _library.GetAllAsync(
             string.IsNullOrWhiteSpace(category) ? null : category,
             year is > 0 ? year : null,
-            string.IsNullOrWhiteSpace(search) ? null : search));
+            string.IsNullOrWhiteSpace(search) ? null : search,
+            recentOnly));
     }
 
     [HttpGet("categories")]

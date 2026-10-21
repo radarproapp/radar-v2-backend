@@ -19,11 +19,16 @@ public class MentorController : ControllerBase
 {
     private readonly ILearningMentorService _mentor;
     private readonly IUserProfileService _profiles;
+    private readonly IRoadmapService _roadmaps;
 
-    public MentorController(ILearningMentorService mentor, IUserProfileService profiles)
+    public MentorController(
+        ILearningMentorService mentor,
+        IUserProfileService profiles,
+        IRoadmapService roadmaps)
     {
         _mentor = mentor;
         _profiles = profiles;
+        _roadmaps = roadmaps;
     }
 
     // ── Chat & Tutor ────────────────────────────────────────────────────────
@@ -103,6 +108,40 @@ public class MentorController : ControllerBase
 
         var plan = await _mentor.CreateStudyPlanAsync(profile.Id, request.Topic, request.Goal, Math.Clamp(request.Weeks, 1, 12));
         return Ok(plan);
+    }
+
+    /// <summary>
+    /// Turns a study plan into the learner's active roadmap.
+    ///
+    /// Spec 9.4b. A plan and a roadmap were two separate things a learner could be holding at
+    /// once, with no way to say "this one". The plan is the better answer when they have just
+    /// built one with the mentor - it was made against their stated goal, in conversation - so
+    /// there has to be a way to adopt it rather than retyping the goal into a second screen and
+    /// hoping the result matches.
+    ///
+    /// Creates the roadmap from the plan's own goal, so the two agree rather than being
+    /// assembled separately from the same intention.
+    /// </summary>
+    [HttpPost("study-plan/{planId}/adopt")]
+    public async Task<IActionResult> AdoptStudyPlanAsync(string planId)
+    {
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        var plan = await _mentor.GetActiveStudyPlanAsync(profile.Id);
+        if (plan is null || plan.Id != planId)
+        {
+            return NotFound(new { error = "That study plan is not active for this account." });
+        }
+
+        var goal = !string.IsNullOrWhiteSpace(plan.Goal) ? plan.Goal : plan.Topic;
+        if (string.IsNullOrWhiteSpace(goal))
+        {
+            return BadRequest(new { error = "This plan has no goal to build a path from." });
+        }
+
+        var roadmap = await _roadmaps.CreateRoadmapAsync(profile.Id, goal);
+        return Ok(roadmap);
     }
 
     [HttpGet("study-plan/active")]

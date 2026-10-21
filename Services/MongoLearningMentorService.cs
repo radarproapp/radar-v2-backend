@@ -304,6 +304,9 @@ public class MongoLearningMentorService : ILearningMentorService
                                     task.TryGetProperty("focusArea", out var fa2) ? fa2.GetString() : "CoreSkill",
                                     plan.Goal,
                                     studyWeek.Theme),
+                                SuggestedSearchUrl = SearchFor(
+                                    task.TryGetProperty("title", out var tt2) ? tt2.GetString() ?? "" : "",
+                                    plan.Topic),
                             });
                         }
                     }
@@ -353,6 +356,7 @@ public class MongoLearningMentorService : ILearningMentorService
                 EstimatedTime = "25 min",
                 FocusArea = "WeakArea",
                 Relevance = $"Added because your answers showed {reason} was not sticking yet.",
+                SuggestedSearchUrl = SearchFor(reason, plan.Topic),
             });
         }
 
@@ -781,6 +785,24 @@ public class MongoLearningMentorService : ILearningMentorService
     }
 
     /// <summary>
+    /// Where to look for the material a task needs.
+    ///
+    /// A search, never a fixed link. Of the 33 hardcoded video ids this codebase used to carry,
+    /// 21 were already dead - a suggestion nobody has verified should not pretend to be one
+    /// somebody has.
+    /// </summary>
+    private static string SearchFor(string taskTitle, string subject)
+    {
+        var query = string.IsNullOrWhiteSpace(taskTitle)
+            ? subject
+            : $"{taskTitle} {subject}".Trim();
+
+        return string.IsNullOrWhiteSpace(query)
+            ? string.Empty
+            : $"https://www.youtube.com/results?search_query={Uri.EscapeDataString(query)}";
+    }
+
+    /// <summary>
     /// Why a task is on the plan, in terms of the learner's own goal.
     ///
     /// Spec 9.4. Built from the focus area the planner already assigned and the goal the learner
@@ -802,7 +824,10 @@ public class MongoLearningMentorService : ILearningMentorService
                 => $"Produces something you can show when applying for {target}.",
             "Portfolio" => "Produces something you can show to an employer.",
 
+            // When the theme already names the subject, repeating it produces "the basics of
+            // nursing is part of the core of nursing" - true, and useless.
             "CoreSkill" when target is not null && !string.IsNullOrWhiteSpace(theme)
+                             && !theme.Contains(target, StringComparison.OrdinalIgnoreCase)
                 => $"{SubjectPhrase.Clean(theme)} is part of the core of {target}.",
             "CoreSkill" when target is not null => $"Part of the core of {target}.",
 
@@ -810,33 +835,70 @@ public class MongoLearningMentorService : ILearningMentorService
         };
     }
 
+    /// <summary>
+    /// The plan built when the model is unavailable.
+    ///
+    /// The week themes used to be data-analytics curriculum applied to every subject: week two
+    /// was "Data Preparation, Ingestion & Tool Setup" and week three "Advanced Modeling &
+    /// Analytical Techniques" whatever the learner had asked for, so a nursing student got a
+    /// modelling week. They are phrased against the learner's own topic now, which reads
+    /// correctly for any subject because it asserts nothing about the subject's content.
+    ///
+    /// Tasks carry the same relevance line and search suggestion the generated path produces -
+    /// this is the path that runs with no API key configured, so it is the one most learners
+    /// actually see.
+    /// </summary>
     private static List<MentorStudyWeek> GenerateDefaultWeeks(string topic, int weeks)
     {
+        var subject = SubjectPhrase.Lower(topic);
         var list = new List<MentorStudyWeek>();
+
         for (int i = 1; i <= weeks; i++)
         {
             var theme = i switch
             {
-                1 => $"{topic} Fundamentals & Core Architecture",
-                2 => "Data Preparation, Ingestion & Tool Setup",
-                3 => "Advanced Modeling & Analytical Techniques",
-                4 => "Applied Case Studies & Scenario Handling",
-                5 => "Optimization, Security & Error Diagnostics",
-                _ => "End-to-End Capstone Portfolio Project"
+                1 => $"The basics of {subject}",
+                2 => $"Tools and setup for {subject}",
+                3 => $"Going deeper into {subject}",
+                4 => $"Applying {subject} to real cases",
+                5 => "Where this usually goes wrong",
+                _ => "A project you can show someone",
             };
+
+            var deepDive = $"Work through {theme.ToLowerInvariant()}";
+            var practice = $"Practise {theme.ToLowerInvariant()}";
 
             list.Add(new MentorStudyWeek
             {
                 WeekNumber = i,
                 Theme = theme,
-                Milestone = $"Deliver verified artifact for {theme}",
+                Milestone = $"Something finished you can point at for: {theme}",
                 Tasks =
                 [
-                    new() { Title = $"Deep Dive: {theme}", Description = $"Master key concepts and practical patterns in {theme}.", ResourceType = "Tutorial", EstimatedTime = "45 min", FocusArea = "CoreSkill" },
-                    new() { Title = $"Hands-On Exercise: {theme}", Description = $"Execute exercises to test understanding of {theme}.", ResourceType = "Practice", EstimatedTime = "30 min", FocusArea = "WeakArea" }
-                ]
+                    new()
+                    {
+                        Title = deepDive,
+                        Description = $"Learn the core of {theme.ToLowerInvariant()} well enough to explain it.",
+                        ResourceType = "Tutorial",
+                        EstimatedTime = "45 min",
+                        FocusArea = "CoreSkill",
+                        Relevance = TaskRelevance("CoreSkill", topic, theme),
+                        SuggestedSearchUrl = SearchFor(theme, topic),
+                    },
+                    new()
+                    {
+                        Title = practice,
+                        Description = $"Do it yourself without following along, and note what you had to look up.",
+                        ResourceType = "Practice",
+                        EstimatedTime = "30 min",
+                        FocusArea = "Portfolio",
+                        Relevance = TaskRelevance("Portfolio", topic, theme),
+                        SuggestedSearchUrl = SearchFor(practice, topic),
+                    },
+                ],
             });
         }
+
         return list;
     }
 
