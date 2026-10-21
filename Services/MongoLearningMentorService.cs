@@ -299,7 +299,11 @@ public class MongoLearningMentorService : ILearningMentorService
                                 Description = task.TryGetProperty("description", out var td) ? td.GetString() ?? "" : "",
                                 ResourceType = task.TryGetProperty("resourceType", out var rt) ? rt.GetString() ?? "Practice" : "Practice",
                                 EstimatedTime = task.TryGetProperty("estimatedTime", out var et) ? et.GetString() : "30 min",
-                                FocusArea = task.TryGetProperty("focusArea", out var fa) ? fa.GetString() : "CoreSkill"
+                                FocusArea = task.TryGetProperty("focusArea", out var fa) ? fa.GetString() : "CoreSkill",
+                                Relevance = TaskRelevance(
+                                    task.TryGetProperty("focusArea", out var fa2) ? fa2.GetString() : "CoreSkill",
+                                    plan.Goal,
+                                    studyWeek.Theme),
                             });
                         }
                     }
@@ -347,7 +351,8 @@ public class MongoLearningMentorService : ILearningMentorService
                 Description = $"Targeted practice session added because a weak area was detected in {reason}.",
                 ResourceType = "Practice",
                 EstimatedTime = "25 min",
-                FocusArea = "WeakArea"
+                FocusArea = "WeakArea",
+                Relevance = $"Added because your answers showed {reason} was not sticking yet.",
             });
         }
 
@@ -773,6 +778,36 @@ public class MongoLearningMentorService : ILearningMentorService
                 Subtopic = topic
             }
         ];
+    }
+
+    /// <summary>
+    /// Why a task is on the plan, in terms of the learner's own goal.
+    ///
+    /// Spec 9.4. Built from the focus area the planner already assigned and the goal the learner
+    /// already stated, so it describes a relationship that exists. Where the focus area says
+    /// nothing useful it returns empty rather than filling the line with encouragement - a
+    /// sentence that would read the same on every task teaches the learner to skip the field.
+    /// </summary>
+    private static string TaskRelevance(string? focusArea, string goal, string theme)
+    {
+        var target = string.IsNullOrWhiteSpace(goal) ? null : SubjectPhrase.Lower(goal);
+
+        return focusArea switch
+        {
+            "WeakArea" when !string.IsNullOrWhiteSpace(theme)
+                => $"Covers {SubjectPhrase.Lower(theme)}, which your answers show is not solid yet.",
+            "WeakArea" => "Covers something your answers show is not solid yet.",
+
+            "Portfolio" when target is not null
+                => $"Produces something you can show when applying for {target}.",
+            "Portfolio" => "Produces something you can show to an employer.",
+
+            "CoreSkill" when target is not null && !string.IsNullOrWhiteSpace(theme)
+                => $"{SubjectPhrase.Clean(theme)} is part of the core of {target}.",
+            "CoreSkill" when target is not null => $"Part of the core of {target}.",
+
+            _ => string.Empty,
+        };
     }
 
     private static List<MentorStudyWeek> GenerateDefaultWeeks(string topic, int weeks)

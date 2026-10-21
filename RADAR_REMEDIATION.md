@@ -492,7 +492,16 @@ Four separate faults, one root cause: nothing interpreted the goal before genera
   your mistakes showed none of them. Every question now appears at the end with your answer, the
   correct answer and the reason, plus the detected weak areas. **Still open:** difficulty.
   Advanced-tier question generation has not been reviewed against real model output.
-- [ ] 9.4 Study plan: short relevance note per topic, suggested resources, "make this my learning path"
+- [x] 9.4 ~~Study plan: short relevance note per topic~~ — partially. Every task now carries a
+  `Relevance` line built from the focus area the planner already assigned and the goal the learner
+  already stated, so it describes a relationship that exists: "Produces something you can show
+  when applying for X", "Covers Y, which your answers show is not solid yet". Where the focus area
+  says nothing useful it stays empty rather than filling the line with encouragement — a sentence
+  that reads the same on every task teaches the learner to skip the field.
+  **Suggested resources and "make this my learning path" are not done** and are filed as 9.4b;
+  both need the plan's topics resolved against the resource builder, which is its own piece of
+  work rather than a line in this one.
+- [ ] 9.4b Study plan: suggested resources per task, and "make this my learning path".
 - [~] 9.5 Capture — **link done** (`df4d2c7`): real title, source and a personalised why. **Note
   clarified** by rebuilding it on Google Keep (`fba2158`). **Photo and voice still do not work** —
   they need file-upload plumbing that does not exist.
@@ -506,7 +515,14 @@ Four separate faults, one root cause: nothing interpreted the goal before genera
   clears `OnboardingComplete` and the stale `PersonaDetails`, and the client routes to that
   persona's flow instead of home. An ordinary edit (same persona) is untouched, and details sent in
   the same request as the switch — which is what the onboarding flows do — are not wiped.
-- [ ] 10.2 Retire the generic `EditProfile` form in favour of the persona flows
+- [x] 10.2 ~~Retire the generic `EditProfile` form~~ — a persona switch already routed to the
+  right onboarding flow; what remained was the "Your situation" block, seven free-text boxes
+  asking the same questions the persona flows ask — "What's making this difficult?", "Target
+  role", "What do you want to become better at?" — but without the guidance, examples or ordering
+  that make them answerable, and giving two places for the same answers to disagree. The answers
+  are now shown read-only, with a button into the flow built for that persona. Shown rather than
+  hidden for the same reason as in Settings: an unanswered question is usually what explains thin
+  personalisation.
 
 ## Explicitly not changing
 

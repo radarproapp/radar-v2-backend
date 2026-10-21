@@ -73,6 +73,16 @@ public class MentorStudyTask
     public string? EstimatedTime { get; set; }
     public bool IsCompleted { get; set; }
     public string? FocusArea { get; set; } // "WeakArea", "CoreSkill", "Portfolio"
+
+    /// <summary>
+    /// One line on why this task is on the plan, in terms of the learner's own goal.
+    ///
+    /// Spec 9.4. A plan is a list of instructions until each line says what it is for; without
+    /// this the learner has to take on trust that week three belongs where it is. Derived from
+    /// the task's focus area and the plan's goal, so it states a relationship that exists rather
+    /// than asserting importance.
+    /// </summary>
+    public string Relevance { get; set; } = string.Empty;
 }
 
 public class MentorStudyWeek

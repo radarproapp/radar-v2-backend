@@ -14,7 +14,13 @@ namespace RadarV2.Services;
 /// </summary>
 public static class ConfigurationCheck
 {
-    /// <summary>Settings read as "Section:Key", so their variable form needs a double underscore.</summary>
+    /// <summary>
+    /// Settings read as "Section:Key", so their variable form needs a double underscore.
+    ///
+    /// Only keys the product actually needs. OpenAlex was listed here and does not belong: it is
+    /// a free, keyless API, and the optional `api_key` is appended to one RSS URL and used nowhere
+    /// else. Listing it told anyone setting Radar up that they had a key to go and find.
+    /// </summary>
     private static readonly string[] SectionedKeys =
     [
         "Jobs:CronKey",
@@ -22,7 +28,6 @@ public static class ConfigurationCheck
         "MongoDB:DatabaseName",
         "OpenRouter:ApiKey",
         "YouTube:ApiKey",
-        "OpenAlex:ApiKey",
         "Auth:Jwt:Key",
     ];
 
