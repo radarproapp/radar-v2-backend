@@ -11,17 +11,20 @@ public class MongoOpportunityService : IOpportunityService
     private readonly RadarDatabase _db;
     private readonly AiOpportunityMatchService _aiMatch;
     private readonly IUserLearningRecordService _records;
+    private readonly IBehavioralSignalService _signals;
     private static bool _seeded;
     private static readonly SemaphoreSlim _seedLock = new(1, 1);
 
     public MongoOpportunityService(
         RadarDatabase db,
         AiOpportunityMatchService aiMatch,
-        IUserLearningRecordService records)
+        IUserLearningRecordService records,
+        IBehavioralSignalService signals)
     {
         _db = db;
         _aiMatch = aiMatch;
         _records = records;
+        _signals = signals;
     }
 
     /// <summary>
@@ -489,6 +492,44 @@ public class MongoOpportunityService : IOpportunityService
             if (!appliedExists)
                 await _db.AppliedOpportunities.InsertOneAsync(new AppliedOpportunityDoc { UserId = userId, OpportunityId = opportunityId });
         }
+
+        await LearnFromTrackingAsync(userId, opportunityId, status);
+    }
+
+    /// <summary>
+    /// Turns a tracking action into something Radar can generalise from.
+    ///
+    /// Marking one opportunity "not relevant" used to hide that single row and nothing more. The
+    /// only generalisation was a flat -5 once a user had dismissed three of anything, under a
+    /// variable called `notRelevantCountInType` that did not count by type - so dismissing three
+    /// scholarships nudged jobs down by the same amount, and dismissing thirty taught no more than
+    /// dismissing three.
+    ///
+    /// Recording the action against the opportunity's own terms feeds the same signal store the
+    /// learning record is built from, so one dismissal now reaches the roadmap, the feed and
+    /// future opportunity matching rather than one row.
+    /// </summary>
+    private async Task LearnFromTrackingAsync(string userId, string opportunityId, OpportunityTrackingStatus status)
+    {
+        var action = status switch
+        {
+            OpportunityTrackingStatus.Interested => BehavioralAction.MoreLikeThis,
+            OpportunityTrackingStatus.Saved => BehavioralAction.Save,
+            OpportunityTrackingStatus.Applied => BehavioralAction.Apply,
+            OpportunityTrackingStatus.Accepted => BehavioralAction.Complete,
+            OpportunityTrackingStatus.NotRelevant => BehavioralAction.NotRelevant,
+            _ => (BehavioralAction?)null,
+        };
+
+        if (action is null) return;
+
+        var opportunity = await _db.Opportunities.Find(o => o.Id == opportunityId).FirstOrDefaultAsync();
+        if (opportunity is null) return;
+
+        foreach (var term in OpportunitySignalTerms.For(opportunity))
+        {
+            await _signals.RecordAsync(userId, term, action.Value);
+        }
     }
 
     public async Task ToggleReminderAsync(string userId, string opportunityId, bool reminderSet)
@@ -661,6 +702,11 @@ public class MongoOpportunityService : IOpportunityService
             }
         }
 
+        // A blunt backstop, kept small on purpose. It counts dismissals of anything at all, so it
+        // cannot tell a user who is done with scholarships from one who is done with Radar - and
+        // it was previously read through a variable named `notRelevantCountInType`, which counted
+        // no such thing. The specific work is done by the signals recorded in
+        // LearnFromTrackingAsync, which generalise by type, goal and field rather than by volume.
         if (trackingMap.Values.Count(t => t.Status == OpportunityTrackingStatus.NotRelevant) > 2) score -= 5;
 
         opp.MatchScorePercent = Math.Clamp(score, 38, 98);

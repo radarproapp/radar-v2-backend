@@ -342,7 +342,17 @@ Four separate faults, one root cause: nothing interpreted the goal before genera
 - [ ] 7.3 Deadline intelligence and reminders
 - [ ] 7.4 Detail page: what it is, why it matches, requirements, benefits, how to apply, Radar's advice
 - [ ] 7.5 "Help me apply" wired to the Mentor
-- [ ] 7.6 Tracking states feed back into matching
+- [x] 7.6 ~~Tracking states feed back into matching~~ — they now teach the signal store rather
+  than just hiding one row. Saving, applying, being accepted or marking "not relevant" records a
+  behavioural signal against the opportunity's **type, goal tag and field** (never its title, which
+  identifies one row and transfers to nothing). That store is what the learning record is built
+  from, so a single dismissal now reaches the roadmap, the feed and future opportunity matching.
+  The only generalisation before was a flat −5 once a user had dismissed three of *anything*, read
+  through a variable called `notRelevantCountInType` that did not count by type — so dismissing
+  three scholarships nudged jobs down equally, and dismissing thirty taught no more than three. It
+  is kept as a blunt backstop, now honestly described.
+  **Not yet verified end to end** — Docker was down, so the write path is covered by the build and
+  by `OpportunitySignalTermsTests` but has not been exercised against a live database.
 
 ## Phase 8 — Research + Intelligence Library (spec #18, #19)
 
