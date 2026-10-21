@@ -62,10 +62,39 @@ public class Opportunity
     /// hurried into applying for something that shut last week.
     /// </summary>
     public string UrgencyLabel =>
-        HasClosed ? "⚫ Closed" :
-        !Deadline.HasValue ? "🟢 No deadline given" :
-        DaysUntilDeadline <= 7 ? "🔴 Urgent" :
-        DaysUntilDeadline <= 21 ? "🟡 2 weeks left" : "🟢 Open";
+        UrgencyLevel switch
+        {
+            OpportunityUrgency.Closed => "Closed",
+            OpportunityUrgency.NoDeadline => "No deadline given",
+            OpportunityUrgency.Urgent => "Urgent",
+            OpportunityUrgency.Soon => "2 weeks left",
+            _ => "Open",
+        };
+
+    /// <summary>
+    /// How pressing the deadline is, as a value rather than a picture.
+    ///
+    /// The label used to carry a coloured circle emoji before the word - "Urgent" with a red dot
+    /// in front of it. That put a presentation decision
+    /// inside a data field: the server chose a glyph that renders differently on every platform,
+    /// cannot be recoloured for a theme, and is read aloud as "large red circle" before the word
+    /// that matters. The client draws the state; the server says what the state is.
+    /// </summary>
+    public OpportunityUrgency UrgencyLevel =>
+        HasClosed ? OpportunityUrgency.Closed :
+        !Deadline.HasValue ? OpportunityUrgency.NoDeadline :
+        DaysUntilDeadline <= 7 ? OpportunityUrgency.Urgent :
+        DaysUntilDeadline <= 21 ? OpportunityUrgency.Soon : OpportunityUrgency.Open;
+}
+
+/// <summary>How pressing an opportunity's deadline is.</summary>
+public enum OpportunityUrgency
+{
+    Open,
+    Soon,
+    Urgent,
+    Closed,
+    NoDeadline,
 }
 
 public class DailyOpportunityFeed

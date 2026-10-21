@@ -73,7 +73,7 @@ public class MongoLearnHubService : ILearnHubService
                 }
                 if (roadmap.CompletedExerciseIds.Contains(res.Id))
                 {
-                    res.PracticeExercise = $"{res.PracticeExercise} [Completed ✓]";
+                    res.PracticeExercise = $"{res.PracticeExercise} [Completed]";
                 }
             }
 

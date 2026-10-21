@@ -162,7 +162,7 @@ public static class LearningResourceCatalog
         {
             Id = "da-beg-04",
             Order = 4,
-            SequenceRole = "⚡ New Development",
+            SequenceRole = "New Development",
             EstimatedTime = "25 minutes",
             Title = "Microsoft Copilot & Python in Excel – Modern AI Analytics Workflows",
             Url = "https://www.youtube.com/results?search_query=Practice%3A%20Build%20an%20Executive%20KPI%20Visual%20Microsoft%20Tech",
@@ -273,7 +273,7 @@ public static class LearningResourceCatalog
         {
             Id = "da-int-04",
             Order = 4,
-            SequenceRole = "⚡ New Development",
+            SequenceRole = "New Development",
             EstimatedTime = "25 minutes",
             Title = "Microsoft Fabric & Direct Lake Mode: High-Velocity Enterprise BI",
             Url = "https://www.youtube.com/results?search_query=Practice%3A%20Recreate%20the%20Power%20BI%20Dashboard%20Guy%20in%20a%20Cube",
@@ -382,7 +382,7 @@ public static class LearningResourceCatalog
         {
             Id = "da-adv-04",
             Order = 4,
-            SequenceRole = "⚡ New Development",
+            SequenceRole = "New Development",
             EstimatedTime = "30 minutes",
             Title = "Automated Analytics & Local LLM Code Interpreters (DSPy & LangGraph)",
             Url = "https://www.youtube.com/results?search_query=Practice%3A%20Train%20a%20Customer%20Churn%20Predictor%20Harrison%20Chase",
@@ -577,7 +577,7 @@ public static class LearningResourceCatalog
         {
             Id = "ai-beg-03",
             Order = 3,
-            SequenceRole = "⚡ New Development",
+            SequenceRole = "New Development",
             EstimatedTime = "42 minutes",
             Title = "State of AI 2026: Reasoning Models, Small Language Models & Edge Inference",
             Url = "https://www.youtube.com/results?search_query=Practice%3A%20Implement%20a%203-Layer%20PyTorch%20MLP%20Andrej%20Karpathy",
@@ -656,7 +656,7 @@ public static class LearningResourceCatalog
         {
             Id = "ai-int-03",
             Order = 3,
-            SequenceRole = "⚡ New Development",
+            SequenceRole = "New Development",
             EstimatedTime = "26 minutes",
             Title = "DeepSeek-R1 Architecture Breakdown: Pure RL & Reasoning Emergence",
             Url = "https://www.youtube.com/results?search_query=Practice%3A%20Build%20a%203-Node%20LangGraph%20Agent%20AI%20Explained",
@@ -802,7 +802,7 @@ public static class LearningResourceCatalog
         {
             Id = "pm-beg-02",
             Order = 2,
-            SequenceRole = "⚡ New Development",
+            SequenceRole = "New Development",
             EstimatedTime = "25 minutes",
             Title = "AI-Native Product Management: Specs, Wireframes & Rapid Prototyping",
             Url = "https://www.youtube.com/results?search_query=Practice%3A%20Draft%20a%20PRD%20for%20a%20Mobile%20Feature%20Shreyas%20Doshi",
