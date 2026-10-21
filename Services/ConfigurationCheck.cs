@@ -23,8 +23,24 @@ public static class ConfigurationCheck
         "OpenRouter:ApiKey",
         "YouTube:ApiKey",
         "OpenAlex:ApiKey",
-        "Auth:Jwt",
+        "Auth:Jwt:Key",
     ];
+
+    /// <summary>
+    /// Flags a production service that still accepts any *.vercel.app origin. That wildcard exists
+    /// so frontend previews can reach a non-production API, but in production it means a staging
+    /// frontend — also a *.vercel.app origin — can call real data.
+    /// </summary>
+    public static void WarnAboutOpenCors(IConfiguration config, IWebHostEnvironment environment, ILogger logger)
+    {
+        if (!environment.IsProduction()) return;
+        if (config.GetValue("Cors:Strict", false)) return;
+
+        logger.LogWarning(
+            "Cors:Strict is off, so this production service accepts any *.vercel.app or *.netlify.app "
+            + "origin — including a staging frontend. Once Cors__AllowedOrigins__0 names the production "
+            + "site, set Cors__Strict=true to restrict it to that list.");
+    }
 
     public static void WarnAboutMisnamedKeys(IConfiguration config, ILogger logger)
     {

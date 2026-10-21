@@ -118,14 +118,30 @@ var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get
     ?? ["http://localhost:5173", "http://127.0.0.1:5173"];
 var configuredOrigins = allowedOrigins.ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-static bool IsHostedSpaOrigin(string origin, ISet<string> configuredOrigins)
+// Strict mode is opt-in, never inferred. appsettings.json already ships a non-empty
+// Cors:AllowedOrigins (localhost plus an old Netlify host), so "a list exists" says nothing about
+// whether the real site is in it — the deployed frontend currently reaches the API through the
+// host-wildcard below, not through that list. Inferring strictness from a non-empty list would
+// therefore have cut off the live site the moment this deployed.
+//
+// So: set Cors__Strict=true only once Cors__AllowedOrigins__0 names the site that must work.
+var strictOrigins = builder.Configuration.GetValue("Cors:Strict", false);
+
+static bool IsHostedSpaOrigin(string origin, ISet<string> configuredOrigins, bool strict)
 {
     if (configuredOrigins.Contains(origin)) return true;
+    if (strict) return false;
+
     if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
         return false;
 
-    // Vercel creates a different HTTPS hostname for preview and production
-    // deployments. Both need to reach the API during frontend deployments.
+    // Vercel and Netlify give every preview deployment its own hostname, so a non-production API
+    // has to accept the whole host suffix or frontend previews cannot reach it.
+    //
+    // In production that is too wide once staging exists: a staging frontend is also a *.vercel.app
+    // origin, so without an explicit list it could call the production API. Setting
+    // Cors__AllowedOrigins__0 on the production service closes this; until then the warning below
+    // fires on every boot.
     return uri.Host.EndsWith(".vercel.app", StringComparison.OrdinalIgnoreCase)
         || uri.Host.EndsWith(".netlify.app", StringComparison.OrdinalIgnoreCase);
 }
@@ -133,7 +149,7 @@ static bool IsHostedSpaOrigin(string origin, ISet<string> configuredOrigins)
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("Spa", policy => policy
-        .SetIsOriginAllowed(origin => IsHostedSpaOrigin(origin, configuredOrigins))
+        .SetIsOriginAllowed(origin => IsHostedSpaOrigin(origin, configuredOrigins, strictOrigins))
         .AllowAnyHeader()
         .AllowAnyMethod());
 });
@@ -278,9 +294,9 @@ var app = builder.Build();
 
 // Surfaces variables that are set but misnamed, which otherwise present as the feature simply
 // being off. Logged once at startup so it appears at the top of the deploy log.
-ConfigurationCheck.WarnAboutMisnamedKeys(
-    app.Configuration,
-    app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("RadarV2.Configuration"));
+var configLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("RadarV2.Configuration");
+ConfigurationCheck.WarnAboutMisnamedKeys(app.Configuration, configLogger);
+ConfigurationCheck.WarnAboutOpenCors(app.Configuration, app.Environment, configLogger);
 
 // Railway (and most PaaS hosts) terminate TLS at their edge and forward plain
 // HTTP internally with X-Forwarded-Proto: https. Without this, UseHttpsRedirection
