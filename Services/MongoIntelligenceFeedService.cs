@@ -84,7 +84,47 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
         RankByInterest(profile, batch, await _records.BuildAsync(profile));
         await DecorateAsync(profile, batch);
 
-        return new PagedResult<ContentItem> { Items = batch, NextCursor = nextCursor, HasMore = hasMore };
+        return new PagedResult<ContentItem>
+        {
+            Items = batch,
+            NextCursor = nextCursor,
+            HasMore = hasMore,
+            // Only costs queries when there is nothing to show, which is the one moment it is
+            // worth spending them: the alternative is a blank page and a guess.
+            EmptyReason = batch.Count > 0
+                ? FeedEmptyReason.NotEmpty
+                : await DiagnoseEmptyAsync(filterType, dismissedIds),
+        };
+    }
+
+    /// <summary>
+    /// Why there is nothing to show.
+    ///
+    /// The feed already drops Radar's own narrowing when it would empty the page — that is the
+    /// interest-layer rung in <see cref="BuildFeedFilterAsync"/>. What it cannot do is undo the
+    /// user's own choices: silently returning items they dismissed, or types they filtered out,
+    /// would be overriding them rather than helping. So the last rung is to say plainly which of
+    /// their choices is responsible, and let them undo it.
+    /// </summary>
+    private async Task<FeedEmptyReason> DiagnoseEmptyAsync(
+        ContentType? filterType,
+        IReadOnlyCollection<string> dismissedIds)
+    {
+        if (!await _db.ContentItems.Find(Builders<ContentItem>.Filter.Empty).Limit(1).AnyAsync())
+            return FeedEmptyReason.NoContentAtAll;
+
+        if (filterType.HasValue)
+        {
+            var ofType = Builders<ContentItem>.Filter.Eq(i => i.Type, filterType.Value);
+            if (!await _db.ContentItems.Find(ofType).Limit(1).AnyAsync())
+                return FeedEmptyReason.NoneOfThisType;
+        }
+
+        // Content exists and matches the type, so the only thing left standing between the user
+        // and it is their own dismissals.
+        if (dismissedIds.Count > 0) return FeedEmptyReason.EverythingDismissed;
+
+        return FeedEmptyReason.NothingNewRightNow;
     }
 
     /// <summary>
@@ -182,6 +222,19 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
     {
         await _db.SavedItems.DeleteOneAsync(
             s => s.UserId == userId && s.ContentItemId == contentItemId);
+    }
+
+    /// <summary>
+    /// Undoes every dismissal for this user.
+    ///
+    /// Exists so the empty feed can offer a way out. Telling someone "you have dismissed
+    /// everything that matches" is only an improvement on a blank page if they can act on it, and
+    /// there was no way to undo a dismissal at all - not one at a time, and not in bulk.
+    /// </summary>
+    public async Task<long> RestoreDismissedAsync(string userId)
+    {
+        var result = await _db.DismissedItems.DeleteManyAsync(d => d.UserId == userId);
+        return result.DeletedCount;
     }
 
     public async Task DismissItemAsync(string userId, string contentItemId)

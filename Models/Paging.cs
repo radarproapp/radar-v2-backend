@@ -11,6 +11,35 @@ public class PagedResult<T>
     public List<T> Items { get; set; } = [];
     public string? NextCursor { get; set; }
     public bool HasMore { get; set; }
+
+    /// <summary>
+    /// Why the page came back empty, when it did. <see cref="FeedEmptyReason.NotEmpty"/> otherwise.
+    ///
+    /// The client cannot work this out for itself: an empty list looks identical whether the
+    /// corpus is empty, the user filtered to a type nothing matches, or they dismissed everything.
+    /// It used to guess, and told every one of those users "Radar is still curating content for
+    /// your interests" - false in two cases out of three, and offering a Refresh button that could
+    /// not possibly help.
+    /// </summary>
+    public FeedEmptyReason EmptyReason { get; set; } = FeedEmptyReason.NotEmpty;
+}
+
+/// <summary>Why a feed page has nothing in it. Ordered from "nothing exists" to "nothing new".</summary>
+public enum FeedEmptyReason
+{
+    NotEmpty,
+
+    /// <summary>No content has been ingested at all. A new deployment, or ingestion is not running.</summary>
+    NoContentAtAll,
+
+    /// <summary>Content exists, but none of the type the user filtered to.</summary>
+    NoneOfThisType,
+
+    /// <summary>The user has dismissed everything that would otherwise match.</summary>
+    EverythingDismissed,
+
+    /// <summary>Content exists and nothing is filtered out; there is simply nothing new right now.</summary>
+    NothingNewRightNow,
 }
 
 /// <summary>

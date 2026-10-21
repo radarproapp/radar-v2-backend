@@ -165,6 +165,23 @@ public class FeedController : ControllerBase
         return NoContent();
     }
 
+    /// <summary>
+    /// Brings every dismissed item back.
+    ///
+    /// The empty feed can now say "you have dismissed everything that matches", which is only
+    /// better than a blank page if the user can do something about it. Until this existed, a
+    /// dismissal was permanent and there was no way to undo one.
+    /// </summary>
+    [HttpDelete("dismissed")]
+    public async Task<IActionResult> RestoreDismissedAsync()
+    {
+        var profile = await RequireProfileAsync();
+        if (profile is null) return Unauthorized();
+
+        var restored = await _feed.RestoreDismissedAsync(profile.Id);
+        return Ok(new { restored });
+    }
+
     public sealed class WhyRatingRequest
     {
         [Required] public bool Helpful { get; set; }

@@ -20,6 +20,9 @@ public interface IIntelligenceFeedService
     Task SaveItemAsync(string userId, string contentItemId);
     Task UnsaveItemAsync(string userId, string contentItemId);
     Task DismissItemAsync(string userId, string contentItemId);
+
+    /// <summary>Undoes every dismissal for this user. Returns how many were restored.</summary>
+    Task<long> RestoreDismissedAsync(string userId);
     Task<List<ContentItem>> GetSavedItemsAsync(string userId);
     Task<List<ContentItem>> SearchAsync(string query, ContentType? type = null);
 }

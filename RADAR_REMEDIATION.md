@@ -86,7 +86,19 @@ The fastest way to simplify is to delete. Also the fastest way to restore trust.
 - [x] 3.3 ~~**Radar Noticed**~~ — done, from `IBehavioralSignalService` inferred signals only (declared interests are what they told us at onboarding, not what Radar noticed), ordered by decayed strength.
 - [x] 3.4 ~~**Today's Focus** names the specific skill/topic~~ — done: the next incomplete lesson in the current stage. Verified live — a cybersecurity user now gets "TCP/IP, DNS and HTTP: how traffic actually moves" where they previously got "Excel fundamentals & spreadsheet layout".
 - [x] 3.5 ~~**Portfolio next move** names the specific artifact~~ — done via a new public `InterestPersonalization.PortfolioArtifactFor`, plus a cybersecurity branch the helper was missing. A SOC analyst is now told to build "a documented detection rule plus an incident write-up showing how you'd triage and contain it".
-- [ ] 3.6 Feed must never be empty — fallback ladder (spec #3). Partly there already: `BuildFilterAsync` drops the interest-layer filter when it would return nothing. Still needs a final rung for a genuinely empty corpus.
+- [x] 3.6 ~~Feed must never be empty — fallback ladder~~ — the final rung is an honest reason, not
+  another silent widening. Radar's own narrowing is still dropped automatically (the interest-layer
+  rung), but the user's own choices are not overridden behind their back: `PagedResult` now carries
+  `FeedEmptyReason`, and the page says which of `NoContentAtAll` / `NoneOfThisType` /
+  `EverythingDismissed` / `NothingNewRightNow` applies. One message served all four before —
+  "Radar is still curating content for your interests" — true in one case, and attached to a
+  Refresh button that could not fix the other three. Each case now offers only the action that
+  resolves it, and `NoContentAtAll` offers none at all. Added `DELETE /api/feed/dismissed`, because
+  telling someone they dismissed everything is only useful if they can undo it, and a dismissal
+  was previously permanent.
+  **Runtime behaviour not yet verified** — Docker stopped mid-session, so the reason codes are
+  covered by the build and the frontend's unit tests but have not been exercised against a live
+  database.
 
 ## Phase 4 — Feed card + full brief (spec #11, #12)
 
