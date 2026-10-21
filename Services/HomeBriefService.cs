@@ -74,10 +74,51 @@ public class HomeBriefService : IHomeBriefService
             MatchTier = o.MatchTier,
             DaysUntilDeadline = o.DaysUntilDeadline == int.MaxValue ? null : o.DaysUntilDeadline,
             WhyItMatches = o.WhyItFits ?? string.Empty,
+            ReminderSet = o.ReminderSet,
+            UrgencyLabel = o.UrgencyLabel,
         }).ToList();
+
+        brief.ClosingSoon = await BuildClosingSoonAsync(profile);
 
         return brief;
     }
+
+    /// <summary>
+    /// What the user asked to be reminded about, that is actually about to close.
+    ///
+    /// Closed ones are left out: a reminder for something that shut last week is not a reminder,
+    /// it is a reproach. Anything without a deadline is left out too - there is nothing to be
+    /// early for.
+    /// </summary>
+    private async Task<List<HomeOpportunity>> BuildClosingSoonAsync(UserProfile profile)
+    {
+        var tracked = await _opportunities.GetTrackedPipelineAsync(profile.Id);
+
+        return tracked
+            .Where(o => o.ReminderSet && o.Deadline.HasValue && !o.HasClosed)
+            .Where(o => o.DaysUntilDeadline <= ReminderWindowDays)
+            .OrderBy(o => o.DaysUntilDeadline)
+            .Select(o => new HomeOpportunity
+            {
+                Id = o.Id,
+                Title = o.Title,
+                Organisation = o.Organisation,
+                Location = o.Location,
+                MatchScorePercent = o.MatchScorePercent,
+                MatchTier = o.MatchTier,
+                DaysUntilDeadline = o.DaysUntilDeadline,
+                WhyItMatches = o.WhyItFits ?? string.Empty,
+                ReminderSet = true,
+                UrgencyLabel = o.UrgencyLabel,
+            })
+            .ToList();
+    }
+
+    /// <summary>
+    /// How far ahead a reminder starts showing. Two weeks is enough to gather documents and ask
+    /// for a reference, which is what most of these actually require.
+    /// </summary>
+    private const int ReminderWindowDays = 14;
 
     private static string BuildContext(UserProfile profile)
     {

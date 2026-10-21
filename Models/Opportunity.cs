@@ -36,16 +36,36 @@ public class Opportunity
     public OpportunityTrackingStatus UserTrackingStatus { get; set; } = OpportunityTrackingStatus.None;
     public bool ReminderSet { get; set; }
 
+    /// <summary>
+    /// Days remaining, floored at zero, or <see cref="int.MaxValue"/> when no deadline is known.
+    ///
+    /// The floor is why <see cref="HasClosed"/> exists: a deadline that passed yesterday arrives
+    /// here as 0, which is indistinguishable from "due today". Callers deciding what to show must
+    /// ask whether it has closed first.
+    /// </summary>
     public int DaysUntilDeadline =>
         Deadline.HasValue ? (int)Math.Max(0, (Deadline.Value - DateTime.UtcNow).TotalDays) : int.MaxValue;
+
+    /// <summary>Whether the deadline has already passed.</summary>
+    public bool HasClosed => Deadline.HasValue && Deadline.Value < DateTime.UtcNow;
 
     public string MatchTier =>
         MatchScorePercent >= 80 ? "StrongMatch" :
         MatchScorePercent >= 60 ? "Relevant" : "Explore";
 
+    /// <summary>
+    /// What to say about the deadline.
+    ///
+    /// Two of these used to be false. An opportunity with no deadline fell through to "Recently
+    /// opened" — nothing here checks when anything opened, so that was invented. And a *closed*
+    /// one was labelled "Urgent", because DaysUntilDeadline floors at zero, so a user could be
+    /// hurried into applying for something that shut last week.
+    /// </summary>
     public string UrgencyLabel =>
+        HasClosed ? "⚫ Closed" :
+        !Deadline.HasValue ? "🟢 No deadline given" :
         DaysUntilDeadline <= 7 ? "🔴 Urgent" :
-        DaysUntilDeadline <= 21 ? "🟡 2 weeks left" : "🟢 Recently opened";
+        DaysUntilDeadline <= 21 ? "🟡 2 weeks left" : "🟢 Open";
 }
 
 public class DailyOpportunityFeed

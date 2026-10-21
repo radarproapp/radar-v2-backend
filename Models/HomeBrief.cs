@@ -32,6 +32,16 @@ public class HomeBrief
     /// <summary>Top matched opportunities. May be empty.</summary>
     public List<HomeOpportunity> Opportunities { get; set; } = [];
 
+    /// <summary>
+    /// Deadlines the user asked to be reminded about, closing soonest first.
+    ///
+    /// The reminder toggle wrote a boolean nothing ever read - no job, no email, no screen. A
+    /// control that silently does nothing is worse than no control, because the user stops
+    /// checking the deadline themselves. There is no mail or push channel here, so the reminder
+    /// is delivered where they already look.
+    /// </summary>
+    public List<HomeOpportunity> ClosingSoon { get; set; } = [];
+
     public UserStats Stats { get; set; } = new();
 }
 
@@ -89,4 +99,10 @@ public class HomeOpportunity
     public string MatchTier { get; set; } = string.Empty;
     public int? DaysUntilDeadline { get; set; }
     public string WhyItMatches { get; set; } = string.Empty;
+
+    /// <summary>Set when the user asked to be reminded about this one.</summary>
+    public bool ReminderSet { get; set; }
+
+    /// <summary>What to say about the deadline, including when it has already passed.</summary>
+    public string UrgencyLabel { get; set; } = string.Empty;
 }

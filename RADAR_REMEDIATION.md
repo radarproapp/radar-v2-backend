@@ -339,7 +339,23 @@ Four separate faults, one root cause: nothing interpreted the goal before genera
   chosen by tier, which told every strong match it "aligns with your current active stage, target
   roles" without checking either, and called every weak one a "serendipitous discovery broadening
   your cross-disciplinary horizon". When nothing matches it now says so plainly.
-- [ ] 7.3 Deadline intelligence and reminders
+- [x] 7.3 ~~Deadline intelligence and reminders~~ — two of the three deadline labels were false,
+  and the reminder toggle did nothing at all.
+  - **A closed opportunity was labelled "🔴 Urgent".** `DaysUntilDeadline` floors at zero, so a
+    deadline that passed last week arrived as `0` and matched the "≤ 7 days" rung. Users were
+    being hurried into applying for things that had already shut. Added `HasClosed`, checked first.
+  - **No deadline was labelled "🟢 Recently opened".** Nothing in the model knows when anything
+    opened; that was invented. Now "No deadline given", and >21 days is "Open" rather than a claim
+    about recency.
+  - **`ReminderSet` was a boolean nothing read** — no job, no email, no screen. A control that
+    silently does nothing is worse than no control, because the user stops checking the deadline
+    themselves. There is no mail or push channel in the product, so reminders are delivered where
+    the user already looks: `HomeBrief.ClosingSoon` carries what they asked to be reminded about
+    inside 14 days, soonest first, above the general list. Closed ones are excluded — a reminder
+    for something that shut last week is not a reminder.
+  Email and push are still not possible without a provider and credentials; that remains open as
+  7.3b rather than being counted here.
+- [ ] 7.3b Email or push delivery for deadline reminders (needs a provider and credentials).
 - [ ] 7.4 Detail page: what it is, why it matches, requirements, benefits, how to apply, Radar's advice
 - [ ] 7.5 "Help me apply" wired to the Mentor
 - [x] 7.6 ~~Tracking states feed back into matching~~ — they now teach the signal store rather
