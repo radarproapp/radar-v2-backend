@@ -42,6 +42,39 @@ public static class ConfigurationCheck
             + "site, set Cors__Strict=true to restrict it to that list.");
     }
 
+    /// <summary>
+    /// Catches a host environment that disagrees with the ASP.NET environment.
+    ///
+    /// ASPNETCORE_ENVIRONMENT defaults to Production when unset. A newly created staging service
+    /// therefore boots as Production, never reads appsettings.Staging.json, and inherits whatever
+    /// database name the environment hands it — which, if the environment was duplicated from
+    /// production, is the production database. Nothing fails. It serves real data under a staging
+    /// hostname, and the only symptom is test accounts appearing in production.
+    ///
+    /// Railway injects RAILWAY_ENVIRONMENT_NAME, which comes from the platform rather than from a
+    /// variable someone remembered to set, so it cannot drift the way ASPNETCORE_ENVIRONMENT can.
+    /// Where the two disagree, the platform is right.
+    ///
+    /// Warns rather than throws: the mismatch may be deliberate on a one-off service, and refusing
+    /// to boot would turn a configuration smell into an outage.
+    /// </summary>
+    public static void WarnAboutEnvironmentMismatch(
+        IWebHostEnvironment environment, IConfiguration config, ILogger logger)
+    {
+        var hostEnvironment = Environment.GetEnvironmentVariable("RAILWAY_ENVIRONMENT_NAME");
+        if (string.IsNullOrWhiteSpace(hostEnvironment)) return;
+        if (string.Equals(hostEnvironment, environment.EnvironmentName, StringComparison.OrdinalIgnoreCase)) return;
+
+        logger.LogError(
+            "The host says this is the '{HostEnvironment}' environment, but the application is "
+            + "running as '{AppEnvironment}' against database '{Database}'. ASPNETCORE_ENVIRONMENT "
+            + "is unset or wrong, so appsettings.{AppEnvironment}.json is the file being read and "
+            + "appsettings.{HostEnvironment}.json is being ignored. If that database is the "
+            + "production one, this service is serving real data. Set ASPNETCORE_ENVIRONMENT={HostEnvironment}.",
+            hostEnvironment, environment.EnvironmentName, config["MongoDB:DatabaseName"],
+            environment.EnvironmentName, hostEnvironment, hostEnvironment);
+    }
+
     public static void WarnAboutMisnamedKeys(IConfiguration config, ILogger logger)
     {
         foreach (var key in SectionedKeys)

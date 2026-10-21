@@ -53,6 +53,13 @@ public class VersionController : ControllerBase
             // visible at a glance rather than discovered through its effects.
             database = _config["MongoDB:DatabaseName"],
 
+            // What the platform calls this environment, as opposed to what the app believes it is.
+            // ASPNETCORE_ENVIRONMENT defaults to Production when unset, so a staging service with
+            // the variable missing reports itself as production and reads the production database
+            // while answering on a staging hostname. Showing both makes the disagreement obvious
+            // from a single curl instead of requiring someone to read startup logs.
+            hostEnvironment = Environment.GetEnvironmentVariable("RAILWAY_ENVIRONMENT_NAME"),
+
             // Whether each required secret is visible to this instance. Booleans only — never the
             // values. Without this, a missing variable is only discoverable by triggering the
             // feature and reading a 503, and a cron container reports "succeeded" either way

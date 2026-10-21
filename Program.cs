@@ -297,6 +297,7 @@ var app = builder.Build();
 var configLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("RadarV2.Configuration");
 ConfigurationCheck.WarnAboutMisnamedKeys(app.Configuration, configLogger);
 ConfigurationCheck.WarnAboutOpenCors(app.Configuration, app.Environment, configLogger);
+ConfigurationCheck.WarnAboutEnvironmentMismatch(app.Environment, app.Configuration, configLogger);
 
 // Railway (and most PaaS hosts) terminate TLS at their edge and forward plain
 // HTTP internally with X-Forwarded-Proto: https. Without this, UseHttpsRedirection
