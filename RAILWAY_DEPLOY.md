@@ -316,6 +316,32 @@ tracking at the `staging` branch, give it its own variables and attach
 under Preview, and set Preview variables. Branch-specific values inherit the general Preview set,
 so you only override what differs.
 
+> **A domain added in Vercel points at production by default.** Adding
+> `staging.radarproapp.com` is not enough — you have to set its Git Branch to `staging` in the
+> domain's own settings. Miss it and the staging hostname serves `main`: the site loads, looks
+> completely normal, and is production. Nothing warns you, because from the build's point of view
+> nothing is wrong. Confirm it by opening the domain and checking the amber STAGING banner is
+> there; if there is no banner, the branch assignment did not take.
+
+### DNS
+
+A subdomain is a `CNAME`; an apex domain (`radarproapp.com`) cannot be, so it needs an `A` record.
+Both Vercel and Railway show the exact record to create once you add the domain — use what the
+dashboard gives you rather than a value copied from anywhere else, including this file, because
+they differ per project.
+
+All four are separate domains on two platforms:
+
+| Hostname | Added in | Record |
+|---|---|---|
+| `radarproapp.com` | Vercel, production | `A` |
+| `staging.radarproapp.com` | Vercel, assigned to `staging` | `CNAME` |
+| `api.radarproapp.com` | Railway, production environment | `CNAME` |
+| `stagingapi.radarproapp.com` | Railway, staging environment | `CNAME` |
+
+After DNS resolves, the certificate issues on its own — usually a few minutes. Until it does the
+hostname will error or warn, which is normal and not something to fix by changing settings.
+
 ### Variables
 
 Set these on the staging environment:
