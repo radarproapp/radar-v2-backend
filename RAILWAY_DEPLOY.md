@@ -342,6 +342,44 @@ All four are separate domains on two platforms:
 After DNS resolves, the certificate issues on its own — usually a few minutes. Until it does the
 hostname will error or warn, which is normal and not something to fix by changing settings.
 
+#### Cloudflare: the orange cloud has to be off
+
+If DNS is on Cloudflare, each record has a **Proxy status**. It must be **DNS only** (grey cloud)
+for all four hostnames. Proxying breaks both platforms the same way, and the symptom does not look
+like a DNS problem at all:
+
+```
+$ curl -sSI -L https://staging.radarproapp.com
+HTTP/1.1 308 Permanent Redirect
+Location: https://staging.radarproapp.com/     <- same URL it was just asked for
+server: cloudflare
+... forever, until the browser gives up with ERR_TOO_MANY_REDIRECTS
+```
+
+That loop is Cloudflare's SSL/TLS mode set to **Flexible**: Cloudflare accepts HTTPS from the
+browser but connects to the origin over plain HTTP, the origin redirects HTTP to HTTPS, and
+Cloudflare hands that redirect back to the browser, which asks again. Neither side is wrong on its
+own. Vercel also flags it as **Proxy Detected**, because proxying disables its DDoS and
+bot-mitigation.
+
+Turn the cloud grey and both resolve. Vercel and Railway each terminate TLS and run their own CDN,
+so Cloudflare's proxy adds nothing here. (If you ever do want it on, the SSL/TLS mode must be
+**Full (strict)** — never Flexible.)
+
+#### "DNS is not propagating" is usually a wildcard
+
+A proxied `*` record answers for every subdomain, including ones you never created:
+
+```
+$ nslookup nothing-here-xyz.radarproapp.com 8.8.8.8
+Addresses: 104.21.71.163, 172.67.147.66        <- resolves anyway
+```
+
+So a missing `CNAME` does not fail the way you expect. The name resolves, the browser connects,
+and you debug propagation for an hour over a record that was never added. Check the new hostname
+against a name you know is fake — if both answer identically, the wildcard is replying and your
+record is missing.
+
 ### Variables
 
 Set these on the staging environment:
