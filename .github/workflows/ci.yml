@@ -9,6 +9,31 @@ on:
   pull_request:
 
 jobs:
+  # Both repositories are public, so a secret that reaches a commit is disclosed the moment it is
+  # pushed and stays disclosed - rewriting history does not un-publish it. Cheaper to never let it
+  # land. Scans the whole history, not just the diff, so a secret added on a branch that is later
+  # merged cannot slip through on the commit that merges it.
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan for committed credentials
+        run: |
+          set -euo pipefail
+          # A real credential, not a <placeholder>: the docs legitimately show the shape of a
+          # connection string, and flagging those would train everyone to ignore this job.
+          patterns='mongodb\+srv://[A-Za-z0-9_.-]+:[^<@"'"'"' ]{6,}@|sk-or-v1-[A-Za-z0-9]{24,}|AIza[0-9A-Za-z_-]{33}'
+          if git grep -I -nE "$patterns" $(git rev-list --all) -- . > /tmp/hits 2>/dev/null; then
+            echo "::error::A credential appears in this repository's history."
+            cut -c1-120 /tmp/hits | head -20
+            echo "Rotate it first - it is public and history rewriting does not recall it."
+            exit 1
+          fi
+          echo "No credentials found in history."
+
   build-and-test:
     runs-on: ubuntu-latest
 
