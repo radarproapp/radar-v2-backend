@@ -180,8 +180,14 @@ HTTP %{http_code}
 
 # Staging and production
 
-The deployment that exists today becomes **staging**. Production is stood up alongside it, so the
-thing people use is never the thing you are testing on.
+**The deployment that exists today stays production.** It reports `environment: Production`, writes
+to the `radar` database, and already holds real accounts — the reviewer's among them. Staging is
+the *new* environment, stood up alongside it and starting empty.
+
+That direction matters. Relabelling the live deployment as staging would point testers at real user
+data and leave production to be recreated from nothing, losing every account on it. The rule is
+simply: whichever environment already has the real data is production, regardless of which was
+built first.
 
 ## What makes them separate
 
@@ -215,8 +221,7 @@ This is the right default for this project specifically because the topology is 
 services. Recreating and then hand-syncing four services forever is where drift comes from.
 
 1. In the project, open the environment switcher and **Duplicate** the current environment.
-2. Name the original `staging` and the copy `production` (or vice versa — whichever has the real
-   data should become production).
+2. Keep the original as `production` — it holds the real data — and name the **copy** `staging`.
 3. Set per environment: `ASPNETCORE_ENVIRONMENT`, `MongoDB__ConnectionString`,
    `OpenRouter__ApiKey`, `Jobs__CronKey`, and each cron service's `API_BASE_URL` and `CRON_KEY`.
 4. Confirm with `/api/version` before trusting either.
