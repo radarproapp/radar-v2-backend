@@ -374,8 +374,17 @@ Four separate faults, one root cause: nothing interpreted the goal before genera
   Email and push are still not possible without a provider and credentials; that remains open as
   7.3b rather than being counted here.
 - [ ] 7.3b Email or push delivery for deadline reminders (needs a provider and credentials).
-- [ ] 7.4 Detail page: what it is, why it matches, requirements, benefits, how to apply, Radar's advice
-- [ ] 7.5 "Help me apply" wired to the Mentor
+- [x] 7.4 ~~Detail page~~ — all six parts were already rendered (description, `whyItFits`,
+  requirements, benefits, next moves plus selection process, Radar's advice). The gap was the
+  deadline: the drawer showed match score, cost and status but never said when the thing closes,
+  so a closed opportunity read as applicable right up until you followed the link. Now in the
+  header, with the state as a value (`urgencyLevel`) rather than a sentence the UI has to
+  string-match.
+- [x] 7.5 ~~"Help me apply" wired to the Mentor~~ — already built and wired, from both the card
+  ("Help Me Apply") and the drawer ("Prepare Application with AI Mentor"). It hands the Mentor the
+  opportunity's title, organisation, requirements and benefits, and asks for a tailored CV, a
+  personal statement and interview questions. Verified by reading the call sites rather than
+  assumed — I first mis-read it as dead code and was wrong.
 - [x] 7.6 ~~Tracking states feed back into matching~~ — they now teach the signal store rather
   than just hiding one row. Saving, applying, being accepted or marking "not relevant" records a
   behavioural signal against the opportunity's **type, goal tag and field** (never its title, which
