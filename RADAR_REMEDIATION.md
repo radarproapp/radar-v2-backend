@@ -158,7 +158,18 @@ The fastest way to simplify is to delete. Also the fastest way to restore trust.
   "Start here" / "Next" / "Then" roles were already produced; what was missing was a reason that
   differed between items. Each lesson now names the lesson it leads to, and the last one names the
   project it leads to. Time estimates carry through from the roadmap.
-- [ ] 5.5 Tutorial summaries in step-by-step format; article/video summaries in what-happened format
+- [x] 5.5 ~~Tutorial summaries in step-by-step format; articles in what-happened format~~ — the
+  data-analytics catalogue already followed this (34 tutorials with steps, 9 articles and
+  current-developments items without) and nothing checked it. **The cybersecurity catalogue
+  followed none of it** — all 12 of its tutorials had no steps at all, so the format a learner saw
+  depended on which field they had picked. A test caught that, not a reading.
+  All 12 now carry steps. They are topic-general — what competence in the subject consists of, in
+  order — rather than a description of any particular video: Radar has not watched these and the
+  links are searches, so describing a specific video would be invented *and* wrong as soon as the
+  search returned something else.
+  The stage project carries its real authored steps. **Tutorial videos from the runtime builder
+  get none** and that is deliberate: nobody has watched them, and writing the steps of an unseen
+  video is the fabrication the rest of this work has been removing. That half waits on 5e.8.
 - [x] 5.6 ~~Every resource answers "why am I learning this"~~ — it did, with the same sentence
   every time: "you need X before the next step makes sense", asserted on every card without
   knowing what the next step was. The builder has the ordered list and the module project in

@@ -141,6 +141,21 @@ public static class LearningPathResourceBuilder
                     WhatYouWillBuild = module.Project.Deliverable,
                     PracticeExerciseTitle = module.Project.Title,
                     PracticeExercise = string.Join("\n", module.Project.Steps),
+
+                    // Spec 5.5 asks for how-to material in step-by-step form. These are real
+                    // authored steps from the stage project, so they become real steps rather
+                    // than a newline-joined paragraph. Tutorial *videos* get none: nobody has
+                    // watched them, and inventing the steps of a video is the confident
+                    // fabrication the rest of this work has been removing. That half waits on
+                    // transcripts (5e.8).
+                    StepByStepBreakdown = module.Project.Steps
+                        .Select((step, index) => new TutorialStep
+                        {
+                            StepNumber = index + 1,
+                            Title = $"Step {index + 1}",
+                            Instruction = step,
+                        })
+                        .ToList(),
                     QuizTopic = module.Project.Title,
                     WhyItMatters = module.Project.WhyItProvesCapability ?? string.Empty,
                     NextMove = module.Project.Steps.FirstOrDefault() ?? "Start the first step.",
