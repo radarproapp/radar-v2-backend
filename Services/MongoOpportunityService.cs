@@ -10,14 +10,27 @@ public class MongoOpportunityService : IOpportunityService
 {
     private readonly RadarDatabase _db;
     private readonly AiOpportunityMatchService _aiMatch;
+    private readonly IUserLearningRecordService _records;
     private static bool _seeded;
     private static readonly SemaphoreSlim _seedLock = new(1, 1);
 
-    public MongoOpportunityService(RadarDatabase db, AiOpportunityMatchService aiMatch)
+    public MongoOpportunityService(
+        RadarDatabase db,
+        AiOpportunityMatchService aiMatch,
+        IUserLearningRecordService records)
     {
         _db = db;
         _aiMatch = aiMatch;
+        _records = records;
     }
+
+    /// <summary>
+    /// What the user's own behaviour says about them, or null when there is no profile to derive
+    /// it from. Built once per request and handed to every opportunity being scored - it is
+    /// derived on read, so scoring each item separately would rebuild it for each one.
+    /// </summary>
+    private async Task<UserLearningRecord?> RecordForAsync(UserProfile? profile)
+        => profile is null ? null : await _records.BuildAsync(profile);
 
     /// <summary>Ceiling on how many opportunities are scored for one request.</summary>
     private const int MaxScoringCandidates = 500;
@@ -63,10 +76,11 @@ public class MongoOpportunityService : IOpportunityService
         // Reconcile user tracking & continuous learning weights
         var trackingMap = await GetTrackingMapAsync(profile.Id);
         var activeRoadmap = await _db.Roadmaps.Find(r => r.UserId == profile.Id && r.IsActive).FirstOrDefaultAsync();
+        var learningRecord = await RecordForAsync(profile);
 
         foreach (var opp in all)
         {
-            EnrichOpportunityWithPersonalization(opp, profile, activeRoadmap, trackingMap);
+            EnrichOpportunityWithPersonalization(opp, profile, activeRoadmap, trackingMap, learningRecord);
         }
 
         // Apply AI match refinement if enabled
@@ -166,7 +180,8 @@ public class MongoOpportunityService : IOpportunityService
 
         var trackingMap = await GetTrackingMapAsync(profile.Id);
         var activeRoadmap = await _db.Roadmaps.Find(r => r.UserId == profile.Id && r.IsActive).FirstOrDefaultAsync();
-        foreach (var opp in items) EnrichOpportunityWithPersonalization(opp, profile, activeRoadmap, trackingMap);
+        var learningRecord = await RecordForAsync(profile);
+        foreach (var opp in items) EnrichOpportunityWithPersonalization(opp, profile, activeRoadmap, trackingMap, learningRecord);
 
         var ordered = stored.OpportunityIds
             .Select(id => items.FirstOrDefault(i => i.Id == id))
@@ -218,10 +233,11 @@ public class MongoOpportunityService : IOpportunityService
 
         var trackingMap = await GetTrackingMapAsync(profile.Id);
         var activeRoadmap = await _db.Roadmaps.Find(r => r.UserId == profile.Id && r.IsActive).FirstOrDefaultAsync();
+        var learningRecord = await RecordForAsync(profile);
 
         return items
             .Where(o => !o.Deadline.HasValue || o.Deadline.Value >= now)
-            .Select(o => { EnrichOpportunityWithPersonalization(o, profile, activeRoadmap, trackingMap); return o; })
+            .Select(o => { EnrichOpportunityWithPersonalization(o, profile, activeRoadmap, trackingMap, learningRecord); return o; })
             .Where(o => o.UserTrackingStatus != OpportunityTrackingStatus.NotRelevant)
             .OrderBy(o => o.DaysUntilDeadline)
             .Take(20)
@@ -236,10 +252,11 @@ public class MongoOpportunityService : IOpportunityService
         var all = await GetScoringCandidatesAsync();
         var trackingMap = await GetTrackingMapAsync(profile.Id);
         var activeRoadmap = await _db.Roadmaps.Find(r => r.UserId == profile.Id && r.IsActive).FirstOrDefaultAsync();
+        var learningRecord = await RecordForAsync(profile);
 
         foreach (var opp in all)
         {
-            EnrichOpportunityWithPersonalization(opp, profile, activeRoadmap, trackingMap);
+            EnrichOpportunityWithPersonalization(opp, profile, activeRoadmap, trackingMap, learningRecord);
         }
 
         // Filter expired and NotRelevant
@@ -382,7 +399,8 @@ public class MongoOpportunityService : IOpportunityService
         {
             var trackingMap = await GetTrackingMapAsync(profile.Id);
             var activeRoadmap = await _db.Roadmaps.Find(r => r.UserId == profile.Id && r.IsActive).FirstOrDefaultAsync();
-            EnrichOpportunityWithPersonalization(opp, profile, activeRoadmap, trackingMap);
+            var learningRecord = await RecordForAsync(profile);
+            EnrichOpportunityWithPersonalization(opp, profile, activeRoadmap, trackingMap, learningRecord);
         }
 
         return opp;
@@ -411,11 +429,12 @@ public class MongoOpportunityService : IOpportunityService
         var items = await _db.Opportunities.Find(Builders<Opportunity>.Filter.In(o => o.Id, oppIds)).ToListAsync();
         var profile = await _db.Profiles.Find(p => p.Id == userId).FirstOrDefaultAsync();
         var activeRoadmap = await _db.Roadmaps.Find(r => r.UserId == userId && r.IsActive).FirstOrDefaultAsync();
+        var learningRecord = await RecordForAsync(profile);
         var trackingMap = trackings.ToDictionary(t => t.OpportunityId);
 
         foreach (var opp in items)
         {
-            if (profile != null) EnrichOpportunityWithPersonalization(opp, profile, activeRoadmap, trackingMap);
+            if (profile != null) EnrichOpportunityWithPersonalization(opp, profile, activeRoadmap, trackingMap, learningRecord);
             opp.IsSaved = true;
         }
 
@@ -510,11 +529,12 @@ public class MongoOpportunityService : IOpportunityService
         var items = await _db.Opportunities.Find(Builders<Opportunity>.Filter.In(o => o.Id, oppIds)).ToListAsync();
         var profile = await _db.Profiles.Find(p => p.Id == userId).FirstOrDefaultAsync();
         var activeRoadmap = await _db.Roadmaps.Find(r => r.UserId == userId && r.IsActive).FirstOrDefaultAsync();
+        var learningRecord = await RecordForAsync(profile);
         var trackingMap = trackings.ToDictionary(t => t.OpportunityId);
 
         foreach (var opp in items)
         {
-            if (profile != null) EnrichOpportunityWithPersonalization(opp, profile, activeRoadmap, trackingMap);
+            if (profile != null) EnrichOpportunityWithPersonalization(opp, profile, activeRoadmap, trackingMap, learningRecord);
         }
 
         return items;
@@ -526,38 +546,45 @@ public class MongoOpportunityService : IOpportunityService
         Opportunity opp,
         UserProfile profile,
         GrowthRoadmap? activeRoadmap,
-        Dictionary<string, OpportunityTrackingDoc> trackingMap)
+        Dictionary<string, OpportunityTrackingDoc> trackingMap,
+        UserLearningRecord? record)
     {
-        // 1. Base Score calculation
-        int score = 48;
+        var signals = new List<MatchSignal>();
+        int score = BaseScore;
 
         var fullText = $"{opp.Title} {opp.Description} {opp.Organisation} {opp.Benefits} {string.Join(" ", opp.Requirements)}".ToLowerInvariant();
-        var goalText = $"{profile.PrimaryGoal} {profile.TargetRole}".ToLowerInvariant();
-        var roadmapDomain = (activeRoadmap?.Interest ?? "Cybersecurity").ToLowerInvariant();
 
-        // Active roadmap domain alignment
-        if (fullText.Contains(roadmapDomain) || (roadmapDomain.Contains("cyber") && (fullText.Contains("security") || fullText.Contains("soc") || fullText.Contains("cloud") || fullText.Contains("hack"))))
+        // What the learner is actually working on. The roadmap is the firmest statement of it, the
+        // record is what their behaviour says, and the stated goal is the fallback. No field is
+        // hardcoded here: an empty subject scores no domain points rather than quietly becoming
+        // somebody else's field, which is how a nursing learner used to be matched on "security".
+        var domain = Firm(activeRoadmap?.Interest) ?? Firm(record?.PrimaryGoal) ?? Firm(profile.PrimaryGoal);
+        if (domain is not null && DomainVocabulary.Expand(domain).Any(fullText.Contains))
         {
             score += 26;
+            signals.Add(new MatchSignal(26, $"It is {SubjectPhrase.Lower(domain)} work, which is what you are learning."));
         }
 
-        // Interests alignment
         foreach (var interest in profile.Interests)
         {
-            var norm = interest.ToLowerInvariant();
-            if (fullText.Contains(norm)) score += 8;
+            if (string.IsNullOrWhiteSpace(interest) || !fullText.Contains(interest.ToLowerInvariant())) continue;
+            score += 8;
+            signals.Add(new MatchSignal(8, $"You said you are interested in {SubjectPhrase.Lower(interest)}."));
         }
 
-        // User's Location Alignment (Nigeria & Africa focus)
-        var userLoc = $"{profile.City} {profile.Region}".ToLowerInvariant();
-        if ((userLoc.Contains("nigeria") || userLoc.Contains("lagos") || userLoc.Contains("abuja") || userLoc.Contains("africa")) &&
-            (opp.RegionTag == "Nigeria" || opp.RegionTag == "Africa" || opp.IsRemote))
+        // Where the user is. Remote is called out separately because it is the thing worth saying:
+        // the role is open to them wherever they are.
+        var userLoc = $"{profile.City} {profile.Region} {record?.Location}".ToLowerInvariant();
+        var nearby = userLoc.Contains("nigeria") || userLoc.Contains("lagos") || userLoc.Contains("abuja") || userLoc.Contains("africa");
+        if (nearby && (opp.RegionTag == "Nigeria" || opp.RegionTag == "Africa" || opp.IsRemote))
         {
             score += 10;
+            signals.Add(new MatchSignal(10, opp.IsRemote
+                ? "It is remote, so you can do it from where you are."
+                : $"It is open to people in {opp.RegionTag}."));
         }
 
-        // Persona bonus
-        score += profile.Persona switch
+        var personaPoints = profile.Persona switch
         {
             PersonaType.Student when opp.Type is OpportunityType.Internship or OpportunityType.Scholarship or OpportunityType.Bootcamp => 8,
             PersonaType.YoungProfessional when opp.Type is OpportunityType.Job or OpportunityType.Fellowship or OpportunityType.RemoteJob => 8,
@@ -565,73 +592,125 @@ public class MongoOpportunityService : IOpportunityService
             PersonaType.Researcher when opp.Type is OpportunityType.ResearchGrant or OpportunityType.Fellowship or OpportunityType.Conference => 10,
             _ => 4
         };
-
-        // Deadline bonus (urgency drives prioritization)
-        score += opp.DaysUntilDeadline switch
+        score += personaPoints;
+        if (personaPoints > 4)
         {
-            <= 7 => 6,
-            <= 21 => 3,
-            _ => 0
-        };
+            signals.Add(new MatchSignal(personaPoints, "It is the kind of opening that suits where you are now."));
+        }
 
-        // 2. Continuous Learning Feedback Adjustments
+        var days = opp.DaysUntilDeadline;
+        var deadlinePoints = days switch { <= 0 => 0, <= 7 => 6, <= 21 => 3, _ => 0 };
+        if (deadlinePoints > 0)
+        {
+            score += deadlinePoints;
+            signals.Add(new MatchSignal(deadlinePoints, days == 1
+                ? "The deadline is tomorrow."
+                : $"The deadline is in {days} days."));
+        }
+
+        // What the record knows that the profile does not. Gated on confidence for the same reason
+        // the roadmap personaliser is: acting on two lessons' worth of evidence tells the user
+        // something about themselves that is not yet true.
+        if (record is not null && record.Confidence >= MinConfidenceToUseRecord)
+        {
+            var role = Firm(record.TargetRole);
+            if (role is not null && fullText.Contains(role.ToLowerInvariant()))
+            {
+                score += 12;
+                signals.Add(new MatchSignal(12, $"It is a step toward {SubjectPhrase.Lower(role)}, the role you are aiming for."));
+            }
+
+            var priority = record.PriorityTopics.FirstOrDefault(t => !string.IsNullOrWhiteSpace(t) && fullText.Contains(t.ToLowerInvariant()));
+            if (priority is not null)
+            {
+                score += 10;
+                signals.Add(new MatchSignal(10, $"It covers {SubjectPhrase.Lower(priority)}, which is what you are learning next."));
+            }
+
+            var weak = record.WeakAreas.FirstOrDefault(w => !string.IsNullOrWhiteSpace(w) && fullText.Contains(w.ToLowerInvariant()));
+            if (weak is not null)
+            {
+                score += 6;
+                signals.Add(new MatchSignal(6, $"It gives you practice in {SubjectPhrase.Lower(weak)}, which you are still building."));
+            }
+        }
+
         if (trackingMap.TryGetValue(opp.Id, out var tracking))
         {
             opp.UserTrackingStatus = tracking.Status;
             opp.ReminderSet = tracking.ReminderSet;
             opp.IsSaved = tracking.Status == OpportunityTrackingStatus.Saved || tracking.Status == OpportunityTrackingStatus.Interested;
 
-            if (tracking.Status == OpportunityTrackingStatus.Interested) score += 8;
-            if (tracking.Status == OpportunityTrackingStatus.Applied) score += 6;
-            if (tracking.Status == OpportunityTrackingStatus.Accepted) score += 15;
-            if (tracking.Status == OpportunityTrackingStatus.NotRelevant) score -= 35;
+            switch (tracking.Status)
+            {
+                case OpportunityTrackingStatus.Interested:
+                    score += 8;
+                    signals.Add(new MatchSignal(8, "You marked this one as interesting."));
+                    break;
+                case OpportunityTrackingStatus.Applied:
+                    score += 6;
+                    signals.Add(new MatchSignal(6, "You have already applied to this."));
+                    break;
+                case OpportunityTrackingStatus.Accepted:
+                    score += 15;
+                    signals.Add(new MatchSignal(15, "You were accepted to this."));
+                    break;
+                case OpportunityTrackingStatus.NotRelevant:
+                    score -= 35;
+                    break;
+            }
         }
 
-        // Learn across user history: if user has multiple NotRelevant in this category, penalize slightly
-        int notRelevantCountInType = trackingMap.Values.Count(t => t.Status == OpportunityTrackingStatus.NotRelevant);
-        if (notRelevantCountInType > 2) score -= 5;
+        if (trackingMap.Values.Count(t => t.Status == OpportunityTrackingStatus.NotRelevant) > 2) score -= 5;
 
         opp.MatchScorePercent = Math.Clamp(score, 38, 98);
-
-        // 3. Personalized "Why Radar Matched You"
-        opp.WhyItFits = BuildPersonalizedWhy(opp, profile, activeRoadmap);
-
-        // 4. Practical Radar Advice & Next Move Steps
-        if (opp.RadarsAdvice.Count == 0)
-        {
-            opp.RadarsAdvice =
-            [
-                "Apply at least 5 days before the deadline — review committees evaluate early submissions first.",
-                $"Tailor your CV to emphasise {activeRoadmap?.Interest ?? "technical security"} hands-on projects rather than generic qualifications.",
-                "Highlight practical home labs and portfolio challenges that prove your problem-solving depth.",
-                "Prepare a focused 1-page personal statement connecting your career ambition to their mission."
-            ];
-        }
+        opp.WhyItFits = ExplainMatch(signals);
 
         if (opp.NextMoveSteps.Count == 0)
         {
             opp.NextMoveSteps =
             [
-                "Check eligibility & confirm all prerequisite requirements",
-                "Review and tailor your CV using Radar's AI Learning Mentor",
-                "Draft your personal statement or answers to program prompts",
-                "Submit official application and record confirmation in Tracker"
+                "Check you meet the requirements",
+                "Tailor your CV with Radar's Learning Mentor",
+                "Write your personal statement",
+                "Apply, then record it in your tracker"
             ];
         }
     }
 
-    private static string BuildPersonalizedWhy(Opportunity opp, UserProfile profile, GrowthRoadmap? activeRoadmap)
+    /// <summary>A reason the score moved, written the way the user will read it.</summary>
+    private sealed record MatchSignal(int Points, string Reason);
+
+    /// <summary>Where everyone starts, before anything is known about the fit.</summary>
+    private const int BaseScore = 48;
+
+    /// <summary>
+    /// How sure the record has to be before it is allowed to move a match. The same threshold the
+    /// roadmap personaliser uses, because it is the same judgement: thin evidence should not be
+    /// shown to the user as a conclusion about them.
+    /// </summary>
+    private const double MinConfidenceToUseRecord = 0.35;
+
+    private static string? Firm(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
+
+    /// <summary>
+    /// The match explained by the things that actually moved its score.
+    ///
+    /// This used to be three paragraphs chosen by tier, so every strong match claimed it "aligns
+    /// with your current active stage, target roles" whether or not anything had been checked, and
+    /// every weak one was a "serendipitous discovery broadening your cross-disciplinary horizon".
+    /// Deriving the sentence from the signals makes it impossible to claim a reason the scoring did
+    /// not find, and when nothing matched, saying so plainly beats inventing a connection.
+    /// </summary>
+    private static string ExplainMatch(List<MatchSignal> signals)
     {
-        var domain = activeRoadmap?.Interest ?? profile.PrimaryGoal;
-        if (opp.MatchTier == "StrongMatch")
+        var top = signals.OrderByDescending(s => s.Points).Take(3).Select(s => s.Reason).ToList();
+        if (top.Count == 0)
         {
-            return $"Direct match for your {domain} path. Aligns with your current active stage, target roles, and demonstrates high relevance to your career goals.";
+            return "This one does not line up with your goal yet. It is here to widen what you see.";
         }
-        if (opp.MatchTier == "Relevant")
-        {
-            return $"Strong complementary fit. Expands your skills in {opp.GoalTag.ToLowerInvariant()} while keeping you aligned with your {profile.PrimaryGoal} objectives.";
-        }
-        return $"Serendipitous discovery. Broadens your cross-disciplinary horizon in {opp.Organisation} that you might not have searched for directly.";
+
+        return string.Join(" ", top);
     }
 
     private async Task<Dictionary<string, OpportunityTrackingDoc>> GetTrackingMapAsync(string userId)

@@ -23,7 +23,7 @@ public static class StageProjectCatalog
     private static readonly Domain[] Domains =
     [
         new(
-            ["cyber", "security", "soc", "hacking", "threat", "malware", "forensic", "penetration"],
+            DomainVocabulary.For("cyber"),
             [
                 _ => Project("Map your own network",
                     "A one page diagram of your home network, with every device and open port listed.",
@@ -59,7 +59,7 @@ public static class StageProjectCatalog
             ]),
 
         new(
-            ["data", "analytics", "sql", "excel", "bi", "statistic"],
+            DomainVocabulary.For("data"),
             [
                 _ => Project("Clean one messy dataset",
                     "A tidy spreadsheet, plus a note on every change you made and why.",
@@ -92,7 +92,7 @@ public static class StageProjectCatalog
             ]),
 
         new(
-            ["software", "engineer", "developer", "coding", "programming", "backend", "frontend"],
+            DomainVocabulary.For("software"),
             [
                 _ => Project("Build and ship one small program",
                     "A working program anyone can run, with a clear README.",

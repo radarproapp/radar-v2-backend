@@ -29,15 +29,17 @@ public class MongoLearnHubService : ILearnHubService
         // Includes the interpreted field so an outcome goal still routes to the right domain.
         var interpretedDomain = profile is not null ? LearningIntentReader.Read(profile).Domain : "";
         var skillCandidate = $"{roadmap?.Interest} {roadmap?.Goal} {interpretedDomain} {string.Join(" ", profile?.Interests ?? [])}";
-        var skill = skillCandidate.Contains("cyber", StringComparison.OrdinalIgnoreCase) ||
-                    skillCandidate.Contains("security", StringComparison.OrdinalIgnoreCase) ||
-                    skillCandidate.Contains("infosec", StringComparison.OrdinalIgnoreCase)
-            ? "Cybersecurity"
-            : !string.IsNullOrWhiteSpace(roadmap?.Interest)
-            ? roadmap.Interest
-            : !string.IsNullOrWhiteSpace(roadmap?.Goal)
-            ? roadmap.Goal
-            : "Cybersecurity";
+        // The learner's own words, in the order they stated them most firmly. The last rung used to
+        // be "Cybersecurity", so a learner with no roadmap and no stated goal — a brand new user —
+        // was handed a cybersecurity hub and nothing told them why. Their interests and interpreted
+        // domain are consulted first now, so that default is reached only when Radar genuinely
+        // knows nothing at all about them.
+        var skill = Firm(roadmap?.Interest)
+                    ?? Firm(roadmap?.Goal)
+                    ?? Firm(interpretedDomain)
+                    ?? Firm(profile?.Interests.FirstOrDefault())
+                    ?? Firm(profile?.PrimaryGoal)
+                    ?? "Cybersecurity";
 
         var currentStage = !string.IsNullOrWhiteSpace(stage)
             ? stage
@@ -276,4 +278,6 @@ public class MongoLearnHubService : ILearnHubService
 
         return null;
     }
+
+    private static string? Firm(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
 }

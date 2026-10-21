@@ -176,7 +176,12 @@ The fastest way to simplify is to delete. Also the fastest way to restore trust.
 - [x] 5c.8 ~~Expose the record~~ — `GET /api/me/learning-record`. Personalisation the user cannot
   see or correct is indistinguishable from personalisation that is not happening.
 - [ ] 5c.9 Surface the record in the UI so users can correct what Radar thinks it knows.
-- [ ] 5c.10 Feed the record into the feed ranking and opportunity matching too, not just roadmaps.
+- [x] 5c.10 ~~Feed the record into opportunity matching~~ — `UserLearningRecord` now reaches the
+  opportunity scorer: target role (+12), next priority topic (+10) and weak areas (+6), each
+  carrying its own reason. Gated at `Confidence >= 0.35`, the same threshold the roadmap
+  personaliser uses, so two lessons' worth of evidence is not presented back as a conclusion.
+  **Feed ranking still does not use it** — that half remains open.
+- [ ] 5c.10b Feed the record into feed ranking as well.
 
 ## Phase 5d — Production AI reality check (2026-10-19)
 
@@ -256,6 +261,12 @@ Four separate faults, one root cause: nothing interpreted the goal before genera
 
 ## Phase 6 — Learn Hub + Knowledge Graph (spec #14)
 
+- [ ] 6.0 **Cold start has no honest answer.** `MongoLearnHubService` still ends its skill
+  fallback chain at a hardcoded `"Cybersecurity"`. The chain now consults the learner's roadmap,
+  interpreted domain, interests and stated goal first, so that rung is reached only when Radar
+  knows nothing at all — but when it is reached, a brand new user is still handed a cybersecurity
+  hub with nothing saying why. The fix is a real cold-start state, not another default, which is
+  why it is filed here rather than patched.
 - [ ] 6.1 Learn Hub scoped to the active learning path: primary skill + 1–3 sub-interests
 - [ ] 6.2 Multi-format mix (tutorials, podcasts, blogs, papers, docs, projects)
 - [ ] 6.3 "Why this resource?" on every item
@@ -279,7 +290,12 @@ Four separate faults, one root cause: nothing interpreted the goal before genera
   ingestion cycle and as its own job at `POST /api/jobs/opportunity-ingestion`. Four candidate
   feeds were checked and rejected — 403, 410 or zero entries — and are named in the registry so
   nobody re-adds them hopefully.
-- [ ] 7.2 Match % + a specific reason it matches
+- [x] 7.2 ~~Match % + a specific reason it matches~~ — the score now explains itself. Scoring
+  collects `MatchSignal(points, reason)` as it runs and the "why" is its top three reasons, so a
+  reason can never be claimed that the scoring did not actually find. Replaces three templates
+  chosen by tier, which told every strong match it "aligns with your current active stage, target
+  roles" without checking either, and called every weak one a "serendipitous discovery broadening
+  your cross-disciplinary horizon". When nothing matches it now says so plainly.
 - [ ] 7.3 Deadline intelligence and reminders
 - [ ] 7.4 Detail page: what it is, why it matches, requirements, benefits, how to apply, Radar's advice
 - [ ] 7.5 "Help me apply" wired to the Mentor
