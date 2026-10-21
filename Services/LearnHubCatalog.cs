@@ -336,7 +336,7 @@ public static class LearnHubCatalog
                 AuthorOrChannel = "NetworkChuck",
                 DurationOrReadTime = "35 min",
                 RankingScore = 99,
-                WhyThisResource = "This tutorial is recommended because you are currently learning network security and have not yet completed the fundamentals of firewalls.",
+                WhyThisResource = "Covers firewall fundamentals, which the rest of network security builds on.",
                 WhatYouWillLearn = "How stateful packet inspection works, how to configure Linux IPTables rules from scratch, and how to block unauthorized inbound traffic.",
                 StepByStepBreakdown =
                 [
@@ -702,7 +702,7 @@ public static class LearnHubCatalog
                 AuthorOrChannel = "Luke Barousse",
                 DurationOrReadTime = "55 min",
                 RankingScore = 99,
-                WhyThisResource = "This tutorial is recommended because you are currently learning SQL and need to master relational multi-table joins before building dashboards.",
+                WhyThisResource = "Covers multi-table joins, which dashboard work builds on.",
                 WhatYouWillLearn = "PostgreSQL schema exploration, multi-table INNER/LEFT joins, CTEs, and window ranking functions.",
                 StepByStepBreakdown =
                 [

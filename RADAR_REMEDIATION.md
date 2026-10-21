@@ -312,7 +312,14 @@ Four separate faults, one root cause: nothing interpreted the goal before genera
     rather than something wrong.
 - [ ] 6.1 Learn Hub scoped to the active learning path: primary skill + 1–3 sub-interests
 - [ ] 6.2 Multi-format mix (tutorials, podcasts, blogs, papers, docs, projects)
-- [ ] 6.3 "Why this resource?" on every item
+- [x] 6.3 ~~"Why this resource?" on every item~~ — the field was already populated; the problem
+  was what two of them said. A static catalogue entry read "recommended because you are currently
+  learning network security and **have not yet completed the fundamentals of firewalls**" — shown
+  to every reader who reached it, including ones who had completed it and ones who had never
+  touched the subject. A catalogue may describe the *resource*, because that is a fact about the
+  material; it may not describe the *reader*, because it has never met them. Both rewritten, and
+  `CatalogueClaimsTests` now fails the build on any fixed string that claims to know what the
+  reader has done. Interpolated strings are exempt — those are built from a real profile.
 - [ ] 6.4 Knowledge graph built from actual behaviour, not stated interests
 - [ ] 6.5 A single clear "what should I learn next" recommendation
 
