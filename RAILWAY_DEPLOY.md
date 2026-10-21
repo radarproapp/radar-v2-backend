@@ -245,6 +245,59 @@ Adding `radar-api-production` alongside `radar-api-staging` in a single environm
 services distinguished only by name, sharing one variable namespace. It is the easiest to set up
 and the easiest to make a mistake in.
 
+## Domains, and which side sets what
+
+| | Frontend (Vercel) | API (Railway) |
+|---|---|---|
+| Production | `radarproapp.com` | `api.radarproapp.com` |
+| Staging | `staging.radarproapp.com` | `stagingapi.radarproapp.com` |
+
+Each environment sets **two** variables that point at each other. They are easy to confuse because
+they describe the same relationship from opposite ends:
+
+| Variable | Set on | Means |
+|---|---|---|
+| `VITE_API_BASE_URL` | Vercel | which API this site calls |
+| `Cors__AllowedOrigins__0` | Railway | which site may call this API |
+
+**CORS is always a backend setting.** It is a response header the API sends, and the browser
+enforces the answer. A frontend cannot grant itself permission, so there is no Vercel variable for
+it. The classic symptom of setting only one side is a request that fails in the browser with a CORS
+error while the same request succeeds from `curl` — because `curl` is not a browser and does not
+enforce it.
+
+So, in full:
+
+| Service | Variables |
+|---|---|
+| Vercel production | `VITE_API_BASE_URL=https://api.radarproapp.com` |
+| Vercel staging | `VITE_API_BASE_URL=https://stagingapi.radarproapp.com` |
+| Railway production | `Cors__AllowedOrigins__0=https://radarproapp.com`, `Cors__Strict=true` |
+| Railway staging | `Cors__AllowedOrigins__0=https://staging.radarproapp.com`, `Cors__Strict=true` |
+
+### Order matters
+
+Setting `Cors__Strict=true` before the domain resolves locks you out of your own API, because the
+wildcard that is currently carrying the live site stops applying.
+
+1. Add the custom domain in Railway/Vercel and wait for DNS to resolve and the certificate to issue.
+2. Confirm the site loads on the new domain and still reaches the API.
+3. Set `Cors__AllowedOrigins__0` to the new frontend URL.
+4. Only then set `Cors__Strict=true`.
+
+Until step 4, production logs a warning on every boot saying the wildcard is still in use. That
+warning going away is the confirmation that strict mode took.
+
+### If you serve both apex and www
+
+Vercel will redirect one to the other, but a redirect does not change the `Origin` header of an API
+call. Whichever hostname the browser ends up on is the one the API must allow, so add both:
+
+```
+Cors__AllowedOrigins__0=https://radarproapp.com
+Cors__AllowedOrigins__1=https://www.radarproapp.com
+```
+
 ## Frontend (Vercel)
 
 Vercel's **Production** environment builds `main` with `VITE_API_BASE_URL` pointing at the
