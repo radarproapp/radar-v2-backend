@@ -303,6 +303,47 @@ Cors__AllowedOrigins__0=https://radarproapp.com
 Cors__AllowedOrigins__1=https://www.radarproapp.com
 ```
 
+## Frontend (Vercel): staging is a Preview deployment
+
+A `staging` branch deploys as a **Preview**, not Production — Vercel only treats the Production
+Branch (`main`) as production. Two ways to give it a stable identity:
+
+**Custom Environment** (Pro and above). Create an environment named `staging`, point its branch
+tracking at the `staging` branch, give it its own variables and attach
+`staging.radarproapp.com`.
+
+**Branch-assigned domain** (any plan). Assign `staging.radarproapp.com` to the `staging` branch
+under Preview, and set Preview variables. Branch-specific values inherit the general Preview set,
+so you only override what differs.
+
+### Variables
+
+Set these on the staging environment:
+
+```
+VITE_API_BASE_URL = https://stagingapi.radarproapp.com
+VITE_ENVIRONMENT  = staging
+```
+
+A real environment variable **overrides the committed `.env.production`**, verified by building
+with one set: the staging host was baked in even though the build ran in production mode. So the
+default `npm run build` is fine for staging as long as both variables are set.
+
+If you would rather be explicit than rely on that precedence, set the staging environment's Build
+Command to `npm run build:staging`, which uses `--mode staging` and the committed `.env.staging`.
+CI builds both modes, so a change that only breaks the staging build is caught before it ships.
+
+### Worth knowing
+
+- **Preview variables apply to every preview**, not just the `staging` branch, unless you scope
+  them. That is usually what you want: a pull request preview should talk to staging, never to
+  production.
+- **`VERCEL_ENV` reports `preview` for custom environments too**, so it cannot distinguish staging
+  from an ordinary preview. This app does not rely on it — it reads `VITE_ENVIRONMENT`, which you
+  set explicitly.
+- Any build where `VITE_ENVIRONMENT` is not `production` shows a banner naming the environment and
+  the API it is calling, so a mislabelled deployment announces itself.
+
 ## Frontend (Vercel)
 
 Vercel's **Production** environment builds `main` with `VITE_API_BASE_URL` pointing at the
