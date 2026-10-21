@@ -10,11 +10,13 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
 {
     private readonly RadarDatabase _db;
     private readonly AiRelevanceService _aiRelevance;
+    private readonly IUserLearningRecordService _records;
 
-    public MongoIntelligenceFeedService(RadarDatabase db, AiRelevanceService aiRelevance)
+    public MongoIntelligenceFeedService(RadarDatabase db, AiRelevanceService aiRelevance, IUserLearningRecordService records)
     {
         _db = db;
         _aiRelevance = aiRelevance;
+        _records = records;
     }
 
     public async Task<List<ContentItem>> GetFeedAsync(UserProfile profile, ContentType? filterType = null, int page = 1, int pageSize = 20)
@@ -33,7 +35,7 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
             .Limit(page * pageSize * 3)
             .ToListAsync();
 
-        RankByInterest(profile, items);
+        RankByInterest(profile, items, await _records.BuildAsync(profile));
         items = items.Skip((page - 1) * pageSize).Take(pageSize).ToList();
 
         await DecorateAsync(profile, items);
@@ -79,7 +81,7 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
             ? Cursor.Encode(batch[^1].PublishedAt, batch[^1].Id)
             : null;
 
-        RankByInterest(profile, batch);
+        RankByInterest(profile, batch, await _records.BuildAsync(profile));
         await DecorateAsync(profile, batch);
 
         return new PagedResult<ContentItem> { Items = batch, NextCursor = nextCursor, HasMore = hasMore };
@@ -117,9 +119,13 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
     }
 
     /// <summary>Cheap in-memory interest ranking, used before paging the fetch window.</summary>
-    private static void RankByInterest(UserProfile profile, List<ContentItem> items) =>
-        items.Sort((a, b) => InterestPersonalization.ContentScore(b, profile)
-            .CompareTo(InterestPersonalization.ContentScore(a, profile)));
+    /// <summary>
+    /// Orders the feed by fit. The record is built once and reused: it is derived on read, so
+    /// scoring each item separately would rebuild it for every item in the list.
+    /// </summary>
+    private static void RankByInterest(UserProfile profile, List<ContentItem> items, UserLearningRecord? record = null) =>
+        items.Sort((a, b) => InterestPersonalization.ContentScore(b, profile, record)
+            .CompareTo(InterestPersonalization.ContentScore(a, profile, record)));
 
     /// <summary>
     /// Per-user decoration applied after the page is chosen: AI relevance ranking, then the saved

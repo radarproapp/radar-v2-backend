@@ -42,7 +42,15 @@ public static class InterestPersonalization
     }
 
     /// <summary>Full deterministic explanation for one item: score, "why", next move and matched signals.</summary>
-    public static Explanation Explain(UserProfile profile, ContentItem item)
+    /// <summary>
+    /// How well an item fits, and why.
+    ///
+    /// <paramref name="record"/> is what the user's behaviour says, as opposed to what they typed
+    /// at onboarding. It is optional because several callers score items with no user in scope,
+    /// and gated on confidence because thin evidence should not outrank something the user
+    /// actually told us.
+    /// </summary>
+    public static Explanation Explain(UserProfile profile, ContentItem item, UserLearningRecord? record = null)
     {
         var text = Text(item);
         var matches = new List<DimensionMatch>();
@@ -54,6 +62,16 @@ public static class InterestPersonalization
         AddDimension(matches, text, "Interest", StrongInterests(profile), 10);
         AddDimension(matches, text, "Interest", GeneralInterests(profile), 5);
         AddDimension(matches, text, "Context", ContextPhrases(profile), 5);
+
+        // What the record knows and the profile does not. Weighted below Goal, because a stated
+        // goal is a decision and a derived topic is an inference - but above Interest, because
+        // what someone is actually working through beats a box they ticked at signup.
+        if (record is not null && record.Confidence >= MinConfidenceToUseRecord)
+        {
+            AddDimension(matches, text, "Role", [record.TargetRole], 22);
+            AddDimension(matches, text, "Learning", record.PriorityTopics, 25);
+            AddDimension(matches, text, "Gap", record.WeakAreas, 12);
+        }
 
         if (item.PersonaImpact.ContainsKey(profile.Persona.ToString()))
             matches.Add(new DimensionMatch("Persona", profile.Persona.ToString(), 1));
@@ -75,7 +93,7 @@ public static class InterestPersonalization
         return new Explanation(score, why, edge, nextMove, signals);
     }
 
-    public static int ContentScore(ContentItem item, UserProfile profile) => Explain(profile, item).Score;
+    public static int ContentScore(ContentItem item, UserProfile profile, UserLearningRecord? record = null) => Explain(profile, item, record).Score;
 
     public static string BuildWhy(UserProfile profile, ContentItem item) => Explain(profile, item).Why;
 
@@ -269,10 +287,20 @@ public static class InterestPersonalization
         return $"a documented case study applying {Lower(capability)} to solve a problem in {Lower(topic)}";
     }
 
+    /// <summary>
+    /// How sure the record has to be before it is allowed to move the feed. Same threshold the
+    /// roadmap personaliser and the opportunity scorer use - it is the same judgement in all
+    /// three places, so it should not drift between them.
+    /// </summary>
+    private const double MinConfidenceToUseRecord = 0.35;
+
     private static double WeightFor(string dimension) => dimension switch
     {
         "Goal" => 30,
+        "Learning" => 25,
+        "Role" => 22,
         "Problem" => 20,
+        "Gap" => 12,
         "Intent" => 15,
         "Capability" => 15,
         "Interest" => 10,

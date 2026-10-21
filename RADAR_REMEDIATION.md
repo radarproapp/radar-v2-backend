@@ -181,7 +181,13 @@ The fastest way to simplify is to delete. Also the fastest way to restore trust.
   carrying its own reason. Gated at `Confidence >= 0.35`, the same threshold the roadmap
   personaliser uses, so two lessons' worth of evidence is not presented back as a conclusion.
   **Feed ranking still does not use it** — that half remains open.
-- [ ] 5c.10b Feed the record into feed ranking as well.
+- [x] 5c.10b ~~Feed the record into feed ranking as well~~ — the record now reaches all three
+  surfaces. `InterestPersonalization.Explain` scores three new dimensions from it: next priority
+  topic (25), target role (22) and weak areas (12). Weighted below a stated Goal, because a goal
+  is a decision and a derived topic is an inference, but above Interest, because what someone is
+  working through beats a box ticked at signup. `WhyShown` gained a sentence for each, so the card
+  says "what you're learning next (...)" rather than printing the raw phrase. Same 0.35
+  confidence gate as the roadmap personaliser and the opportunity scorer.
 
 ## Phase 5d — Production AI reality check (2026-10-19)
 

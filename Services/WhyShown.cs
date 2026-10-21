@@ -44,6 +44,9 @@ public static class WhyShown
                     "Capability" => $"your {phrase} experience",
                     "Problem" => $"what you said is holding you back ({phrase})",
                     "Intent" => $"what you're working on right now ({phrase})",
+                    "Learning" => $"what you're learning next ({phrase})",
+                    "Role" => $"the role you're aiming for ({phrase})",
+                    "Gap" => $"something you're still building ({phrase})",
                     _ => phrase,
                 };
             })
