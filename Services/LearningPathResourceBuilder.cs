@@ -79,6 +79,9 @@ public static class LearningPathResourceBuilder
             foreach (var lesson in lessons)
             {
                 order++;
+                // The lesson this one leads to, so the "why" can name it rather than assert that
+                // one exists. Null on the last lesson of a module, which is its own answer.
+                var nextLessonTitle = order < lessons.Count ? lessons[order].Title : null;
                 var handle = handles.Length > 0 ? handles[(order - 1) % handles.Length] : null;
                 var query = !string.IsNullOrWhiteSpace(lesson.SearchHint)
                     ? lesson.SearchHint!
@@ -104,12 +107,12 @@ public static class LearningPathResourceBuilder
                     Duration = lesson.EstimatedTime,
                     EstimatedTime = lesson.EstimatedTime,
                     Type = LearningResourceType.TutorialVideo,
-                    WhyAmILearningThis = WhyLesson(lesson.Title, module.Level, subject),
+                    WhyAmILearningThis = WhyLesson(lesson.Title, module.Level, subject, nextLessonTitle, module.Project?.Deliverable),
                     WhatYouWillBuild = module.Project?.Deliverable ?? $"Working knowledge of {SubjectPhrase.Lower(lesson.Title)}.",
                     PracticeExerciseTitle = $"Practice: {lesson.Title}",
                     PracticeExercise = $"Follow along with the video, then redo it yourself without pausing it.",
                     QuizTopic = lesson.Title,
-                    WhyItMatters = WhyLesson(lesson.Title, module.Level, subject),
+                    WhyItMatters = WhyLesson(lesson.Title, module.Level, subject, nextLessonTitle, module.Project?.Deliverable),
                     NextMove = $"1. Watch one video on {SubjectPhrase.Lower(lesson.Title)}.\n2. Redo it yourself without the video.\n3. Write down the part you had to look up.",
                 });
             }
@@ -195,9 +198,35 @@ public static class LearningPathResourceBuilder
     private static string RecentSearchUrl(string query) =>
         $"https://www.youtube.com/results?search_query={Uri.EscapeDataString(query)}&sp=CAI%253D";
 
-    private static string WhyLesson(string lessonTitle, string stage, string subject) =>
-        $"This is part of your {stage.ToLowerInvariant()} stage in {subject}. "
-        + $"You need {SubjectPhrase.Lower(lessonTitle)} before the next step makes sense.";
+    /// <summary>
+    /// Why this lesson, for this learner, in this position.
+    ///
+    /// It used to end "you need X before the next step makes sense" on every lesson, without
+    /// knowing what the next step was - the same sentence on every card, asserting a dependency
+    /// nothing had checked. The builder has the ordered list and the module's project in hand, so
+    /// it can name the thing the lesson actually leads to.
+    ///
+    /// Spec 5.6 asks that each resource answer this "against the user's goal". It does, by
+    /// construction: `subject` is derived from `roadmap.Goal`, so naming the subject names the
+    /// goal. An earlier version also prefixed "Your goal is X" when the two differed - but since
+    /// one is built from the other, that condition was false in every real case, and a branch
+    /// that cannot fire is worse than no branch.
+    /// </summary>
+    private static string WhyLesson(
+        string lessonTitle,
+        string stage,
+        string subject,
+        string? nextLessonTitle,
+        string? projectDeliverable)
+    {
+        if (!string.IsNullOrWhiteSpace(nextLessonTitle))
+            return $"You need {SubjectPhrase.Lower(lessonTitle)} before {SubjectPhrase.Lower(nextLessonTitle)}.";
+
+        if (!string.IsNullOrWhiteSpace(projectDeliverable))
+            return $"This is the last {stage.ToLowerInvariant()} lesson before you build {SubjectPhrase.Lower(projectDeliverable)}.";
+
+        return $"Part of your {stage.ToLowerInvariant()} stage in {subject}.";
+    }
 
     private static string Slug(string value) =>
         new(value.ToLowerInvariant().Where(char.IsLetterOrDigit).ToArray());

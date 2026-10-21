@@ -132,9 +132,18 @@ The fastest way to simplify is to delete. Also the fastest way to restore trust.
 - [x] 5.1 ~~Cybersecurity roadmap template~~ — done. Added `CybersecurityModules()` (4 stages, 16 lessons: networking → SIEM/IR → detection engineering & ATT&CK → home lab, write-ups, interview prep). The silent `_ => DataAnalyticsModules()` default is replaced with `GenericModules(goal)`, which names the user's own stated goal at every stage instead of confidently serving the wrong curriculum. Verified live end to end.
 - [x] 5.2 ~~Delete the hardcoded `STAGE_DEFINITIONS`~~ — done. Stage labels and goals now derive from the roadmap's own modules, with domain-neutral fallbacks for the gap before one exists. The four stage *keys* stay (they are structural); the Excel/SQL/Power BI/Python *content* is gone.
 - [ ] 5.3 80% how-to / 20% current-developments resource mix per stage
-- [ ] 5.4 Ordered "start with this" sequencing with time estimates and a reason per resource
+- [x] 5.4 ~~Ordered "start with this" sequencing with a reason per resource~~ — the ordering and
+  "Start here" / "Next" / "Then" roles were already produced; what was missing was a reason that
+  differed between items. Each lesson now names the lesson it leads to, and the last one names the
+  project it leads to. Time estimates carry through from the roadmap.
 - [ ] 5.5 Tutorial summaries in step-by-step format; article/video summaries in what-happened format
-- [ ] 5.6 Every resource answers "why am I learning this" against the user's goal (spec #13 §7)
+- [x] 5.6 ~~Every resource answers "why am I learning this"~~ — it did, with the same sentence
+  every time: "you need X before the next step makes sense", asserted on every card without
+  knowing what the next step was. The builder has the ordered list and the module project in
+  hand, so it names them. A test fails if two lessons on a path ever carry the same reason.
+  Writing it also turned up a branch that could not fire — a "Your goal is X" prefix gated on the
+  goal differing from the subject, when the subject is *derived from* the goal — so that was
+  removed rather than left looking like it did something.
 - [x] 5.7 ~~Project Studio: fix duplicate rows~~ — done (`556a470`). Starting a template twice
   inserted a second identical project; that was the doubled "Business Model Canvas" in the original
   review. Domain-aware projects landed earlier via `StageProjectCatalog`.
