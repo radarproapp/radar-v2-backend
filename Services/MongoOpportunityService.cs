@@ -528,7 +528,10 @@ public class MongoOpportunityService : IOpportunityService
 
         foreach (var term in OpportunitySignalTerms.For(opportunity))
         {
-            await _signals.RecordAsync(userId, term, action.Value);
+            // Declared, not Inferred. The user pressed a button saying what they think of this -
+            // that is a statement, not a guess Radar made from their browsing, and confidence
+            // scoring weights the two differently on purpose.
+            await _signals.RecordAsync(userId, term, action.Value, SignalSource.Declared);
         }
     }
 

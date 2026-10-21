@@ -74,7 +74,15 @@ public sealed class FieldSet
         return projected;
     }
 
-    /// <summary>Projects a whole page, converting the envelope so <c>nextCursor</c> survives.</summary>
+    /// <summary>
+    /// Projects a whole page, carrying the envelope across.
+    ///
+    /// Every field of the envelope has to be copied here by hand, and forgetting one is silent:
+    /// `emptyReason` was added to <see cref="Models.PagedResult{T}"/> and not added here, so the
+    /// API reported `NotEmpty` on every response including empty ones. Nothing failed - the field
+    /// was present, well-typed and always wrong, which is why it survived a green test suite and
+    /// was only caught by reading a real response.
+    /// </summary>
     public Models.PagedResult<object> ProjectPage<T>(
         Models.PagedResult<T> page,
         IReadOnlyDictionary<string, Func<T, object?>> projectors)
@@ -85,6 +93,7 @@ public sealed class FieldSet
                 Items = [.. page.Items.Select(item => (object)item!)],
                 NextCursor = page.NextCursor,
                 HasMore = page.HasMore,
+                EmptyReason = page.EmptyReason,
             };
 
         return new Models.PagedResult<object>
@@ -92,6 +101,7 @@ public sealed class FieldSet
             Items = [.. page.Items.Select(item => Project(item, projectors))],
             NextCursor = page.NextCursor,
             HasMore = page.HasMore,
+            EmptyReason = page.EmptyReason,
         };
     }
 }

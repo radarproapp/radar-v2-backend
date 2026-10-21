@@ -23,8 +23,33 @@ public static class AcademicPaperSynthesizer
     /// If one is not pre-populated, this synthesizes a comprehensive 7-part breakdown
     /// from the paper's title, abstract, authors, journal, and citation signals.
     /// </summary>
+    /// <summary>
+    /// Fills in <c>Era</c> when a paper already arrived with a breakdown.
+    ///
+    /// Search results do not go through the full enricher - they come straight from the
+    /// catalogue or from OpenAlex with a breakdown already built - so papers reached a reader
+    /// with an empty Era, which is the one field 8.4 exists for. Derived from the publication
+    /// date, so it never invents anything and costs a comparison.
+    /// </summary>
+    public static void EnsureEra(ContentItem paper)
+    {
+        if (paper.PaperBreakdown is null) return;
+        if (!string.IsNullOrWhiteSpace(paper.PaperBreakdown.Era)) return;
+
+        paper.PaperBreakdown.Era = EraFor(paper.PublishedAt.Year);
+    }
+
     public static void EnrichPaperWithStrictBreakdown(ContentItem paper)
     {
+        // Era is derived from the publication date, not from the text, so it costs nothing and is
+        // set even when a breakdown already exists. Putting it after the early return meant every
+        // paper that arrived with a pre-built breakdown - which is most of them - had an empty
+        // Era, and the whole point of 8.4 is that a reader sees it without having to check a year.
+        if (paper.PaperBreakdown is not null && string.IsNullOrWhiteSpace(paper.PaperBreakdown.Era))
+        {
+            paper.PaperBreakdown.Era = EraFor(paper.PublishedAt.Year);
+        }
+
         if (paper.PaperBreakdown != null && paper.WordCount > 400)
             return;
 

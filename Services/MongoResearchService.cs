@@ -248,10 +248,16 @@ public class MongoResearchService : IResearchService
     /// </summary>
     private static void ExplainForReader(IReadOnlyList<ContentItem> papers, UserProfile? profile)
     {
+        // Era does not depend on the reader, so it is set before the profile check - a signed-out
+        // search still needs to know a 1998 paper is foundational.
+        foreach (var paper in papers) AcademicPaperSynthesizer.EnsureEra(paper);
+
         if (profile is null) return;
 
         foreach (var paper in papers)
         {
+            AcademicPaperSynthesizer.EnsureEra(paper);
+
             var explanation = InterestPersonalization.Explain(profile, paper);
             paper.MatchedSignals = explanation.MatchedSignals.ToList();
             paper.WhyYoureSeeingThis = WhyShown.Build(paper, explanation.MatchedSignals);

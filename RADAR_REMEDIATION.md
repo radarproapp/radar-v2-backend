@@ -96,9 +96,11 @@ The fastest way to simplify is to delete. Also the fastest way to restore trust.
   resolves it, and `NoContentAtAll` offers none at all. Added `DELETE /api/feed/dismissed`, because
   telling someone they dismissed everything is only useful if they can undo it, and a dismissal
   was previously permanent.
-  **Runtime behaviour not yet verified** — Docker stopped mid-session, so the reason codes are
-  covered by the build and the frontend's unit tests but have not been exercised against a live
-  database.
+  **Verified live.** Exercising it against a real database found a bug nothing else could:
+  `FieldSet.ProjectPage` rebuilds the response envelope by hand and did not copy `EmptyReason`, so
+  the API answered `NotEmpty` on every response including empty ones. The field was present,
+  correctly typed and always wrong - a green suite and a clean build both said it was fine.
+  `FieldSetEnvelopeTests` now fails if a field is added to the envelope and dropped there again.
 
 ## Phase 4 — Feed card + full brief (spec #11, #12)
 
@@ -374,8 +376,11 @@ Four separate faults, one root cause: nothing interpreted the goal before genera
   through a variable called `notRelevantCountInType` that did not count by type — so dismissing
   three scholarships nudged jobs down equally, and dismissing thirty taught no more than three. It
   is kept as a blunt backstop, now honestly described.
-  **Not yet verified end to end** — Docker was down, so the write path is covered by the build and
-  by `OpportunitySignalTermsTests` but has not been exercised against a live database.
+  **Verified live.** One "not relevant" on a cybersecurity scholarship wrote three signals -
+  `Scholarship` (type), `Skills` (goal tag) and `cyber` (field) - and none for the title. The run
+  also showed they were being stored as `Inferred`; a user pressing a button is making a
+  statement, not leaving a trace to be guessed from, so tracking now records `Declared`, which is
+  what confidence scoring weights higher.
 
 ## Phase 8 — Research + Intelligence Library (spec #18, #19)
 
