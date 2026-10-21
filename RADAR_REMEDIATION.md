@@ -381,11 +381,25 @@ Four separate faults, one root cause: nothing interpreted the goal before genera
 > claiming a summary when one genuinely is absent.
 
 - [x] 8.1 ~~Generate the structured breakdown for search results~~ — already true at HEAD; verified live, see note above
-- [ ] 8.2 Full 10-part summary format per spec #18 §5
-- [ ] 8.3 "Not clearly stated in the available source" instead of inventing (spec #18 §6)
-- [ ] 8.4 Label foundational/older research distinctly from 2020–2026
+- [ ] 8.2 Full 10-part summary format per spec #18 §5. **Note:** the word-count floor is dropped.
+  A guaranteed length and "do not invent" cannot both hold — the old padding sentence existed only
+  to reach the count. All parts are present; parts the source does not support say so, and the
+  summary is shorter.
+- [ ] 8.6 Library: last five years, original always accessible. **The 500-word floor is dropped
+  for the same reason as 8.2** — length is now a ceiling, not a target.
+- [x] 8.3 ~~"Not clearly stated in the available source" instead of inventing~~ — the summariser
+  was inventing scholarship. A paper with no stated methodology was credited with "an empirical,
+  multi-tiered methodological framework combining quantitative modeling, systematic observational
+  sampling, and iterative sensitivity benchmarking"; every paper was credited with "strict
+  counterfactual controls, statistical error bounds, and reproducible validation metrics" whether
+  it had any or not; and the aim section never read the abstract at all, asserting the same three
+  objectives for every paper in the database. Each section now extracts the sentences of the
+  abstract that speak to it, or says `NotStated`.
+- [x] 8.4 ~~Label foundational/older research distinctly~~ — `Era` on the breakdown: Recent
+  (≤5 years), Established (≤15), or "Foundational - predates current practice by design".
+  Derived from the publication date, not asserted. A 1998 paper can be the foundational text of
+  its field and still be the wrong thing to copy as current practice.
 - [ ] 8.5 "Why this paper?" personalised to the user's research context
-- [ ] 8.6 Library: 500-word summaries, last five years, original always accessible
 - [ ] 8.7 Broaden the Library to 100+ areas across academic and professional interests
 
 ## Phase 9 — Mentor, Capture, Summarize (spec #20, #15, #8)

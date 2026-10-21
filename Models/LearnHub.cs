@@ -30,6 +30,15 @@ public class AcademicPaperBreakdown
     public string Contribution { get; set; } = string.Empty;
     public string WhyItMatters { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Where this paper sits in time: Recent, Established, or Foundational.
+    ///
+    /// Spec 8.4. A 1998 paper can be the foundational text of its field and still be the wrong
+    /// thing to copy as current practice. Without this the reader has to notice the year and draw
+    /// the conclusion themselves, which is exactly what nobody does while skimming.
+    /// </summary>
+    public string Era { get; set; } = string.Empty;
+
     public int TotalWordCount =>
         (Introduction + " " + Problem + " " + AimAndObjectives + " " + Methodology + " " + KeyArguments + " " + Findings + " " + Contribution)
         .Split(new[] { ' ', '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries).Length;

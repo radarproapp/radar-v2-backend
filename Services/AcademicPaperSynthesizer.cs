@@ -28,12 +28,13 @@ public static class AcademicPaperSynthesizer
         if (paper.PaperBreakdown != null && paper.WordCount > 400)
             return;
 
-        var title = !string.IsNullOrWhiteSpace(paper.Title) ? paper.Title : "Academic Investigation";
-        var journal = !string.IsNullOrWhiteSpace(paper.Journal) ? paper.Journal : (!string.IsNullOrWhiteSpace(paper.Source) ? paper.Source : "Peer-Reviewed Academic Press");
+        var title = !string.IsNullOrWhiteSpace(paper.Title) ? paper.Title : "Untitled paper";
+        // "Peer-Reviewed Academic Press" was invented, and asserted peer review that nothing checked.
+        var journal = !string.IsNullOrWhiteSpace(paper.Journal) ? paper.Journal : (!string.IsNullOrWhiteSpace(paper.Source) ? paper.Source : "Source not recorded");
         var authorsList = paper.Authors.Count > 0 ? string.Join(", ", paper.Authors.Take(3)) + (paper.Authors.Count > 3 ? " et al." : "") : "The authors";
         var year = paper.PublishedAt.Year > 1900 ? paper.PublishedAt.Year : DateTime.UtcNow.Year;
         var abstractText = !string.IsNullOrWhiteSpace(paper.WhatHappened) ? paper.WhatHappened : (!string.IsNullOrWhiteSpace(paper.AiSummary) ? paper.AiSummary : string.Empty);
-        var topic = paper.Tags.Count > 0 ? paper.Tags[0] : (!string.IsNullOrWhiteSpace(paper.Topic) ? paper.Topic : "Interdisciplinary Studies");
+        var topic = paper.Tags.Count > 0 ? paper.Tags[0] : (!string.IsNullOrWhiteSpace(paper.Topic) ? paper.Topic : string.Empty);
 
         // Clean abstract
         abstractText = CleanText(abstractText);
@@ -56,7 +57,17 @@ public static class AcademicPaperSynthesizer
             KeyArguments = args,
             Findings = findings,
             Contribution = contribution,
-            WhyItMatters = $"Published in {journal} ({year}). Sourced from verifiable databases with verified DOI: {paper.Doi ?? "Direct Open Access"}. Essential reading for researchers and practitioners in {topic}."
+            // Facts only. This line used to read "Sourced from verifiable databases with verified
+            // DOI" - nothing here verifies anything, and when there was no DOI it invented
+            // "Direct Open Access" to fill the slot. A claim of verification is exactly the claim
+            // a reader cannot check for themselves.
+            WhyItMatters = string.IsNullOrWhiteSpace(paper.Doi)
+                ? $"Published in {journal} ({year}). No DOI on record."
+                : $"Published in {journal} ({year}). DOI: {paper.Doi}",
+
+            // Spec 8.4: where the work sits in time, so a 1998 foundational paper is not read as
+            // current practice. Derived from the publication date rather than asserted.
+            Era = EraFor(year)
         };
 
         // Calculate total word count
@@ -151,113 +162,96 @@ public static class AcademicPaperSynthesizer
         return $"{authors[0]} et al.";
     }
 
+    /// <summary>
+    /// What a section says when the source does not support it.
+    ///
+    /// Spec #18 §6. Every generator below used to invent prose instead: a paper with no stated
+    /// methodology was described as using "an empirical, multi-tiered methodological framework
+    /// combining quantitative modeling, systematic observational sampling, and iterative
+    /// sensitivity benchmarking", and every paper was credited with "strict counterfactual
+    /// controls, statistical error bounds, and reproducible validation metrics" whether it had
+    /// any or not. The aim section did not read the abstract at all - it asserted the same three
+    /// objectives for every paper in the database.
+    ///
+    /// A reader cannot tell invented scholarship from real scholarship when both are written in
+    /// the same register. Saying nothing is the only safe answer.
+    /// </summary>
+    public const string NotStated = "Not clearly stated in the available source.";
+
+    /// <summary>
+    /// The sentences of the abstract that actually speak to a section, or <see cref="NotStated"/>.
+    ///
+    /// Extraction, not generation: every word returned here came from the source. Where the
+    /// abstract says nothing on the subject, the section says so, and the summary is shorter than
+    /// it would have been. A shorter honest summary is the point.
+    /// </summary>
+    private static string FromSource(string abstractText, params string[] cues)
+    {
+        if (string.IsNullOrWhiteSpace(abstractText)) return NotStated;
+
+        var pattern = @"\b(" + string.Join("|", cues) + @")";
+        var matching = SplitSentences(abstractText)
+            .Where(sentence => Regex.IsMatch(sentence, pattern, RegexOptions.IgnoreCase))
+            .Take(3)
+            .ToList();
+
+        return matching.Count > 0 ? string.Join(" ", matching).Trim() : NotStated;
+    }
+
     private static string GenerateIntroduction(string title, string topic, string journal, int year, string abstractText)
     {
-        var baseIntro = $"In contemporary scholarly discourse surrounding {topic.ToLowerInvariant()}, rigorous academic inquiry into '{title}' has emerged as a cornerstone for both theoretical advancement and empirical validation. Published in {journal} ({year}), this research addresses critical structural developments at the intersection of emerging methodologies and domain challenges. ";
+        // The one section that can be written from metadata alone, because the metadata is fact:
+        // this paper, this journal, this year. Everything beyond that comes from the abstract.
+        var opening = $"\"{title}\", published in {journal} ({year}).";
 
-        if (!string.IsNullOrWhiteSpace(abstractText) && abstractText.Length > 100)
-        {
-            var firstPart = GetSentenceRange(abstractText, 0, 2);
-            baseIntro += $"As the authors articulate in their preliminary thesis: \"{firstPart}\" Understanding this systemic dynamic is paramount for contextualizing how academic scholars and industry professionals analyze underlying environmental and technological dependencies.";
-        }
-        else
-        {
-            baseIntro += $"The study contextualizes this domain within modern global macroeconomic, technological, and institutional frameworks, examining how fundamental assumptions in {topic.ToLowerInvariant()} require systematic re-examination under contemporary operating conditions.";
-        }
+        if (string.IsNullOrWhiteSpace(abstractText)) return opening + " " + NotStated;
 
-        return EnsureWordLength(baseIntro, 75, 95);
+        var firstSentences = GetSentenceRange(abstractText, 0, 2);
+        return string.IsNullOrWhiteSpace(firstSentences)
+            ? opening + " " + NotStated
+            : $"{opening} The authors open: \"{firstSentences.Trim()}\"";
     }
 
-    private static string GenerateProblem(string title, string topic, string abstractText)
-    {
-        var baseProblem = $"Despite accelerating interest and expanding literature within {topic.ToLowerInvariant()}, researchers and practitioners have encountered profound operational bottlenecks and unresolved theoretical tensions. Existing models frequently exhibit severe limitations when handling high complexity, fragmented observational data, or volatile contextual environments. ";
+    private static string GenerateProblem(string title, string topic, string abstractText) =>
+        FromSource(abstractText, "problem", "challeng", "gap", "limitation", "lack", "however", "despite", "fail", "difficult");
 
-        if (!string.IsNullOrWhiteSpace(abstractText) && abstractText.Length > 150)
-        {
-            var midPart = GetSentenceRange(abstractText, 1, 3);
-            baseProblem += $"Specifically, prior paradigms have failed to adequately reconcile key systemic frictions: {midPart} Without a mathematically robust and empirically verified framework, decision-makers are susceptible to compounding misallocations, blind spots, and flawed predictive assumptions.";
-        }
-        else
-        {
-            baseProblem += $"Prior studies have historically suffered from incomplete analytical resolution, lack of standardized empirical validation, and inadequate accounting for non-linear confounding variables across cross-functional enterprise and technological applications.";
-        }
-
-        return EnsureWordLength(baseProblem, 70, 90);
-    }
-
-    private static string GenerateAimAndObjectives(string title, string topic, string abstractText)
-    {
-        var baseAim = $"The principal aim of this research paper is to design, formalize, and empirically evaluate a comprehensive analytical architecture for investigating '{title}'. To achieve this overarching goal, the authors formulate three explicit operational objectives: ";
-        baseAim += $"(1) to rigorously characterize the structural determinants and baseline variables governing {topic.ToLowerInvariant()}; ";
-        baseAim += "(2) to quantify empirical variance, causal mechanisms, and interactive feedback loops across heterogeneous test conditions; and ";
-        baseAim += "(3) to deliver a validated, reproducible blueprint that bridges theoretical scholarship with actionable, high-stakes decision criteria for domain practitioners.";
-
-        return EnsureWordLength(baseAim, 70, 90);
-    }
+    private static string GenerateAimAndObjectives(string title, string topic, string abstractText) =>
+        FromSource(abstractText, "aim", "objective", "purpose", "goal", "we propose", "this paper", "this study", "we present", "we introduce", "investigat");
 
     private static string GenerateMethodology(string title, string topic, string abstractText, string? existingMethod)
     {
-        var baseMethod = !string.IsNullOrWhiteSpace(existingMethod)
-            ? $"The investigation adopts a rigorous multi-phase empirical methodology: {existingMethod}. "
-            : "The researchers execute an empirical, multi-tiered methodological framework combining quantitative modeling, systematic observational sampling, and iterative sensitivity benchmarking. ";
+        if (!string.IsNullOrWhiteSpace(existingMethod)) return existingMethod.Trim();
 
-        if (!string.IsNullOrWhiteSpace(abstractText) && abstractText.Length > 200)
-        {
-            var sentences = SplitSentences(abstractText);
-            var methodSentence = sentences.FirstOrDefault(s => Regex.IsMatch(s, @"\b(method|data|sampl|model|evaluat|experi|survey|measur|analy|framework)\b", RegexOptions.IgnoreCase));
-            if (!string.IsNullOrEmpty(methodSentence))
-            {
-                baseMethod += $"In particular, the experimental protocol details that: {methodSentence.Trim()} ";
-            }
-        }
-
-        baseMethod += "The authors implement strict counterfactual controls, statistical error bounds, and reproducible validation metrics to eliminate confounding artifacts and ensure external generalizability across diverse operating environments.";
-
-        return EnsureWordLength(baseMethod, 75, 95);
+        return FromSource(abstractText, "method", "data", "sampl", "model", "evaluat", "experi", "survey", "measur", "analy", "framework", "dataset", "simulat");
     }
 
-    private static string GenerateKeyArguments(string title, string topic, string abstractText)
-    {
-        var baseArgs = $"The core theoretical argument posits that systemic effectiveness in {topic.ToLowerInvariant()} cannot be achieved through isolated, superficial interventions or static heuristic rules. Instead, the authors argue that optimal outcomes are governed by structural coherence across data flows, human-machine feedback loops, and dynamic adaptability. ";
-        baseArgs += "Furthermore, the paper asserts that conventional assumptions regarding linear scaling are fundamentally flawed; sustainable advantage requires active compartmentalization of risk and intentional architectural modularity.";
-
-        return EnsureWordLength(baseArgs, 75, 95);
-    }
+    private static string GenerateKeyArguments(string title, string topic, string abstractText) =>
+        FromSource(abstractText, "argue", "claim", "suggest", "propose", "we show", "demonstrat", "contend", "posit", "hypothes");
 
     private static string GenerateFindings(string title, string abstractText, string? existingFindings, string? whyMatters)
     {
-        var baseFindings = !string.IsNullOrWhiteSpace(existingFindings)
-            ? $"Empirical analysis yields definitive findings: {existingFindings}. "
-            : "The empirical findings demonstrate clear, statistically validated performance differentials that substantiate the authors' core hypotheses. ";
+        if (!string.IsNullOrWhiteSpace(existingFindings)) return existingFindings.Trim();
 
-        if (!string.IsNullOrWhiteSpace(abstractText))
-        {
-            var sentences = SplitSentences(abstractText);
-            var findingSentence = sentences.FirstOrDefault(s => Regex.IsMatch(s, @"\b(result|show|demonstrat|reveal|find|found|improv|increas|decreas|outperform)\b", RegexOptions.IgnoreCase));
-            if (!string.IsNullOrEmpty(findingSentence))
-            {
-                baseFindings += $"Specifically, the experimental data highlights: {findingSentence.Trim()} ";
-            }
-        }
-
-        if (!string.IsNullOrWhiteSpace(whyMatters))
-        {
-            baseFindings += $"These outcomes establish that: {whyMatters} ";
-        }
-        else
-        {
-            baseFindings += "Cross-validation confirms statistically significant gains in reliability, operational throughput, and mitigation of tail-risk vulnerabilities across all evaluated cohorts.";
-        }
-
-        return EnsureWordLength(baseFindings, 80, 100);
+        return FromSource(abstractText, "find", "result", "show", "observ", "report", "improv", "outperform", "achiev", "reduc", "increas", "accuracy");
     }
 
-    private static string GenerateContribution(string title, string topic, string journal, string abstractText)
-    {
-        var baseContrib = $"This paper delivers a substantive contribution to the academic corpus of {topic.ToLowerInvariant()} by providing validated empirical instruments and theoretical clarity published in {journal}. ";
-        baseContrib += "Beyond theoretical scholarship, the research provides immediate pragmatic utility for industry executives, technical specialists, and policy analysts. It provides clear prescriptive guidelines on how to navigate complex trade-offs, optimize capital and computational allocations, and anticipate emerging regulatory and technological shifts with high confidence.";
+    private static string GenerateContribution(string title, string topic, string journal, string abstractText) =>
+        FromSource(abstractText, "contribut", "novel", "first", "new", "advance", "implication", "enable", "matter", "impact");
 
-        return EnsureWordLength(baseContrib, 75, 95);
+    /// <summary>
+    /// Where a paper sits in time.
+    ///
+    /// Spec 8.4. A 1998 paper can be the foundational text of a field and still be the wrong
+    /// thing to follow as current practice. Saying which it is costs one line and stops a reader
+    /// treating a classic as a recommendation.
+    /// </summary>
+    private static string EraFor(int year)
+    {
+        var now = DateTime.UtcNow.Year;
+        if (year <= 0) return "Publication date not recorded";
+        if (year >= now - 5) return "Recent";
+        if (year >= now - 15) return "Established";
+        return "Foundational - predates current practice by design";
     }
 
     private static string CleanText(string text)
@@ -279,17 +273,6 @@ public static class AcademicPaperSynthesizer
         if (sentences.Count == 0) return string.Empty;
         var slice = sentences.Skip(startIdx).Take(count);
         return string.Join(" ", slice);
-    }
-
-    private static string EnsureWordLength(string text, int minWords, int maxWords)
-    {
-        var words = text.Split([' '], StringSplitOptions.RemoveEmptyEntries).ToList();
-        if (words.Count < minWords)
-        {
-            var padding = " This analytical dimension emphasizes the critical importance of rigorous evidence, structural integrity, and longitudinal observation when deploying strategic interventions in complex operating environments.";
-            text += padding;
-        }
-        return text;
     }
 
     private static int CountWords(string text)
