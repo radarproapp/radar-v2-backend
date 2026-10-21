@@ -250,6 +250,39 @@ Adding `radar-api-production` alongside `radar-api-staging` in a single environm
 services distinguished only by name, sharing one variable namespace. It is the easiest to set up
 and the easiest to make a mistake in.
 
+### If Railway will not deploy and production needs a fix
+
+A paused workspace blocks every environment, so production can be healthy and unshippable at the
+same time. Nothing in this repo works around that - the pause clears in Railway's billing settings
+and nowhere else. What follows is for the case where it cannot be cleared fast enough.
+
+Nothing here is Railway-specific. `Dockerfile` listens on an injected `PORT` and falls back to 80,
+so anything that builds a Dockerfile will run it: Render, Fly, Azure Container Apps, a plain VM.
+
+1. Point the host at this repo, or build and push the image yourself.
+2. Set the same variables the Railway service has. The ones without which it will not boot or will
+   boot wrong:
+
+   ```
+   ASPNETCORE_ENVIRONMENT=Production
+   MongoDB__ConnectionString=...
+   MongoDB__DatabaseName=radar
+   Auth__Jwt__Key=...
+   OpenRouter__ApiKey=...
+   YouTube__ApiKey=...
+   Jobs__CronKey=...
+   ```
+
+   Double underscores, always. Check `/api/version` afterwards: `configured` reports each of these
+   as a boolean, so a typo shows up there rather than as a dead feature later.
+3. Repoint `api.radarproapp.com` at the new host and wait for its certificate.
+4. Leave `Cors__Strict` **off** until the domain resolves to the new host. Turning it on mid-move
+   locks the frontend out while DNS is still half-propagated, and the symptom - works for some
+   users, not others - is far harder to read than a plain outage.
+
+The DNS change is what makes this reversible: the frontend is not rebuilt, so moving back is
+another DNS change rather than another deploy.
+
 ### Duplicating an environment doubles what you pay for
 
 Four services become eight, each its own always-on container. That is enough to cross a Hobby
