@@ -223,7 +223,7 @@ public class MongoLearnHubService : ILearnHubService
                       "format": "Tutorial",
                       "level": "{{stage}}",
                       "duration": "18 mins",
-                      "url": "https://www.youtube.com/watch?v=2T_OtuD4tI8",
+                      "url": "https://www.youtube.com/results?search_query=Mastering+{{skill}}+tutorial",
                       "summary": "Step-by-step technical walkthrough demonstrating core architecture and configuration.",
                       "stepByStepBreakdown": [
                         "1. Setting up the environment and isolating prerequisites",
@@ -257,7 +257,15 @@ public class MongoLearnHubService : ILearnHubService
             // first load open on a provider round trip. The prompt is stable per skill/stage, so the
             // warm almost always lands before the user comes back.
             const string feature = "learnhub-synthesis";
-            const string system = "You are Radar's AI Learn Hub Architect. Create hyper-targeted, structured learning hubs and knowledge graphs.";
+            // The worked example above used to carry a real-looking watch?v= id, which taught the
+            // model that inventing video ids was the expected output. It was also dead: of the 33
+            // hardcoded ids in this codebase, 21 returned 404. A model cannot know whether a video
+            // exists, so it is told to link to a search instead of guessing an id.
+            const string system =
+                "You are Radar's AI Learn Hub Architect. Create hyper-targeted, structured learning hubs and knowledge graphs. "
+                + "Never invent a YouTube video id or a direct watch?v= link - you cannot know whether one exists, and a dead "
+                + "link is worse than no link. For videos, return a YouTube search URL of the form "
+                + "https://www.youtube.com/results?search_query=<terms> so the learner lands on real current results.";
 
             if (!_ai.TryGetCachedJson<LearnHubPayload>(feature, system, prompt, out var payload) || payload is null)
             {

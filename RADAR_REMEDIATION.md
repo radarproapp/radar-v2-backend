@@ -138,8 +138,16 @@ The fastest way to simplify is to delete. Also the fastest way to restore trust.
 - [x] 5b.3 ~~Link to channel topic searches, not hardcoded video IDs~~ — single videos rot and a
   wrong ID is invisible in review; `@handle/search?query=...` always lands on that channel's current
   videos. Same principle as dropping the fabricated papers.
-- [ ] 5b.4 Replace the remaining hardcoded video IDs in `LearningResourceCatalog.cs` (the other six
-  domains) the same way — they carry the same staleness and fabrication risk.
+- [x] 5b.4 ~~Replace the remaining hardcoded video IDs~~ — **checked all 33 against YouTube's
+  oEmbed endpoint first: 21 returned 404.** Just under two thirds of every video Radar recommended
+  was a dead link, and two of the survivors were 10-character ids, a length YouTube never issues,
+  so they were invented rather than copied. All 33 are now YouTube search URLs built from the
+  resource's own title and channel — the degradation mode `YouTubeSearchService` already
+  documents, which needs no key or quota and cannot rot. Thumbnails went with them: an image keyed
+  to a video we no longer link to is just a broken picture. `VideoLinkTests` fails the build if a
+  fixed id reappears.
+  The Learn Hub's AI prompt also carried a dead id in its worked example, teaching the model that
+  inventing video ids was the expected output; it now shows a search URL and says not to guess.
 
 ## Phase 5c — Personalisation record (user direction, 2026-10-19)
 
