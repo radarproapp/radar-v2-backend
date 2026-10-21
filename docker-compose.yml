@@ -1,0 +1,71 @@
+# Radar, running entirely on your machine.
+#
+# Why this exists: staging lives on Railway, and a second hosted environment doubled the bill
+# enough to cross the plan limit — which paused deploys for *every* environment, production
+# included. A hosted staging is the right place for testers to click around. It is an expensive
+# place to find out that a migration is wrong.
+#
+# This stack is that cheaper place. Same Dockerfile the platform builds, its own Mongo, its own
+# database name, and nothing shared with anything real.
+#
+#   docker compose up --build        start it
+#   curl localhost:5080/api/version  confirm which environment and database you are on
+#   docker compose down -v           stop it and throw the data away
+#
+# Secrets come from .env, which is gitignored. Copy .env.example and fill in what you need; the
+# app starts without any of them and simply turns those features off, which is usually what you
+# want locally.
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      # Exposed so you can point Compass or mongosh at it while the stack runs.
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      # The API fails its first queries if it starts before Mongo is accepting connections, and
+      # the failure reads like a bug in the code rather than a race on startup.
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    ports:
+      - "5080:8080"
+    environment:
+      # Double underscores, always: ASP.NET maps them to the ":" separator. A single underscore
+      # produces a key nothing reads, and the feature stays silently off.
+      PORT: "8080"
+      ASPNETCORE_ENVIRONMENT: Development
+      MongoDB__ConnectionString: "mongodb://mongo:27017"
+      # Never "radar". The name is the last line of defence if a connection string is ever pasted
+      # in from the wrong place.
+      MongoDB__DatabaseName: radar_local
+
+      # Optional. Absent means the feature reports itself unconfigured on /api/version rather than
+      # failing at the moment a user touches it.
+      Auth__Jwt__Key: "${Auth__Jwt__Key:-local-development-only-key-not-a-secret-32b}"
+      OpenRouter__ApiKey: "${OpenRouter__ApiKey:-}"
+      YouTube__ApiKey: "${YouTube__ApiKey:-}"
+      OpenAlex__ApiKey: "${OpenAlex__ApiKey:-}"
+      Jobs__CronKey: "${Jobs__CronKey:-local-cron-key}"
+
+      # The frontend's dev server. Without this the browser blocks every call and the page looks
+      # broken for a reason that never appears in the API's own logs.
+      Cors__AllowedOrigins__0: "http://localhost:5173"
+      Cors__AllowedOrigins__1: "http://127.0.0.1:5173"
+
+volumes:
+  mongo-data:

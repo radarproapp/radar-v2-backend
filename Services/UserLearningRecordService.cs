@@ -41,6 +41,11 @@ public class UserLearningRecordService : IUserLearningRecordService
 
         var signals = await _signals.GetSignalsAsync(profile.Id);
         record.Signals = signals
+            // A term the user has rejected is kept in the database - that is the whole point, so
+            // the next click does not re-infer it - but it must not be listed back to them as
+            // something Radar believes. Saying "not me" and watching the term stay put, now
+            // reading "you came back to this 0 times", looks like the button did nothing.
+            .Where(signal => BehavioralSignalService.DecayedStrength(signal) > 0)
             .OrderByDescending(BehavioralSignalService.DecayedStrength)
             .Take(15)
             .Select(s => new RecordSignal
