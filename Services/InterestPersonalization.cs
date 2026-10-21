@@ -245,8 +245,7 @@ public static class InterestPersonalization
 
         // Checked before the generic "data"/"system" branches below: a SOC analyst asking for a
         // portfolio piece should be told to build a detection rule, not a metrics dashboard.
-        if (text.Contains("cyber") || text.Contains("security") || text.Contains("soc") || text.Contains("threat")
-            || text.Contains("malware") || text.Contains("pentest") || text.Contains("incident") || text.Contains("siem"))
+        if (DomainVocabulary.Matches(text, "cyber"))
             return "a documented detection rule plus an incident write-up showing how you'd triage and contain it";
 
         if (text.Contains("ai") || text.Contains("prompt") || text.Contains("rag") || text.Contains("llm") || text.Contains("machine learning"))

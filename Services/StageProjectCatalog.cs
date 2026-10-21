@@ -16,14 +16,14 @@ namespace RadarV2.Services;
 /// </summary>
 public static class StageProjectCatalog
 {
-    private sealed record Domain(string[] Keywords, Func<string, StageProject>[] Stages);
+    private sealed record Domain(string Field, Func<string, StageProject>[] Stages);
 
     private static readonly string[] StageOrder = ["beginner", "intermediate", "advanced", "application"];
 
     private static readonly Domain[] Domains =
     [
         new(
-            DomainVocabulary.For("cyber"),
+            "cyber",
             [
                 _ => Project("Map your own network",
                     "A one page diagram of your home network, with every device and open port listed.",
@@ -59,7 +59,7 @@ public static class StageProjectCatalog
             ]),
 
         new(
-            DomainVocabulary.For("data"),
+            "data",
             [
                 _ => Project("Clean one messy dataset",
                     "A tidy spreadsheet, plus a note on every change you made and why.",
@@ -92,7 +92,7 @@ public static class StageProjectCatalog
             ]),
 
         new(
-            DomainVocabulary.For("software"),
+            "software",
             [
                 _ => Project("Build and ship one small program",
                     "A working program anyone can run, with a clear README.",
@@ -134,7 +134,7 @@ public static class StageProjectCatalog
         var index = Math.Max(0, Array.IndexOf(StageOrder, (stage ?? string.Empty).ToLowerInvariant()));
         var haystack = $"{subject} {capability}".ToLowerInvariant();
 
-        var domain = Domains.FirstOrDefault(d => d.Keywords.Any(haystack.Contains));
+        var domain = Domains.FirstOrDefault(d => DomainVocabulary.Matches(haystack, d.Field));
         if (domain is not null) return domain.Stages[index](subject);
 
         return GenericProject(index, subject, capability);

@@ -39,7 +39,7 @@ public class MongoLearnHubService : ILearnHubService
                     ?? Firm(interpretedDomain)
                     ?? Firm(profile?.Interests.FirstOrDefault())
                     ?? Firm(profile?.PrimaryGoal)
-                    ?? "Cybersecurity";
+                    ?? string.Empty;
 
         var currentStage = !string.IsNullOrWhiteSpace(stage)
             ? stage
@@ -47,7 +47,9 @@ public class MongoLearnHubService : ILearnHubService
 
         LearnHubPayload payload;
         var normalizedSkill = skill.ToLowerInvariant();
-        if (normalizedSkill.Contains("cyber") || normalizedSkill.Contains("data") || normalizedSkill.Contains("analytics") || normalizedSkill.Contains("ai") || normalizedSkill.Contains("machine learning"))
+        // Which fields the hand-written catalogue actually covers. Everything else goes to the
+        // AI path, which builds from the learner's own subject.
+        if (DomainVocabulary.FieldOf(normalizedSkill) is not null || normalizedSkill.Contains("machine learning"))
         {
             payload = LearnHubCatalog.GetPayload(skill, currentStage, subInterest);
         }

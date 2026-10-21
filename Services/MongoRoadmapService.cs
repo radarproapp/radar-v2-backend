@@ -599,8 +599,7 @@ public class MongoRoadmapService : IRoadmapService
         if (g.Contains("finance") || g.Contains("investment") || g.Contains("banking")) return "finance";
         if (g.Contains("software") || g.Contains("engineer") || g.Contains("developer") || g.Contains("coding")) return "software";
         if (g.Contains("policy") || g.Contains("government") || g.Contains("public")) return "policy";
-        if (g.Contains("cyber") || g.Contains("security") || g.Contains("soc") || g.Contains("hacking")
-            || g.Contains("threat") || g.Contains("malware") || g.Contains("forensic") || g.Contains("penetration")) return "cybersecurity";
+        if (DomainVocabulary.Matches(g, "cyber")) return "cybersecurity";
 
         return "generic";
     }
@@ -652,9 +651,7 @@ public class MongoRoadmapService : IRoadmapService
             // Checked before the generic branches: "cybersecurity" contains none of the keywords
             // above, so it used to fall through to the default and hand SOC analysts a path that
             // opened with Excel fundamentals and Power BI.
-            var g when g.Contains("cyber") || g.Contains("security") || g.Contains("soc")
-                    || g.Contains("hacking") || g.Contains("threat") || g.Contains("malware")
-                    || g.Contains("forensic") || g.Contains("penetration") => CybersecurityModules(),
+            var g when DomainVocabulary.Matches(g, "cyber") => CybersecurityModules(),
             // No keyword matched. Build a skeleton named after the goal the user actually stated
             // rather than quietly serving the data-analytics curriculum to everyone unmatched --
             // a generic-but-honest path beats a confident, wrong one.

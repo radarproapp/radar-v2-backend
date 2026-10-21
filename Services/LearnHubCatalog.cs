@@ -13,17 +13,56 @@ public static class LearnHubCatalog
     {
         var normalized = $"{skillOrGoal}".ToLowerInvariant();
 
-        if (normalized.Contains("cyber") || normalized.Contains("security") || normalized.Contains("infosec") || normalized.Contains("hack"))
+        if (DomainVocabulary.Matches(normalized, "cyber"))
             return BuildCybersecurityPayload(stage, subInterest);
 
-        if (normalized.Contains("data") || normalized.Contains("analytics") || normalized.Contains("sql") || normalized.Contains("bi"))
+        if (DomainVocabulary.Matches(normalized, "data"))
             return BuildDataAnalyticsPayload(stage, subInterest);
 
-        if (normalized.Contains("ai") || normalized.Contains("machine learning") || normalized.Contains("artificial") || normalized.Contains("llm"))
+        if (DomainVocabulary.Matches(normalized, "ai"))
             return BuildAiPayload(stage, subInterest);
 
-        // Fallback to Cybersecurity if requested or default
-        return BuildCybersecurityPayload(stage, subInterest);
+        return BuildUncuratedPayload(skillOrGoal, stage);
+    }
+
+    /// <summary>
+    /// The hub for a subject this catalogue has no curated content for.
+    ///
+    /// This used to return the cybersecurity hub — the comment above it read "fallback to
+    /// Cybersecurity if requested or default", and the "or default" is what did the damage: a
+    /// nursing learner whose AI-generated hub failed to build was shown SOC analyst resources and
+    /// a cybersecurity knowledge graph, with nothing saying why.
+    ///
+    /// Named after the learner's own subject and deliberately empty. There are no resources to
+    /// list, so it lists none rather than borrowing another field's — an empty hub is a smaller
+    /// problem than a confidently wrong one, and it is honest about what Radar does not have yet.
+    /// </summary>
+    private static LearnHubPayload BuildUncuratedPayload(string skillOrGoal, string? stage)
+    {
+        // Emptiness is decided on the raw input: SubjectPhrase.Clean turns "" into the readable
+        // placeholder "this field", which is right for a sentence and wrong for a test of whether
+        // the user told us anything. Reading it back produced "Start your this field path".
+        var unknown = string.IsNullOrWhiteSpace(skillOrGoal);
+        var subject = unknown ? string.Empty : SubjectPhrase.Clean(skillOrGoal);
+
+        return new LearnHubPayload
+        {
+            PrimarySkill = subject,
+            Goal = unknown ? string.Empty : $"Build real skill in {SubjectPhrase.Lower(subject)}",
+            CurrentStage = stage ?? "Beginner",
+            NextAction = new NextBestAction
+            {
+                Title = unknown ? "Tell Radar what you want to learn" : $"Start your {SubjectPhrase.Lower(subject)} path",
+                Description = unknown
+                    ? "Radar builds your hub around one subject. Pick the one you are working on and it will fill in."
+                    : "Radar has not built a reading list for this subject yet. Your learning path still works, and the mentor can answer questions on it.",
+                WhyNowReason = unknown
+                    ? "Nothing here is personalised until Radar knows what you are aiming at."
+                    : "A path you choose yourself beats a ready-made one for somebody else.",
+                EstimatedTime = "2 minutes",
+                Stage = stage ?? "Beginner",
+            },
+        };
     }
 
     // ─────────────────────────────────────────────────────────────────────────

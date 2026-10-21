@@ -261,12 +261,23 @@ Four separate faults, one root cause: nothing interpreted the goal before genera
 
 ## Phase 6 — Learn Hub + Knowledge Graph (spec #14)
 
-- [ ] 6.0 **Cold start has no honest answer.** `MongoLearnHubService` still ends its skill
-  fallback chain at a hardcoded `"Cybersecurity"`. The chain now consults the learner's roadmap,
-  interpreted domain, interests and stated goal first, so that rung is reached only when Radar
-  knows nothing at all — but when it is reached, a brand new user is still handed a cybersecurity
-  hub with nothing saying why. The fix is a real cold-start state, not another default, which is
-  why it is filed here rather than patched.
+- [x] 6.0 ~~Cold start has no honest answer~~ — cybersecurity is no longer anywhere in the
+  system as a default or a branch, only as data. Swept both repos:
+  - `LearnHubCatalog.GetPayload` ended `// Fallback to Cybersecurity if requested or default`, so
+    **every** unrecognised subject got the cybersecurity hub. Now returns a payload named after
+    the learner's own subject with no resources — an empty hub beats a confidently wrong one.
+  - Six services each held their own copy of the cyber keyword list, and **the copies disagreed**:
+    "infosec" was only in the Learn Hub's, "forensic" was missing from it. The same profile could
+    get a cybersecurity roadmap and a data-analytics hub. All six now call `DomainVocabulary`.
+  - Every copy used `Contains("soc")`, which matches **"social work"**, "sociology" and "soccer" —
+    a social-work learner was routed to cybersecurity. Matching is now word-aware: short or
+    ordinary words must stand alone, longer ones match as prefixes. Same bug in `Contains("ai")`,
+    which matched "hair styling", "training", "retail" and "maintenance".
+  - Unlisted subjects now match the word form an advert uses (nursing→nurse, teaching→teacher,
+    midwifery→midwife), which is what makes a field with no synonym list work at all.
+  - `DailyOpportunityFeed.PrimaryFocus` defaulted to `"Cybersecurity"`; `LearnHub.tsx` sent the
+    mentor "I'm exploring X in Cybersecurity" when the skill was unknown. Both now say nothing
+    rather than something wrong.
 - [ ] 6.1 Learn Hub scoped to the active learning path: primary skill + 1–3 sub-interests
 - [ ] 6.2 Multi-format mix (tutorials, podcasts, blogs, papers, docs, projects)
 - [ ] 6.3 "Why this resource?" on every item

@@ -52,7 +52,12 @@ public class DailyOpportunityFeed
 {
     public int TotalCount { get; set; } = 12;
     public string Message { get; set; } = "12 new opportunities for you today";
-    public string PrimaryFocus { get; set; } = "Cybersecurity";
+    /// <summary>
+    /// The field this batch was matched against. Empty when the user has not told Radar what they
+    /// are working on — it used to default to "Cybersecurity", so a brand new user was shown a
+    /// sentence claiming Radar had matched against a focus they never chose.
+    /// </summary>
+    public string PrimaryFocus { get; set; } = string.Empty;
     public List<Opportunity> Items { get; set; } = [];
     public Dictionary<string, int> TierCounts { get; set; } = [];
     public Dictionary<string, int> UrgencyCounts { get; set; } = [];

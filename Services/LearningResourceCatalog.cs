@@ -24,11 +24,9 @@ public static class LearningResourceCatalog
         // fall through to the software-engineering pool while the roadmap fell through to data
         // analytics. That mismatch is what produced "how do Excel fundamentals relate to
         // cybersecurity?".
-        if (normalized.Contains("cyber") || normalized.Contains("security") || normalized.Contains("soc")
-            || normalized.Contains("hacking") || normalized.Contains("threat") || normalized.Contains("malware")
-            || normalized.Contains("forensic") || normalized.Contains("penetration"))
+        if (DomainVocabulary.Matches(normalized, "cyber"))
             pool = CybersecurityResourceCatalog.All();
-        else if (normalized.Contains("data") || normalized.Contains("analytics") || normalized.Contains("sql") || normalized.Contains("bi") || normalized.Contains("excel"))
+        else if (DomainVocabulary.Matches(normalized, "data"))
             pool = DataAnalyticsResources();
         else if (normalized.Contains("ai") || normalized.Contains("machine learning") || normalized.Contains("artificial") || normalized.Contains("llm"))
             pool = AiAndMachineLearningResources();

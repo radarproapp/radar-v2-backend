@@ -559,7 +559,7 @@ public class MongoOpportunityService : IOpportunityService
         // hardcoded here: an empty subject scores no domain points rather than quietly becoming
         // somebody else's field, which is how a nursing learner used to be matched on "security".
         var domain = Firm(activeRoadmap?.Interest) ?? Firm(record?.PrimaryGoal) ?? Firm(profile.PrimaryGoal);
-        if (domain is not null && DomainVocabulary.Expand(domain).Any(fullText.Contains))
+        if (domain is not null && DomainVocabulary.MentionsSubject(fullText, domain))
         {
             score += 26;
             signals.Add(new MatchSignal(26, $"It is {SubjectPhrase.Lower(domain)} work, which is what you are learning."));
