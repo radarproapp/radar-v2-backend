@@ -96,9 +96,79 @@ public class MongoLearnHubService : ILearnHubService
             payload.TotalMasteredNodes = payload.GraphNodes.Count(n => n.Status == "Mastered");
             payload.TotalLearningNodes = payload.GraphNodes.Count(n => n.Status == "Learning");
             payload.TotalWeakNodes = payload.GraphNodes.Count(n => n.Status == "WeakArea");
+
+            ScopeToActivePath(payload, roadmap);
+            SetNextStep(payload, roadmap);
         }
 
         return payload;
+    }
+
+    /// <summary>
+    /// Narrows the hub to what this learner is actually working on.
+    ///
+    /// Spec 6.1. The sub-interests came from whatever the catalogue listed, which meant every
+    /// learner on a given field saw the same three regardless of where they had got to. Taking
+    /// them from the current stage's own modules keeps the hub the width of one person's path.
+    ///
+    /// Capped at three. A list of everything is the same as no list - the point of narrowing is
+    /// that something is left out.
+    /// </summary>
+    private static void ScopeToActivePath(LearnHubPayload payload, GrowthRoadmap roadmap)
+    {
+        var stage = roadmap.CurrentStage ?? "Beginner";
+
+        var subInterests = roadmap.Modules
+            .Where(m => string.Equals(m.Level, stage, StringComparison.OrdinalIgnoreCase))
+            .Select(m => m.Title)
+            .Where(t => !string.IsNullOrWhiteSpace(t))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(3)
+            .ToList();
+
+        if (subInterests.Count == 0) return;
+
+        payload.SubInterests = subInterests;
+        if (string.IsNullOrWhiteSpace(payload.ActiveSubInterest))
+        {
+            payload.ActiveSubInterest = subInterests[0];
+        }
+    }
+
+    /// <summary>
+    /// The one thing to do next, named.
+    ///
+    /// Spec 6.5. The hub carried whatever next action the catalogue had been written with, which
+    /// is a suggestion about the subject rather than about this learner - it did not move when
+    /// they finished something. The first lesson they have not completed is a fact about their
+    /// own progress, and it is the answer to the question the screen is asking.
+    ///
+    /// Leaves the existing action alone when everything is complete, rather than inventing a next
+    /// step past the end of the path.
+    /// </summary>
+    private static void SetNextStep(LearnHubPayload payload, GrowthRoadmap roadmap)
+    {
+        var stage = roadmap.CurrentStage ?? "Beginner";
+
+        var next = roadmap.Modules
+            .Where(m => string.Equals(m.Level, stage, StringComparison.OrdinalIgnoreCase))
+            .SelectMany(m => m.Lessons.OrderBy(l => l.Order).Select(l => new { Module = m, Lesson = l }))
+            .FirstOrDefault(x => !x.Lesson.IsCompleted);
+
+        // Nothing unfinished at this stage: say so rather than pointing at a lesson they have done.
+        if (next is null) return;
+
+        payload.NextAction = new NextBestAction
+        {
+            Title = next.Lesson.Title,
+            Description = string.IsNullOrWhiteSpace(next.Module.Title)
+                ? "The next lesson you have not finished."
+                : $"Next in {next.Module.Title}.",
+            WhyNowReason = $"It is the first thing you have not finished in your {stage.ToLowerInvariant()} stage.",
+            EstimatedTime = next.Lesson.EstimatedTime ?? string.Empty,
+            Stage = stage,
+            SubInterest = next.Module.Title ?? string.Empty,
+        };
     }
 
     public async Task CompleteResourceAsync(string userId, string resourceId)

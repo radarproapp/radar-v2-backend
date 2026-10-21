@@ -103,6 +103,16 @@ public enum LearningResourceType
     TutorialVideo = 0,       // 80% How-to / Tutorial video
     NewDevelopmentVideo = 1, // 20% Latest developments video
     BlogPost = 2,            // 20% Blog post / essay on new developments
+
+    /// <summary>
+    /// Something the learner builds rather than watches.
+    ///
+    /// Spec 6.2 asks for a mix across tutorials, podcasts, blogs, papers, docs and projects. This
+    /// is the one Radar can supply honestly today: StageProjectCatalog already produces a real,
+    /// specific project per stage and subject. The others need sources that do not exist yet, and
+    /// a search link dressed up as a podcast would be a format in name only.
+    /// </summary>
+    Project = 3,
 }
 
 public class LearningResource

@@ -131,7 +131,9 @@ The fastest way to simplify is to delete. Also the fastest way to restore trust.
 
 - [x] 5.1 ~~Cybersecurity roadmap template~~ — done. Added `CybersecurityModules()` (4 stages, 16 lessons: networking → SIEM/IR → detection engineering & ATT&CK → home lab, write-ups, interview prep). The silent `_ => DataAnalyticsModules()` default is replaced with `GenericModules(goal)`, which names the user's own stated goal at every stage instead of confidently serving the wrong curriculum. Verified live end to end.
 - [x] 5.2 ~~Delete the hardcoded `STAGE_DEFINITIONS`~~ — done. Stage labels and goals now derive from the roadmap's own modules, with domain-neutral fallbacks for the gap before one exists. The four stage *keys* stay (they are structural); the Excel/SQL/Power BI/Python *content* is gone.
-- [ ] 5.3 80% how-to / 20% current-developments resource mix per stage
+- [x] 5.3 ~~80% how-to / 20% current-developments mix per stage~~ — the ratio was already right
+  (every lesson becomes a how-to item, plus exactly one current-developments item per module) and
+  nothing checked it, so it could drift silently. Now asserted at two path lengths.
 - [x] 5.4 ~~Ordered "start with this" sequencing with a reason per resource~~ — the ordering and
   "Start here" / "Next" / "Then" roles were already produced; what was missing was a reason that
   differed between items. Each lesson now names the lesson it leads to, and the last one names the
@@ -321,8 +323,18 @@ Four separate faults, one root cause: nothing interpreted the goal before genera
   - `DailyOpportunityFeed.PrimaryFocus` defaulted to `"Cybersecurity"`; `LearnHub.tsx` sent the
     mentor "I'm exploring X in Cybersecurity" when the skill was unknown. Both now say nothing
     rather than something wrong.
-- [ ] 6.1 Learn Hub scoped to the active learning path: primary skill + 1–3 sub-interests
-- [ ] 6.2 Multi-format mix (tutorials, podcasts, blogs, papers, docs, projects)
+- [x] 6.1 ~~Learn Hub scoped to the active learning path~~ — sub-interests came from whatever
+  the catalogue listed, so every learner in a field saw the same three regardless of where they
+  had got to. They now come from the current stage's own modules, capped at three: a list of
+  everything is the same as no list.
+- [x] 6.2 ~~Multi-format mix~~ — partially. A path was videos and only videos, which for a
+  product built on "learning and building projects at the same time" left out the half that
+  demonstrates anything. The module's stage project is now a resource in its own right, with a
+  `Project` format of its own. **Podcasts, papers and docs are not included**: Radar has no source
+  for them, and a search link dressed up as a podcast would be a format in name only. Filed as
+  6.2b rather than counted.
+- [ ] 6.2b Podcasts, papers and docs in the Learn Hub mix (needs a source for each).
+- [ ] 6.4b Knowledge graph *nodes* derived from behaviour, not only their status.
 - [x] 6.3 ~~"Why this resource?" on every item~~ — the field was already populated; the problem
   was what two of them said. A static catalogue entry read "recommended because you are currently
   learning network security and **have not yet completed the fundamentals of firewalls**" — shown
@@ -331,8 +343,15 @@ Four separate faults, one root cause: nothing interpreted the goal before genera
   material; it may not describe the *reader*, because it has never met them. Both rewritten, and
   `CatalogueClaimsTests` now fails the build on any fixed string that claims to know what the
   reader has done. Interpolated strings are exempt — those are built from a real profile.
-- [ ] 6.4 Knowledge graph built from actual behaviour, not stated interests
-- [ ] 6.5 A single clear "what should I learn next" recommendation
+- [x] 6.4 ~~Knowledge graph built from actual behaviour~~ — node status is already reconciled
+  from real activity: weak areas pull confidence down, passed quizzes mark a node mastered and
+  pull it up. Verified by reading the reconciliation rather than assumed. The nodes themselves
+  still come from the catalogue, which is filed as 6.4b.
+- [x] 6.5 ~~A single clear "what should I learn next"~~ — the hub carried whatever next action
+  the catalogue was written with, so it never moved when the learner finished something. It is now
+  the first lesson they have not completed in their current stage, named, with the reason stated
+  plainly. When nothing is unfinished it leaves the existing action alone rather than inventing a
+  step past the end of the path.
 
 ## Phase 7 — Opportunity Intelligence (spec #17, review item 5)
 

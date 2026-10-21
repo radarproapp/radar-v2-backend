@@ -117,6 +117,36 @@ public static class LearningPathResourceBuilder
                 });
             }
 
+            // What this stage is for. Radar Learn is "building skills and demonstration of
+            // capabilities by learning and building projects at the same time", and a path made
+            // only of videos demonstrates nothing - so the module's project is a resource in its
+            // own right rather than a footnote under the last lesson.
+            if (module.Project is not null && !string.IsNullOrWhiteSpace(module.Project.Title))
+            {
+                resources.Add(new LearningResource
+                {
+                    Id = $"lp-{Slug(module.Level)}-project",
+                    Order = lessons.Count + 1,
+                    Level = module.Level,
+                    SequenceRole = "Build",
+                    Title = module.Project.Title,
+                    Url = string.Empty,
+                    Source = "Radar project",
+                    Duration = module.Project.EstimatedTime,
+                    EstimatedTime = module.Project.EstimatedTime,
+                    Type = LearningResourceType.Project,
+                    WhyAmILearningThis = string.IsNullOrWhiteSpace(module.Project.WhyItProvesCapability)
+                        ? $"Proves you can do {subject} rather than only describe it."
+                        : module.Project.WhyItProvesCapability,
+                    WhatYouWillBuild = module.Project.Deliverable,
+                    PracticeExerciseTitle = module.Project.Title,
+                    PracticeExercise = string.Join("\n", module.Project.Steps),
+                    QuizTopic = module.Project.Title,
+                    WhyItMatters = module.Project.WhyItProvesCapability ?? string.Empty,
+                    NextMove = module.Project.Steps.FirstOrDefault() ?? "Start the first step.",
+                });
+            }
+
             // The 20%: what changed recently in this subject. Sorted by upload date, so it stays
             // current without anyone maintaining a list.
             resources.Add(new LearningResource
