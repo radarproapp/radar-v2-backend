@@ -349,7 +349,6 @@ public static class LearnHubCatalog
                 PracticeExercise = "Spin up a local Linux VM. Configure IPTables to only allow SSH from your host IP and drop ICMP ping requests. Verify with nmap.",
                 ConnectedNodeIds = ["sub-net-sec", "topic-firewalls"],
                 WhyItMatters = "Firewalls are the first line of perimeter defense; understanding packet filter logic is essential for every security analyst.",
-                YourEdge = "You write precise, minimal firewall rules rather than relying on insecure default configurations.",
                 NextMove = "1. Watch the 35-minute walkthrough.\n2. Complete the IPTables practice task.\n3. Verify your ports with nmap."
             },
             new()
@@ -379,7 +378,6 @@ public static class LearnHubCatalog
                 PracticeExercise = "Download the sample malware traffic analysis PCAP. Identify the infected IP address, the C2 server domain, and the downloaded executable hash.",
                 ConnectedNodeIds = ["skill-networking", "sub-net-sec"],
                 WhyItMatters = "Packet analysis provides ground truth when alerts trigger; logs can be spoofed, but raw packets rarely lie.",
-                YourEdge = "You can dissect network anomalies in minutes rather than guessing what happened during an intrusion.",
                 NextMove = "1. Open the sample PCAP in Wireshark.\n2. Identify the 3-way handshake.\n3. Take the quiz."
             },
 
@@ -426,7 +424,6 @@ public static class LearnHubCatalog
                 },
                 ConnectedNodeIds = ["goal-cyber", "sub-eth-hack"],
                 WhyItMatters = "Provides deep operational understanding of state-level technical capabilities and supply chain subversion.",
-                YourEdge = "You evaluate security architectures holistically—accounting for hardware, firmware, and human trust models.",
                 NextMove = "Listen to the episode and take notes on the endpoint trust model."
             },
             new()
@@ -446,7 +443,6 @@ public static class LearnHubCatalog
                 WhyThisResource = "Recommended because modern cloud security replaces traditional castle-and-moat perimeter models with continuous identity verification.",
                 WhatHappened = "Major enterprise breaches have driven global adoption of NIST SP 800-207 Zero Trust, mandating that no user or device is trusted by default, even inside the internal network.",
                 WhyItMatters = "Attackers who gain a foothold on one workstation can no longer laterally move across flat internal subnets without re-authenticating.",
-                YourEdge = "You design cloud architectures that enforce least-privilege role-based access control (RBAC) and mutual TLS everywhere.",
                 NextMove = "1. Read the Zero Trust analysis.\n2. Review NIST SP 800-207 architecture principles.\n3. Take the quiz."
             },
 
@@ -479,7 +475,6 @@ public static class LearnHubCatalog
                 },
                 ConnectedNodeIds = ["sub-eth-hack", "topic-web-pen"],
                 WhyItMatters = "Academic papers provide rigorous empirical benchmarks that reveal where attacker capabilities will be 18 to 24 months from now.",
-                YourEdge = "You anticipate automated adversarial attack vectors before they become widespread in the wild.",
                 NextMove = "1. Read the research paper breakdown.\n2. Note the automated web exploitation findings.\n3. Test an automated scanner."
             },
             new()
@@ -499,7 +494,6 @@ public static class LearnHubCatalog
                 WhyThisResource = "Recommended to benchmark real-world intrusion statistics, median dwell times, and the top attacker techniques mapped to MITRE ATT&CK.",
                 WhatHappened = "Mandiant published its annual frontline intelligence report: median global attacker dwell time dropped to 10 days, but living-off-the-land (LotL) techniques surged by 45%.",
                 WhyItMatters = "Attackers increasingly use legitimate administrative tools (PowerShell, WMI, certutil) rather than dropping malware binaries, evading signature-based antivirus.",
-                YourEdge = "You focus defensive telemetry on behavioral anomalies (e.g. certutil downloading base64 payloads) rather than relying on file hashes.",
                 NextMove = "1. Review the Top 10 MITRE techniques in the report.\n2. Write a detection rule for living-off-the-land binaries.\n3. Take the quiz."
             },
 
@@ -531,7 +525,6 @@ public static class LearnHubCatalog
                 PracticeExercise = "Deploy the 3 virtual machines. Generate an alert in Wazuh by running an nmap port scan from Kali Linux. Take screenshots of the Kibana alert dashboard for your portfolio.",
                 ConnectedNodeIds = ["sub-net-sec", "proj-home-lab", "opp-soc-analyst"],
                 WhyItMatters = "Hiring managers interview candidates with home labs with 3x higher preference because it proves hands-on curiosity and execution ability.",
-                YourEdge = "You have actually configured network interfaces, analyzed real log files, and simulated intrusions rather than just reading multiple-choice test banks.",
                 NextMove = "1. Follow the 4 setup steps.\n2. Verify Wazuh alert triggers.\n3. Request an AI Mentor project review."
             },
             new()
@@ -560,7 +553,6 @@ public static class LearnHubCatalog
                 PracticeExercise = "Complete the PortSwigger SQL Injection lab: exploit the product category filter to retrieve administrator credentials and log in.",
                 ConnectedNodeIds = ["sub-eth-hack", "topic-web-pen"],
                 WhyItMatters = "Over 60% of external corporate breaches originate from vulnerable public-facing web applications and APIs.",
-                YourEdge = "You understand both how attackers craft exploit payloads and how developers should implement parameterized prepared statements.",
                 NextMove = "1. Launch Burp Suite.\n2. Complete the SQLi lab.\n3. Submit writeup to AI Mentor."
             },
 
@@ -582,7 +574,6 @@ public static class LearnHubCatalog
                 WhyThisResource = "High-priority vulnerability advisory affecting millions of Linux enterprise servers worldwide.",
                 WhatHappened = "Qualys discovered a remote unauthenticated code execution vulnerability in OpenSSH server (sshd) on glibc-based Linux systems due to a signal handler race condition.",
                 WhyItMatters = "Allows full root access over port 22 without requiring valid credentials. Because SSH is exposed on almost every cloud server, rapid patching is critical.",
-                YourEdge = "You can audit fleet servers using nmap vulnerability scripts and apply LoginGraceTime 0 workarounds before patches can be deployed.",
                 NextMove = "1. Check your Linux server OpenSSH versions.\n2. Apply the mitigation (set LoginGraceTime 0 in sshd_config).\n3. Reload ssh service."
             },
             new()
@@ -602,7 +593,6 @@ public static class LearnHubCatalog
                 WhyThisResource = "Historic cryptographic transition: RSA and ECC algorithms will eventually be broken by quantum computers; enterprises are migrating now.",
                 WhatHappened = "NIST finalized the primary mathematical standards for post-quantum cryptography: ML-KEM (Kyber) for general encryption, and ML-DSA (Dilithium) for digital signatures.",
                 WhyItMatters = "Nation-state adversaries are currently executing 'Store Now, Decrypt Later' operations against encrypted government and banking traffic.",
-                YourEdge = "You understand post-quantum key encapsulation mechanisms and can guide organizations through crypto-agility audits.",
                 NextMove = "1. Read the NIST FIPS 203 summary.\n2. Inspect how OpenSSL and Cloudflare are deploying Kyber.\n3. Take the checkpoint quiz."
             }
         };
@@ -714,7 +704,6 @@ public static class LearnHubCatalog
                 PracticeExercise = "Write a query with a CTE that calculates monthly customer cohort retention percentage for an e-commerce platform.",
                 ConnectedNodeIds = ["skill-sql", "skill-bi"],
                 WhyItMatters = "SQL is the foundational query language of enterprise analytics; every analyst uses it daily.",
-                YourEdge = "You write clean, readable CTE queries that execute fast on production tables.",
                 NextMove = "1. Watch the video.\n2. Write the cohort query.\n3. Take the quiz."
             },
             new()
@@ -758,7 +747,6 @@ public static class LearnHubCatalog
                 },
                 ConnectedNodeIds = ["goal-da", "skill-bi"],
                 WhyItMatters = "Elevates your analytical perspective from a spreadsheet technician to a strategic business partner.",
-                YourEdge = "You identify hidden biases that other analysts overlook.",
                 NextMove = "Listen to the podcast episode."
             }
         };
@@ -861,7 +849,6 @@ public static class LearnHubCatalog
                 PracticeExercise = "Build a hybrid retrieval pipeline in Python. Ingest a 50-page company policy PDF and verify every answer outputs paragraph citations.",
                 ConnectedNodeIds = ["skill-rag"],
                 WhyItMatters = "Guarantees accurate answers from internal documents without hallucination.",
-                YourEdge = "You can build mission-critical document assistants for legal, banking, and medical domains.",
                 NextMove = "1. Watch the video.\n2. Ingest a sample PDF.\n3. Verify citations."
             }
         };

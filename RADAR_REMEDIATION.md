@@ -125,7 +125,23 @@ The fastest way to simplify is to delete. Also the fastest way to restore trust.
   avoid. `relevance` is surfaced on the API so the feed can later drop weak items outright.
 - [ ] 4.6 **Verify against the live model.** Everything above is verified structurally, but the
   prompt's actual output quality cannot be judged without an OpenRouter key — there is none in dev.
-- [ ] 4.5 Replace the one-size deterministic fallback with per-item grounded output, or suppress the section
+- [x] 4.5 ~~Replace the one-size deterministic fallback, or suppress the section~~ — suppressed,
+  which the item offers as the second option and is the right one here. "Your Edge" was removed
+  from the interface in 1.2 and dropped from the AI contract in 4.3, yet the deterministic
+  generator kept producing it: the same four sentences for every item, closing with "a market
+  worth watching is the emergence of specialized X workflows tailored for Y infrastructure
+  constraints" — a claim about a market nobody had looked at. Where the reader had stated no
+  capability it supplied "market research" and told them the item demonstrated theirs. It now
+  returns empty.
+  `BuildNextMove` had the same shape: five steps regardless, instructing the reader to "identify 3
+  organizations in {location} affected by this shift" — three organisations nothing had found, in
+  a location defaulting to "your target market". Steps are now included only when the thing they
+  refer to is known.
+  Also removed **56 catalogue strings** asserting what the reader can already do ("You write
+  precise, minimal firewall rules…"), and extended `CatalogueClaimsTests` to cover `YourEdge` and
+  plain second-person claims — the first version only caught time-based ones.
+- [ ] 4.5b Remove the now-always-empty `YourEdge` field from the models and the client (67 sites
+  across 13 files; deliberately not bundled into the behaviour change).
 
 ## Phase 5 — Domain coverage + Learning Path (spec #13)
 

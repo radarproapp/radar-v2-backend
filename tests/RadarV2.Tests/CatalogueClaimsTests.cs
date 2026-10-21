@@ -19,11 +19,14 @@ public class CatalogueClaimsTests
 {
     /// <summary>Phrases that assert something about the reader's own history or state.</summary>
     private static readonly Regex ClaimsAboutReader = new(
-        @"\b(you are currently|you have not yet|you recently|you already|your current level|because you )",
+        // "You write precise, minimal firewall rules" sat in a static catalogue telling every
+        // reader what they were already good at. The first version of this guard missed it: the
+        // phrasing is a plain second-person claim, not one of the time-based ones.
+        @"\b(you are currently|you have not yet|you recently|you already|your current level|because you |you write |you can dissect|you evaluate|you design|you build |you understand )",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private static readonly Regex WhyAssignment = new(
-        @"(WhyThisResource|WhyAmILearningThis|WhyItMatters|WhyShown)\s*=\s*""([^""]*)""",
+        @"(WhyThisResource|WhyAmILearningThis|WhyItMatters|WhyShown|YourEdge)\s*=\s*""([^""]*)""",
         RegexOptions.Compiled);
 
     private static DirectoryInfo RepositoryRoot()

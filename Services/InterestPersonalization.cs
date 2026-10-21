@@ -205,49 +205,70 @@ public static class InterestPersonalization
         return sb.ToString().Trim();
     }
 
-    private static string BuildYourEdge(UserProfile profile, ContentItem item, List<DimensionMatch> matches)
-    {
-        var topic = !string.IsNullOrWhiteSpace(item.Topic) ? item.Topic : item.Title;
-        var capability = matches.FirstOrDefault(m => m.Dimension == "Capability")?.Phrase ?? profile.Capabilities.FirstOrDefault() ?? "market research";
-        var interest = matches.FirstOrDefault(m => m.Dimension == "Interest")?.Phrase ?? profile.Interests.FirstOrDefault() ?? "this domain";
-        var location = !string.IsNullOrWhiteSpace(profile.Region) ? profile.Region : (!string.IsNullOrWhiteSpace(profile.City) ? profile.City : "regional");
-        var target = !string.IsNullOrWhiteSpace(profile.TargetRole) ? profile.TargetRole : (!string.IsNullOrWhiteSpace(profile.TargetIndustry) ? profile.TargetIndustry : "target employers and clients");
-        var artifact = GetSpecificPortfolioArtifact(capability, topic);
+    /// <summary>
+    /// Suppressed. Spec 4.5 offers "per-item grounded output, or suppress the section" - this is
+    /// the second.
+    ///
+    /// What it used to produce was the same four sentences for every item in the feed, ending
+    /// with "a market worth watching is the emergence of specialized X workflows tailored for Y
+    /// infrastructure constraints" - a claim about a market nobody had looked at, written out for
+    /// every article. Where the user had stated no capability it filled the gap with "market
+    /// research" and told them it demonstrated theirs.
+    ///
+    /// The section was already removed from the interface in 1.2 and dropped from the AI contract
+    /// in 4.3, so nothing renders it. Generating it anyway meant the API kept asserting things
+    /// about readers that no screen would ever show them, and that they could not correct.
+    ///
+    /// The field itself still exists on the models and is now always empty; removing it touches
+    /// 67 sites across 13 files and is filed as 4.5b rather than done carelessly here.
+    /// </summary>
+    private static string BuildYourEdge(UserProfile profile, ContentItem item, List<DimensionMatch> matches) =>
+        string.Empty;
 
-        var sb = new StringBuilder();
-        sb.Append($"Your edge is not simply knowing that {Lower(topic)} is evolving. ");
-        sb.Append($"You can use this trend to build {artifact}: track how companies and institutions across {location} are responding, identify the business functions being automated or restructured, and turn your findings into a high-signal work sample. ");
-        sb.Append($"This demonstrates both applied {Lower(capability)} and {Lower(interest)} capabilities to {Lower(target)}. ");
-        sb.Append($"A market worth watching is the emergence of specialized {Lower(topic)} workflows tailored for {location} infrastructure constraints.");
-
-        return sb.ToString().Trim();
-    }
-
+    /// <summary>
+    /// What to actually do with this item.
+    ///
+    /// Every step used to be filled in whether or not the ingredient existed: with no stated
+    /// capability it claimed "applied problem-solving", and step 2 instructed the reader to
+    /// "identify 3 organizations in {location} directly affected by this shift" - three
+    /// organisations nothing had found, in a location that defaulted to "your target market".
+    ///
+    /// Steps are now only included when the thing they refer to is known. A three-step list the
+    /// reader can actually follow beats a five-step list with two invented rungs.
+    /// </summary>
     private static string BuildNextMove(UserProfile profile, ContentItem item, List<DimensionMatch> matches)
     {
         var topic = !string.IsNullOrWhiteSpace(item.Topic) ? item.Topic : item.Title;
-        var capability = matches.FirstOrDefault(m => m.Dimension == "Capability")?.Phrase ?? profile.Capabilities.FirstOrDefault() ?? "applied problem-solving";
-        var location = !string.IsNullOrWhiteSpace(profile.Region) ? profile.Region : (!string.IsNullOrWhiteSpace(profile.City) ? profile.City : "your target market");
-        var artifact = GetSpecificPortfolioArtifact(capability, topic);
-        var sourceName = !string.IsNullOrWhiteSpace(item.Source) ? item.Source : "the official release";
+        var capability = matches.FirstOrDefault(m => m.Dimension == "Capability")?.Phrase
+                         ?? profile.Capabilities.FirstOrDefault();
+        var location = !string.IsNullOrWhiteSpace(profile.Region) ? profile.Region : profile.City;
 
-        var lines = new[]
+        var steps = new List<string>();
+        var step = 1;
+
+        steps.Add(!string.IsNullOrWhiteSpace(item.Source)
+            ? $"{step++}. Read the full piece from {item.Source} and write down the one thing that changed."
+            : $"{step++}. Read the full piece and write down the one thing that changed.");
+
+        // Only asks about a place when the user told us one.
+        if (!string.IsNullOrWhiteSpace(location))
         {
-            $"1. Read the core analysis or documentation from {sourceName} and note the key technical and market implications.",
-            $"2. Identify 3 organizations or market players in {location} directly affected by this shift.",
-            $"3. Spend 30 minutes researching how they are adapting their technical architecture or commercial strategy.",
-            $"4. Build {artifact} and add your findings to your professional portfolio.",
-            $"5. Add {topic} to your active roadmap and revisit this topic in seven days to track new moves."
-        };
+            steps.Add($"{step++}. Note whether this changes anything for {location}.");
+        }
 
-        return string.Join("\n", lines);
+        // Only names a capability the user actually claimed.
+        if (!string.IsNullOrWhiteSpace(capability))
+        {
+            steps.Add($"{step++}. Decide whether it affects your {Lower(capability)} work.");
+        }
+
+        steps.Add(!string.IsNullOrWhiteSpace(topic)
+            ? $"{step}. If it matters, add {Lower(topic)} to your roadmap."
+            : $"{step}. If it matters, add it to your roadmap.");
+
+        return string.Join("\n", steps);
     }
 
-    /// <summary>
-    /// Names the concrete artifact someone with this capability should build on this topic.
-    /// Public so the home screen can answer "what should I add to my portfolio?" with the same
-    /// specific answer the feed's next-move already gives, instead of its own generic phrasing.
-    /// </summary>
     public static string PortfolioArtifactFor(string capability, string topic) =>
         GetSpecificPortfolioArtifact(capability, topic);
 

@@ -97,7 +97,6 @@ public static class LearningResourceCatalog
             PracticeExercise = "Download the practice sales sheet. Use XLOOKUP to match product categories, compute total revenue with SUMIFS, and highlight top 10% customers using conditional formatting.",
             QuizTopic = "Excel Core Formulas & Referencing",
             WhyItMatters = "Excel remains the most widely deployed business tool worldwide; every analyst must manipulate spreadsheets before touching complex code.",
-            YourEdge = "You avoid the manual copying mistakes that plague junior staff by building robust, dynamically updating formula sheets.",
             NextMove = "1. Download the practice sheet.\n2. Complete the XLOOKUP and SUMIFS formulas.\n3. Take the 5-minute checkpoint quiz."
         },
         new()
@@ -126,7 +125,6 @@ public static class LearningResourceCatalog
             PracticeExercise = "Clean the sample African telecom registration dataset: fix corrupted date strings, deduplicate mobile numbers, and standardize city names into uniform Title Case.",
             QuizTopic = "Data Cleaning Techniques & Power Query",
             WhyItMatters = "Executives make million-dollar decisions on analytics; feeding dirty data destroys organizational trust immediately.",
-            YourEdge = "By using Power Query instead of manual edits, your cleaning steps are 100% reproducible and audit-proof.",
             NextMove = "1. Clean the provided dataset.\n2. Test that refreshing the file processes new rows correctly.\n3. Submit for AI Mentor review."
         },
         new()
@@ -155,7 +153,6 @@ public static class LearningResourceCatalog
             PracticeExercise = "Take quarterly retail performance data and produce: 1) a monthly revenue trend line, 2) category comparison bar chart, and 3) a 1-sentence executive summary callout.",
             QuizTopic = "Descriptive Statistics & Visual Charting",
             WhyItMatters = "A great insight that is poorly presented will be ignored by leadership; visual storytelling drives executive action.",
-            YourEdge = "You present clear, decluttered charts that focus on the business decision rather than overwhelming stakeholders with confusing graphics.",
             NextMove = "1. Create the 3 charts in Excel or Google Sheets.\n2. Verify the 1-sentence insight is actionable.\n3. Complete the Beginner stage milestone."
         },
         new()
@@ -174,7 +171,6 @@ public static class LearningResourceCatalog
             WhyAmILearningThis = "AI copilot tools and native Python inside spreadsheets are revolutionizing daily spreadsheet analytics—cutting formula writing time in half.",
             WhatHappened = "Microsoft has embedded native Python execution directly into Excel grids alongside Copilot natural language queries, allowing advanced data wrangling without switching tools.",
             WhyItMatters = "You can run complex statistical plots and sentiment analysis directly inside workbooks that non-technical managers already use.",
-            YourEdge = "You combine spreadsheet familiarity with AI prompting speed, producing deep analysis in 20 minutes that used to require dedicated Python scripts.",
             NextMove = "1. Enable Python in Excel preview.\n2. Type =PY to run a Seaborn pairplot on your practice sheet.\n3. Prompt Copilot to generate trend hypotheses."
         },
 
@@ -206,7 +202,6 @@ public static class LearningResourceCatalog
             PracticeExercise = "Write a query with a CTE that identifies users who purchased in month T but had 0 purchases in month T+1. Compute the monthly churn percentage.",
             QuizTopic = "SQL Joins, CTEs & Window Functions",
             WhyItMatters = "Databases contain the source of truth for all enterprise operations; SQL is the primary technical test in 90% of data analyst job interviews.",
-            YourEdge = "You write optimized, CTE-based queries that execute fast on production data and impress interviewers with clean formatting.",
             NextMove = "1. Set up a local PostgreSQL or SQLite database.\n2. Write the churn query.\n3. Ask AI Mentor to review your SQL optimization."
         },
         new()
@@ -235,7 +230,6 @@ public static class LearningResourceCatalog
             PracticeExercise = "Connect 3 dimension tables (Customer, Product, Region) to a Fact_Sales table. Write a DAX measure calculating Year-to-Date (YTD) Revenue.",
             QuizTopic = "Relational Modelling & Star Schemas",
             WhyItMatters = "Flat spreadsheets break at scale; relational data modelling is the foundation of professional BI engineering.",
-            YourEdge = "You build models that calculate instant answers across millions of records without lagging.",
             NextMove = "1. Build the relationships in Power Pivot.\n2. Verify the filter direction is single-direction.\n3. Take the checkpoint test."
         },
         new()
@@ -266,7 +260,6 @@ public static class LearningResourceCatalog
             PracticeExercise = "Recreate the dashboard using the practice African retail dataset. Add a dynamic slicer for Country and test that margins calculate accurately.",
             QuizTopic = "Power BI Dashboard Architecture & Visual Design",
             WhyItMatters = "Executives and department heads rarely inspect SQL code; they interact with Power BI dashboards to drive strategic direction.",
-            YourEdge = "You know how to design responsive dashboards that answer business questions in 5 seconds rather than confusing users with visual clutter.",
             NextMove = "1. Recreate the dashboard with the practice dataset.\n2. Save the .pbix file.\n3. Request an AI Mentor project review."
         },
         new()
@@ -285,7 +278,6 @@ public static class LearningResourceCatalog
             WhyAmILearningThis = "Microsoft Fabric is the biggest architectural shift in Power BI history. Understanding Direct Lake mode positions you ahead of legacy analysts.",
             WhatHappened = "Microsoft Fabric unified data warehousing, lakehouses, and Power BI into one platform, introducing Direct Lake mode which queries Delta Parquet files with zero import lag.",
             WhyItMatters = "You no longer need to schedule slow overnight data imports or worry about model file size limits when serving billions of records.",
-            YourEdge = "You can design modern data solutions that stream real-time data directly to dashboards without expensive custom engineering.",
             NextMove = "1. Create a free Microsoft Fabric trial capacity.\n2. Load a Delta Lake table in OneLake.\n3. Connect a Power BI report using Direct Lake mode."
         },
 
@@ -316,7 +308,6 @@ public static class LearningResourceCatalog
             PracticeExercise = "Write a Python script that ingests a transactional log, calculates 30-day customer retention cohorts, and plots the retention decay curve with Seaborn.",
             QuizTopic = "Pandas Vectorization, Resampling & Performance",
             WhyItMatters = "Advanced analytics roles demand Python literacy; it bridges the gap between basic business reporting and machine learning engineering.",
-            YourEdge = "You automate weekly reporting workflows from hours of manual clicking into a single 5-second script execution.",
             NextMove = "1. Set up a Jupyter Notebook.\n2. Write the 30-day cohort retention script.\n3. Benchmark runtime against Excel."
         },
         new()
@@ -345,7 +336,6 @@ public static class LearningResourceCatalog
             PracticeExercise = "Analyze 50,000 checkout records: test whether the new single-step checkout significantly improved completion rates compared to the control group.",
             QuizTopic = "A/B Testing, T-Tests & Significance",
             WhyItMatters = "Tech companies run hundreds of A/B tests monthly; rigorous statistical analysis prevents costly rollout mistakes.",
-            YourEdge = "You prevent executives from celebrating false-positive improvements caused by insufficient sample size or variance noise.",
             NextMove = "1. Run the Chi-Square test on the test dataset.\n2. State the recommendation in one clear executive sentence.\n3. Take the quiz."
         },
         new()
@@ -375,7 +365,6 @@ public static class LearningResourceCatalog
             PracticeExercise = "Train a classification model on the telecom dataset. Achieve an ROC-AUC above 0.82 and write 3 tactical recommendations for customer success managers.",
             QuizTopic = "Predictive Analytics & Model Evaluation",
             WhyItMatters = "Companies spend 5x more acquiring new customers than retaining existing ones; predictive retention directly increases enterprise profit.",
-            YourEdge = "You don't just report that churn increased; you provide an early-warning list of at-risk accounts 30 days before they cancel.",
             NextMove = "1. Train the model.\n2. Generate the SHAP importance summary plot.\n3. Submit predictions for AI Mentor evaluation."
         },
         new()
@@ -393,8 +382,7 @@ public static class LearningResourceCatalog
             Type = LearningResourceType.NewDevelopmentVideo,
             WhyAmILearningThis = "Autonomous code-interpreter agents can now query databases and generate Seaborn charts on demand. Modern analysts orchestrate these agents.",
             WhatHappened = "Modern LLM agent architectures (like LangGraph and local code sandboxes) can safely generate, execute, and self-correct Python analytics code in real time.",
-            WhyItMatters = "Instead of writing standard slice-and-dice queries manually, you build conversational analytics bots that answer executive questions instantly.",
-            YourEdge = "You understand both traditional data pipelines and agentic AI tooling, making you 10x more productive than traditional data analysts.",
+            WhyItMatters = "Covers conversational analytics bots, which answer executive questions without a hand-written query each time.",
             NextMove = "1. Build a local Python REPL tool with LangGraph.\n2. Prompt the agent to inspect a sales CSV and output statistical anomalies.\n3. Validate the code execution sandbox."
         },
 
@@ -426,7 +414,6 @@ public static class LearningResourceCatalog
             PracticeExercise = "Package your SQL scripts, Python notebooks, Power BI screenshots, and 1-page executive memo into a clean GitHub repository.",
             QuizTopic = "End-to-End Business Analytics & Strategic Impact",
             WhyItMatters = "Demonstrating that you can take an ambiguous business problem from raw data to an executive decision memo is the ultimate proof of job readiness.",
-            YourEdge = "You present business outcomes and dollar impact, immediately outshining candidates who only show generic tutorials.",
             NextMove = "1. Complete the capstone project.\n2. Draft the executive memo.\n3. Submit your project link for AI Mentor review."
         },
         new()
@@ -455,7 +442,6 @@ public static class LearningResourceCatalog
             PracticeExercise = "Create your GitHub repository with complete documentation, embed your dashboard on NovyPro, and record your 2-minute Loom walkthrough.",
             QuizTopic = "Portfolio Framing & Executive Presentation",
             WhyItMatters = "Recruiters spend an average of 30 seconds on a profile; an interactive portfolio immediately establishes credibility.",
-            YourEdge = "Your portfolio looks like that of a seasoned consulting analyst rather than a student seeking an entry-level position.",
             NextMove = "1. Create your portfolio repository.\n2. Record the 2-minute Loom.\n3. Add link to your profile."
         },
         new()
@@ -474,7 +460,6 @@ public static class LearningResourceCatalog
             WhyAmILearningThis = "Senior analysts don't just calculate averages; they identify revenue opportunities, cost reductions, and operational efficiencies that change company trajectory.",
             WhatHappened = "Leading tech enterprises (Uber, Amazon, Flutterwave) require analysts to frame findings using the Pyramid Principle: Answer First, followed by supporting quantitative evidence.",
             WhyItMatters = "If you present data without connecting it to revenue or cost, leadership will nod politely and take zero action.",
-            YourEdge = "You speak the language of CEOs and CFOs: ROI, customer lifetime value, cashflow impact, and margin expansion.",
             NextMove = "1. Read the McKinsey case study breakdown.\n2. Rewrite your capstone summary using the Pyramid Principle.\n3. Highlight exactly how many dollars your recommendation saves."
         },
         new()
@@ -503,7 +488,6 @@ public static class LearningResourceCatalog
             PracticeExercise = "Complete 3 live SQL challenges: 1) Top 3 Customers by Region, 2) 7-Day Active User Streak, 3) Month-over-Month Revenue Percent Change.",
             QuizTopic = "Data Analyst Interview Technical Challenges",
             WhyItMatters = "Passing the technical interview is the final gate between your preparation and landing your dream job offer.",
-            YourEdge = "You talk through your thought process clearly and ask clarifying questions before writing code—the #1 trait senior interviewers look for.",
             NextMove = "1. Solve the 3 practice SQL challenges.\n2. Rehearse the 'Metric Drop' case study aloud.\n3. Take the interview readiness quiz."
         }
     ];
@@ -541,7 +525,6 @@ public static class LearningResourceCatalog
             PracticeExercise = "Ingest a Kaggle telecom churn dataset. Split 80/20 train/test, train a Random Forest classifier, and print the classification report.",
             QuizTopic = "Python ML Foundations & Scikit-Learn",
             WhyItMatters = "Mastering foundational data ingestion and model fitting is the non-negotiable bedrock before advancing to deep learning and LLM architectures.",
-            YourEdge = "You bridge theoretical ML concepts into clean, reproducible Python code that runs locally on commodity hardware without cloud lock-in.",
             NextMove = "1. Clone the starter repository.\n2. Ingest the dataset and run training.\n3. Take the 5-minute checkpoint quiz."
         },
         new()
@@ -570,7 +553,6 @@ public static class LearningResourceCatalog
             PracticeExercise = "Code a 3-layer neural network in PyTorch with Dropout layers to prevent overfitting. Train for 15 epochs and save the model checkpoint.",
             QuizTopic = "PyTorch Tensors, Autograd & Training Loops",
             WhyItMatters = "Understanding the PyTorch autograd engine unlocks the ability to customize architectures and debug training instability.",
-            YourEdge = "Unlike engineers who only call black-box APIs, you understand gradient backpropagation and loss convergence at the mathematical layer.",
             NextMove = "1. Implement the PyTorch network.\n2. Verify validation loss decreases.\n3. Request AI Mentor code review."
         },
         new()
@@ -589,7 +571,6 @@ public static class LearningResourceCatalog
             WhyAmILearningThis = "AI is moving from brute-force next-token prediction to test-time reasoning models and efficient edge deployment.",
             WhatHappened = "Andrej Karpathy explores the transition from raw next-token prediction to test-time reasoning and ultra-compact small language models (SLMs) running on edge devices.",
             WhyItMatters = "Understanding the architectural shift towards test-time compute allows you to build cost-effective AI features without relying on massive million-dollar GPU clusters.",
-            YourEdge = "You design lean, hybrid AI systems that run lightweight 7B/14B reasoning models locally, drastically cutting inference bills while maintaining quality.",
             NextMove = "1. Read Karpathy's breakdown on test-time compute.\n2. Benchmark DeepSeek-R1-Distill-Qwen-7B against standard models.\n3. Evaluate latency for local customer service bots."
         },
 
@@ -620,7 +601,6 @@ public static class LearningResourceCatalog
             PracticeExercise = "Build a hybrid retrieval pipeline in Python. Ingest a 50-page company policy PDF and verify every answer outputs paragraph citations.",
             QuizTopic = "Hybrid Search, RRF & Vector Retrieval",
             WhyItMatters = "Naïve vector search retrieves irrelevant context 30% of the time; hybrid search with re-ranking eliminates enterprise hallucination.",
-            YourEdge = "You build mission-critical document assistants for legal, banking, and medical domains where accuracy and auditability are non-negotiable.",
             NextMove = "1. Run the RAG test.\n2. Verify citation accuracy.\n3. Take the quiz."
         },
         new()
@@ -649,7 +629,6 @@ public static class LearningResourceCatalog
             PracticeExercise = "Create a research agent that queries a database, fetches live currency exchange rates, and compiles a Markdown summary with human confirmation.",
             QuizTopic = "LangGraph State Machines & Tool Routing",
             WhyItMatters = "Cyclical state graphs are the industry standard for production agentic applications that must run multi-day automated workflows.",
-            YourEdge = "You construct software agents that don't get stuck in hallucination loops and can interact reliably with external enterprise APIs.",
             NextMove = "1. Code the LangGraph agent.\n2. Test state recovery after interruption.\n3. Take checkpoint test."
         },
         new()
@@ -668,7 +647,6 @@ public static class LearningResourceCatalog
             WhyAmILearningThis = "DeepSeek proved that elite reasoning emerges through rule-based RL reward shaping at a fraction of traditional training cost.",
             WhatHappened = "Deep dive into how DeepSeek developed competitive reasoning models using pure reinforcement learning without massive supervised fine-tuning.",
             WhyItMatters = "Shows that specialized reasoning can be trained into smaller models using automated verifiable rewards (math correctness, syntax validation).",
-            YourEdge = "You design domain-specific reasoning pipelines that don't depend on massive multi-million dollar human labeling budgets.",
             NextMove = "1. Read the DeepSeek-R1 paper.\n2. Inspect rule-based reward verifiers.\n3. Implement a simple code verification reward function."
         },
 
@@ -699,7 +677,6 @@ public static class LearningResourceCatalog
             PracticeExercise = "Code the causal attention block from scratch in PyTorch. Train a 10M parameter language model on TinyStories and verify coherent generation.",
             QuizTopic = "Transformer Attention Mechanics & RoPE",
             WhyItMatters = "You can diagnose deep model failures, optimize GPU kernel performance, and build custom architectures for specialized hardware.",
-            YourEdge = "You have mathematical and implementation mastery over modern transformer architectures.",
             NextMove = "1. Code the attention layer.\n2. Train for 500 steps.\n3. Submit loss curve to AI Mentor."
         },
 
@@ -730,7 +707,6 @@ public static class LearningResourceCatalog
             PracticeExercise = "Deploy your containerized service, run a 50-concurrent-user benchmark with Locust, and record an architectural walkthrough video.",
             QuizTopic = "Production AI Deployment & System Design",
             WhyItMatters = "Proves you can bridge the gap between experimental notebook prototypes and enterprise-grade software systems.",
-            YourEdge = "You can confidently design, estimate cloud infrastructure costs for, and lead enterprise AI deployments.",
             NextMove = "1. Complete the capstone project.\n2. Benchmark throughput.\n3. Request AI Mentor architectural review."
         },
         new()
@@ -758,7 +734,6 @@ public static class LearningResourceCatalog
             PracticeExercise = "Draw the architecture diagram for an enterprise assistant handling 10,000 requests/minute. Detail data ingestion, embedding cache, and security controls.",
             QuizTopic = "AI System Design & Scaling Tradeoffs",
             WhyItMatters = "A strong system design performance commands senior-level compensation and technical leadership positions.",
-            YourEdge = "You make principled engineering tradeoffs grounded in latency numbers, costs, and reliability guarantees.",
             NextMove = "1. Diagram the architecture.\n2. Review with AI Mentor.\n3. Practice explaining the tradeoffs aloud."
         }
     ];
@@ -795,7 +770,6 @@ public static class LearningResourceCatalog
             PracticeExercise = "Draft a 2-page PRD for an automated savings feature on a mobile banking app. Include problem statement, target persona, and success metrics.",
             QuizTopic = "PRD Writing & Customer Discovery",
             WhyItMatters = "Strong PRDs prevent teams from wasting months building software that users don't need.",
-            YourEdge = "You write crisp, actionable specs that engineers love and executives respect.",
             NextMove = "1. Draft your PRD.\n2. Take the quiz.\n3. Submit for AI Mentor review."
         },
         new()
@@ -814,7 +788,6 @@ public static class LearningResourceCatalog
             WhyAmILearningThis = "AI tools allow solo PMs to generate functional clickable prototypes and user stories in minutes rather than weeks.",
             WhatHappened = "Modern PMs use AI prototyping platforms (v0, Claude Artifacts) to test concepts directly with customers before writing Jira tickets.",
             WhyItMatters = "Shortens product feedback loops from months to days, drastically cutting development waste.",
-            YourEdge = "You bring working interactive prototypes to stakeholder meetings rather than dry slide decks.",
             NextMove = "1. Prototype a feature using AI.\n2. Run a 10-minute user test.\n3. Document feedback."
         },
 
@@ -844,7 +817,6 @@ public static class LearningResourceCatalog
             PracticeExercise = "Map out a self-reinforcing growth loop for an African peer-to-peer payments app. Calculate loop cycle time and conversion efficiency.",
             QuizTopic = "Growth Loops, Moats & RICE Scoring",
             WhyItMatters = "Features can be copied in weeks; defensible strategy and self-sustaining growth loops cannot.",
-            YourEdge = "You prioritize roadmap initiatives based on compounding business value rather than who shouts loudest in meetings.",
             NextMove = "1. Map the growth loop.\n2. Complete RICE scoring.\n3. Take the quiz."
         },
 
@@ -874,7 +846,6 @@ public static class LearningResourceCatalog
             PracticeExercise = "Analyze user event logs to find the behavior correlated with 90-day retention (e.g. 'users who send 3 payments in week 1 retain at 70%').",
             QuizTopic = "Retention Cohorts, Funnels & Experimentation",
             WhyItMatters = "Growth without retention is just pouring water into a leaky bucket; sustainable businesses are built on flat retention curves.",
-            YourEdge = "You identify high-leverage product levers that measurably increase customer lifetime value.",
             NextMove = "1. Identify the 'Aha!' metric.\n2. Design the A/B test.\n3. Take the checkpoint test."
         },
 
@@ -905,7 +876,6 @@ public static class LearningResourceCatalog
             PracticeExercise = "Write and publish a 1,500-word product teardown on Substack or Notion. Share link for AI Mentor critique.",
             QuizTopic = "Product Case Study Framing & Executive Teardown",
             WhyItMatters = "A published product teardown proves your strategic acumen and communication skills before you even enter an interview.",
-            YourEdge = "Recruiters and founders reach out directly to PMs who publish thoughtful, well-reasoned teardowns.",
             NextMove = "1. Write the teardown.\n2. Publish on Notion or Substack.\n3. Submit for AI Mentor review."
         },
         new()
@@ -933,7 +903,6 @@ public static class LearningResourceCatalog
             PracticeExercise = "Record a 5-minute answer to: 'Design a financial literacy product for teenagers in emerging markets.' Use CIRCLES framework.",
             QuizTopic = "Product Sense & Execution Interview Rounds",
             WhyItMatters = "Product sense interviews test your instincts, empathy, and structured thinking under real-time pressure.",
-            YourEdge = "You structure ambiguous problems cleanly and always anchor recommendations in customer value.",
             NextMove = "1. Record the mock answer.\n2. Review against the rubric.\n3. Take the interview quiz."
         }
     ];
@@ -970,7 +939,6 @@ public static class LearningResourceCatalog
             PracticeExercise = "Set up a repository with pre-commit hooks, write a small service adhering to SOLID principles, and submit a cleanly rebased pull request.",
             QuizTopic = "Git Workflows & SOLID Code Architecture",
             WhyItMatters = "Messy code and tangled Git histories create technical debt that slows development velocity to a crawl.",
-            YourEdge = "You write self-documenting code that senior engineers can approve with minimal review comments.",
             NextMove = "1. Set up the repository.\n2. Configure pre-commit hooks.\n3. Take the checkpoint test."
         },
 
@@ -1000,7 +968,6 @@ public static class LearningResourceCatalog
             PracticeExercise = "Given a slow 100k-row orders table, profile query latency with EXPLAIN ANALYZE, add the optimal composite index, and verify 10x latency drop.",
             QuizTopic = "REST Standards & PostgreSQL B-Tree Indexing",
             WhyItMatters = "Unindexed database queries will crash your server as soon as user traffic spikes.",
-            YourEdge = "You know how databases execute queries on disk and can troubleshoot production latency bottlenecks quickly.",
             NextMove = "1. Profile the query.\n2. Add the index.\n3. Submit EXPLAIN output to AI Mentor."
         },
 
@@ -1030,7 +997,6 @@ public static class LearningResourceCatalog
             PracticeExercise = "Code a message consumer in Python or C# that processes payment events, checks idempotency keys, and routes failed jobs to a dead-letter queue.",
             QuizTopic = "Distributed Messaging & Event-Driven Patterns",
             WhyItMatters = "Guarantees zero lost transactions even when downstream third-party banking APIs experience downtime.",
-            YourEdge = "You architect fault-tolerant distributed backends capable of processing thousands of events per second.",
             NextMove = "1. Code the consumer worker.\n2. Simulate message failure.\n3. Take the quiz."
         },
 
@@ -1061,7 +1027,6 @@ public static class LearningResourceCatalog
             PracticeExercise = "Deploy your containerized project to a cloud VPS or PaaS. Submit the live URL and GitHub repository link for AI Mentor review.",
             QuizTopic = "Production Deployment & CI/CD Pipelines",
             WhyItMatters = "Software that only runs on localhost has zero business value; delivering live software builds undeniable credibility.",
-            YourEdge = "You can take any software idea from an empty folder to a live, secure cloud product with automated updates.",
             NextMove = "1. Push code to GitHub.\n2. Verify CI passes.\n3. Submit live URL for review."
         }
     ];
@@ -1097,7 +1062,6 @@ public static class LearningResourceCatalog
             PracticeExercise = "Take 3 years of audited financials of an African commercial bank or fintech. Build a linked 3-statement model.",
             QuizTopic = "3-Statement Financial Modeling",
             WhyItMatters = "Cash flow determines company survival; understanding financial statements allows you to evaluate company solvency and profitability.",
-            YourEdge = "You understand how operational decisions impact working capital and free cash flow generation.",
             NextMove = "1. Build the model.\n2. Verify balance sheet balances.\n3. Take the quiz."
         },
         new()
@@ -1125,7 +1089,6 @@ public static class LearningResourceCatalog
             PracticeExercise = "Value a regional payment gateway: forecast 5-year cash flows, apply a 14% emerging market WACC, and calculate implied share price.",
             QuizTopic = "DCF Valuation & WACC Calculations",
             WhyItMatters = "Price is what you pay; value is what you get. DCF analysis grounds investment decisions in economic reality.",
-            YourEdge = "You evaluate company valuations based on fundamental cash flows rather than hype multiples.",
             NextMove = "1. Complete the valuation.\n2. Run sensitivity analysis.\n3. Take the quiz."
         },
         new()
@@ -1153,7 +1116,6 @@ public static class LearningResourceCatalog
             PracticeExercise = "Write the database schema for a double-entry ledger handling customer deposits, peer-to-peer transfers, and platform fees with zero balance drift.",
             QuizTopic = "Double-Entry Accounting & Payment Rails",
             WhyItMatters = "Single-entry balance tracking inevitably suffers from rounding errors and reconciliation failures.",
-            YourEdge = "You design financial systems that pass rigorous central bank and financial regulatory audits.",
             NextMove = "1. Draft the ledger schema.\n2. Write transfer test cases.\n3. Take the quiz."
         },
         new()
@@ -1182,7 +1144,6 @@ public static class LearningResourceCatalog
             PracticeExercise = "Write a complete Investment Memo on an African startup of your choice. Submit for AI Mentor review.",
             QuizTopic = "Venture Capital Investment Due Diligence",
             WhyItMatters = "Demonstrates high-level business reasoning, financial rigor, and executive communication.",
-            YourEdge = "You evaluate startups with institutional-grade rigor.",
             NextMove = "1. Draft the memo.\n2. Review with AI Mentor.\n3. Add to your portfolio."
         }
     ];
@@ -1214,7 +1175,6 @@ public static class LearningResourceCatalog
             PracticeExercise = "Interview 3 potential users for your product idea using The Mom Test guidelines. Document their existing workarounds.",
             QuizTopic = "Customer Discovery & Startup Idea Evaluation",
             WhyItMatters = "Validating customer demand early saves months of wasted coding and thousands of dollars.",
-            YourEdge = "You build features people are desperate to pay for rather than guessing in isolation.",
             NextMove = "1. Conduct the interviews.\n2. Document insights.\n3. Take the quiz."
         },
         new()
@@ -1242,7 +1202,6 @@ public static class LearningResourceCatalog
             PracticeExercise = "Create your pitch deck in Google Slides or Pitch.com. Submit link for AI Mentor investor pitch critique.",
             QuizTopic = "Startup Fundraising & Pitch Deck Structure",
             WhyItMatters = "A clear pitch deck secures angel and seed funding to turn an idea into an enduring company.",
-            YourEdge = "You pitch with extreme clarity, avoiding buzzwords and focusing on traction metrics.",
             NextMove = "1. Build the deck.\n2. Submit for review.\n3. Rehearse pitch."
         }
     ];
@@ -1265,7 +1224,6 @@ public static class LearningResourceCatalog
             WhyAmILearningThis = "Understanding regulatory landscapes, data localization, and AI safety frameworks is crucial for compliance and public policy careers.",
             WhatHappened = "Governments across Africa and Europe are enacting AI governance standards and cross-border data transfer regulations.",
             WhyItMatters = "Tech companies that fail to comply with data localization face severe fines or operational bans.",
-            YourEdge = "You advise leadership on building products that comply with regional regulations from day one.",
             NextMove = "1. Read the framework summary.\n2. Check national data protection laws.\n3. Take the quiz."
         },
         new()
@@ -1284,7 +1242,6 @@ public static class LearningResourceCatalog
             WhyAmILearningThis = "Policy analysts influence national legislation by turning complex technical topics into 2-page actionable briefs for ministers.",
             WhatHappened = "Modern policymakers demand concise policy memos structured around concrete legislative recommendations and stakeholder impacts.",
             WhyItMatters = "Academic papers are rarely read by ministers; executive policy briefs shape national technology strategies.",
-            YourEdge = "You bridge technical engineering reality with regulatory and economic policy.",
             NextMove = "1. Draft a 2-page AI policy brief for your country's Ministry of Innovation.\n2. Submit for AI Mentor evaluation."
         }
     ];
