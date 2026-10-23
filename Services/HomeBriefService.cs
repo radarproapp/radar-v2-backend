@@ -146,8 +146,10 @@ public class HomeBriefService : IHomeBriefService
     {
         var signals = await _signals.GetTopSignalsAsync(profile.Id, 12);
 
+        // Twice, not once: "you keep coming back to X" describes a habit, and a single open is
+        // not one. A new account opening one science article was being told it kept coming back.
         return signals
-            .Where(s => s.Source == SignalSource.Inferred && s.PositiveCount > 0)
+            .Where(s => s.Source == SignalSource.Inferred && s.PositiveCount >= 2)
             .OrderByDescending(BehavioralSignalService.DecayedStrength)
             .Take(3)
             .Select(s => new NoticedSignal

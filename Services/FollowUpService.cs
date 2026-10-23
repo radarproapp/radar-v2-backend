@@ -34,23 +34,10 @@ public static class FollowUpService
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        if (positiveSignals.Count < 3 && profile.InterestActivityScores.Count > 0)
-        {
-            var activityTerms = profile.InterestActivityScores
-                .Where(kv => kv.Value > 0)
-                .OrderByDescending(kv => kv.Value)
-                .Select(kv => kv.Key.Trim())
-                .Where(t => !string.IsNullOrWhiteSpace(t) && !positiveSignals.Contains(t, StringComparer.OrdinalIgnoreCase));
-            positiveSignals.AddRange(activityTerms);
-        }
-
-        if (positiveSignals.Count < 3 && profile.Interests.Count > 0)
-        {
-            var profileInterests = profile.Interests
-                .Select(i => i.Trim())
-                .Where(t => !string.IsNullOrWhiteSpace(t) && !positiveSignals.Contains(t, StringComparer.OrdinalIgnoreCase));
-            positiveSignals.AddRange(profileInterests);
-        }
+        // No padding. "You've been engaging most with X recently" is a claim about behaviour, and
+        // it was being filled out with the interests chosen at signup when real signals ran short
+        // — so a brand new account was told it had been engaging most with three things it had
+        // never opened. If there is not enough behaviour to describe, the banner does not appear.
 
         var top3 = positiveSignals.Take(3).ToList();
         if (top3.Count > 0)

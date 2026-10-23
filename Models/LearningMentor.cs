@@ -176,10 +176,20 @@ public class SpacedRevisionItem
 
 public class DailyLearningCard
 {
+    /// <summary>
+    /// Set when there is nothing to recommend: no path, and no answered questions to learn from.
+    /// </summary>
+    /// <remarks>
+    /// The card used to fall back to "SQL JOINs" and announce it as a weak area "based on recent
+    /// performance", for learners who had answered nothing and were studying something else. A
+    /// recommendation with no evidence behind it is worse than no recommendation.
+    /// </remarks>
+    public string? EmptyReason { get; set; }
+
     public string Topic { get; set; } = string.Empty;
     public string Skill { get; set; } = string.Empty;
     public int EstimatedMinutes { get; set; } = 20;
-    public string Why { get; set; } = "Weak area detected on your roadmap";
+    public string Why { get; set; } = string.Empty;
     public int LearnMinutes { get; set; } = 8;
     public int PracticeMinutes { get; set; } = 8;
     public int ApplyMinutes { get; set; } = 4;

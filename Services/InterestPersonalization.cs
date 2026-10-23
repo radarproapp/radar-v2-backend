@@ -323,14 +323,33 @@ public static class InterestPersonalization
             matches.Add(new DimensionMatch(dimension, bestPhrase, Math.Min(1, bestCoverage)));
     }
 
+    /// <summary>
+    /// How much of a phrase the text actually contains, or zero if not enough of it to claim.
+    /// </summary>
+    /// <remarks>
+    /// The floor is the point. Any hit above zero used to count, so for the goal "Computer
+    /// Science" the single word "science" scored 0.5 and recorded a match — which the card then
+    /// reported as "Matches your goal: Computer Science" on an article about body temperature and
+    /// another about choosing a mattress. Half a phrase is not the phrase, and naming the whole of
+    /// it in the explanation made the product look like it was guessing, because it was.
+    ///
+    /// Two-word phrases need both words. Longer ones need two thirds, so "Artificial Intelligence
+    /// Ethics" still matches a piece covering two of the three.
+    /// </remarks>
     private static double Coverage(string text, string phrase)
     {
         if (text.Contains(phrase, StringComparison.OrdinalIgnoreCase)) return 1;
 
         var keywords = Keywords(phrase);
         if (keywords.Count == 0) return 0;
+
         var hits = keywords.Count(k => text.Contains(k, StringComparison.OrdinalIgnoreCase));
-        return (double)hits / keywords.Count;
+        if (hits == 0) return 0;
+
+        var coverage = (double)hits / keywords.Count;
+        var floor = keywords.Count <= 2 ? 1.0 : 2.0 / 3.0;
+
+        return coverage + 1e-9 >= floor ? coverage : 0;
     }
 
     private static List<string> Keywords(string phrase) =>

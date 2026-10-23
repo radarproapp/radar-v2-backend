@@ -559,14 +559,13 @@ public class MongoLearningMentorService : ILearningMentorService
         var existing = await _db.TopicMasteries.Find(t => t.UserId == userId).ToListAsync();
         if (existing.Count > 0) return existing;
 
-        // Seed rich initial topic mastery profile based on user's active domain
-        var seeded = SeedDefaultMasteries(userId);
-        if (seeded.Count > 0)
-        {
-            await _db.TopicMasteries.InsertManyAsync(seeded);
-            return seeded;
-        }
-
+        // Nothing. A learner who has answered no questions has no mastery.
+        //
+        // This used to write a whole fabricated history on first read: SQL at 68% with "SELECT
+        // Queries 95% mastered, 20 questions answered", JOINs flagged as a weak area at 51%, and
+        // a second topic in cybersecurity — for every user, including one studying something
+        // else entirely. The Mentor then reported it back as measurement: "Weak area detected
+        // (SQL JOINs) based on recent performance". There was no performance.
         return [];
     }
 
@@ -670,7 +669,33 @@ public class MongoLearningMentorService : ILearningMentorService
     public async Task<DailyLearningCard> GetTodayLearningAsync(string userId)
     {
         var memory = await GetLearningMemoryAsync(userId);
-        var weakTopic = memory.WeakAreas.FirstOrDefault() ?? "SQL JOINs";
+
+        // Only recommend what there is evidence for: a weak area the learner actually produced by
+        // answering questions, or failing that the section they are working through. "SQL JOINs"
+        // was the hardcoded fallback, announced as detected from performance that never happened.
+        var weakTopic = memory.WeakAreas.FirstOrDefault(w => !string.IsNullOrWhiteSpace(w));
+        var fromPath = string.IsNullOrWhiteSpace(memory.ActiveSkill) ? null : memory.ActiveSkill;
+
+        if (weakTopic is null && fromPath is null)
+        {
+            return new DailyLearningCard
+            {
+                EmptyReason = "Build a path first. Once you are working through a section, the mentor can tell you what to spend twenty minutes on.",
+            };
+        }
+
+        if (weakTopic is null)
+        {
+            return new DailyLearningCard
+            {
+                Topic = fromPath!,
+                Skill = memory.ActiveSkill,
+                EstimatedMinutes = 20,
+                Why = $"From your path. You have not answered any questions on {fromPath} yet, so there is nothing measured to go on.",
+                NextMove = $"Your next move: work through {fromPath} and take a quiz, so the mentor has something to aim at.",
+                SuggestedPrompt = $"Teach me {fromPath} and give me an exercise.",
+            };
+        }
 
         return new DailyLearningCard
         {
@@ -902,42 +927,4 @@ public class MongoLearningMentorService : ILearningMentorService
         return list;
     }
 
-    private static List<TopicMastery> SeedDefaultMasteries(string userId)
-    {
-        return
-        [
-            new()
-            {
-                UserId = userId,
-                Topic = "SQL & Relational Databases",
-                MasteryPercent = 68,
-                Subtopics =
-                [
-                    new() { Name = "SELECT Queries", MasteryPercent = 95, Status = "Mastered", TotalQuestions = 20, CorrectAnswers = 19 },
-                    new() { Name = "WHERE Filtering", MasteryPercent = 91, Status = "Mastered", TotalQuestions = 15, CorrectAnswers = 14 },
-                    new() { Name = "GROUP BY & Aggregations", MasteryPercent = 82, Status = "Strong", TotalQuestions = 12, CorrectAnswers = 10 },
-                    new() { Name = "SQL JOINs (INNER, LEFT, FULL)", MasteryPercent = 51, Status = "WeakArea", TotalQuestions = 14, CorrectAnswers = 7 },
-                    new() { Name = "Subqueries & Window Functions", MasteryPercent = 42, Status = "WeakArea", TotalQuestions = 10, CorrectAnswers = 4 }
-                ],
-                WeakAreas = ["SQL JOINs (INNER, LEFT, FULL)", "Subqueries & Window Functions"],
-                StrongAreas = ["SELECT Queries", "WHERE Filtering", "GROUP BY & Aggregations"]
-            },
-            new()
-            {
-                UserId = userId,
-                Topic = "Cybersecurity & Systems Defense",
-                MasteryPercent = 71,
-                Subtopics =
-                [
-                    new() { Name = "Threat Modeling & MITRE ATT&CK", MasteryPercent = 88, Status = "Mastered", TotalQuestions = 16, CorrectAnswers = 14 },
-                    new() { Name = "Identity & Access Management (IAM)", MasteryPercent = 82, Status = "Strong", TotalQuestions = 12, CorrectAnswers = 10 },
-                    new() { Name = "Network Packet & PCAP Analysis", MasteryPercent = 54, Status = "WeakArea", TotalQuestions = 15, CorrectAnswers = 8 },
-                    new() { Name = "Zero Trust Microsegmentation", MasteryPercent = 76, Status = "Strong", TotalQuestions = 10, CorrectAnswers = 8 },
-                    new() { Name = "SIEM Log Parsing & Querying", MasteryPercent = 58, Status = "WeakArea", TotalQuestions = 12, CorrectAnswers = 7 }
-                ],
-                WeakAreas = ["Network Packet & PCAP Analysis", "SIEM Log Parsing & Querying"],
-                StrongAreas = ["Threat Modeling & MITRE ATT&CK", "Identity & Access Management (IAM)"]
-            }
-        ];
-    }
 }
