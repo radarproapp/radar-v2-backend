@@ -642,15 +642,7 @@ subject) and a Udemy-style journey (collapsible sections, checkable lessons, dur
   11.7. `TargetRole` is a non-nullable string defaulting to `""`, so the `??` chain choosing a
   topic always stopped at the empty string and returned null. It was masked for as long as paths
   were auto-created, because `roadmap?.Goal` answered first and was never empty.
-- [ ] 11.12 A partial keyword match claims the whole phrase. `Coverage()` falls back to
-  `hits / keywords.Count`, so for the goal "Computer Science" an article containing only the word
-  "science" scores 0.5, and anything above 0 records a match — which `WhyShown` then renders as
-  "Matches your goal: Computer Science". Observed on staging: a Computer Science student's top
-  three signals were an article about a *Dragon Man* skull, a novel about dementia, and a
-  genetically modified military dog startup, each captioned with that line. Same family as
-  `Contains("soc")` matching "social work". The fix is a coverage floor — every keyword for a
-  two-word phrase — but it will make thin feeds thinner, so it is a product call, not a silent
-  one: confirm the empty-state behaviour is acceptable before changing the threshold.
+- [x] 11.12 ~~A partial keyword match claims the whole phrase~~ — fixed with a coverage floor. Verified: a Software Engineering student's feed now claims 0 goal matches out of 6 rather than claiming all of them falsely. This exposed 13.5 below.
 - [ ] 11.6 Neither new page has been seen rendering. The styles are written against the existing
   variables and the logic is covered by unit tests, but no component test mounts either page.
 
@@ -669,14 +661,7 @@ subject) and a Udemy-style journey (collapsible sections, checkable lessons, dur
   fallback was cached 30 minutes under the key a real answer would use, so one failure became half
   an hour of empty sections that never retried. The reason now travels with the record, and
   `isCloudLlmActive` reflects whether calls succeed rather than whether a key string is set.
-- [ ] 12.4 **The OpenRouter API key is invalid.** Staging returns
-  `HTTP 401 Unauthorized: {"error":{"message":"User not found.","code":401}}` on every call —
-  the key no longer maps to an account. Production shows the same `openRouter: true` and $0.80 of
-  spend, so it was working and has since been revoked; assume it is affected too. Needs a new key
-  set as `OpenRouter__ApiKey` on both Railway services. **Set it in the Railway dashboard — do not
-  paste it into a chat.** Until then: no AI lessons, so every built section is empty, so there are
-  no per-lesson video queries, so nothing resolves to a playable video. 12.1 is correct and will
-  light up once this is fixed.
+- [x] 12.4 ~~**The OpenRouter API key is invalid.**~~ — replaced by the user. The 401 is gone; the next failure (a 20-second timeout cutting the model off mid-section) was found and fixed, and sections now build with real lessons in ~11s.
 - [ ] 12.5 Catalogue resources are channel-scoped search URLs
   (`youtube.com/@NetworkChuck/search?query=...`) which cannot be embedded. Lesson-level resources
   resolve to real videos through `YouTubeSearchService`; catalogue ones never will. Once 12.4 is
@@ -696,13 +681,27 @@ Measured on staging before starting, so the work is against what is actually bro
   engineering student. Same root as 11.12.
 
 - [ ] 13.1 Media never surfaces in the feed. Ranking buries it; there is no mix guarantee.
-- [ ] 13.2 `whyItMatters` is empty on every video, so the "why it matters to you" half of the
-  card has nothing to show.
+- [x] 13.2 ~~`whyItMatters` is empty on every video~~ — the cause was enrichment running on the deterministic fallback while the key was dead. `BackfillEnrichmentAsync` re-runs it. Measured after one pass: 16 of 20 videos and 11 of 16 podcasts now say why they matter.
 - [ ] 13.3 No transcripts are stored for videos, so any summary is written from a channel
   description rather than from what was said. Podcast transcripts have the same gap in practice
   (Taddy/Groq paths exist; nothing is populated).
-- [ ] 13.4 Players exist and work (`VideoEmbed`, `AudioEmbed`, both used by `FeedDetail`), but the
-  feed list itself does not play anything inline.
+- [x] 13.4 ~~The feed list does not play anything inline~~ — superseded: the sidebar drills into content types, so Videos and Podcasts are reachable destinations, and `FeedDetail` plays both.
+
+## Phase 14 — What the review found (2026-10-23)
+
+- [ ] 14.1 **The source list is not aimed at Radar's users.** 231 ingestion sources: Policy 36,
+  Ideas 27, Music 14, Film 12, Fashion 12, Sports 7, Gaming 6, Art 7 — and **7 across Learning,
+  Academic and Career combined**. Measured on a Software Engineering student's feed: Entertainment
+  was the largest topic at 13 of 50 items; "programming" returns 0 search hits. This is the
+  single biggest gap between Radar and its stated purpose, and no amount of ranking fixes it —
+  the content is not being ingested.
+- [ ] 14.2 Nine of twenty items typed `Video` have no playable URL; they are article pages that
+  landed under the Video type. The Videos destination therefore shows things that cannot play.
+- [x] 14.3 ~~The opportunities gate counted declared interests as activity~~ — onboarding records
+  a Declared signal per interest ticked, so finishing onboarding opened the gate. Inferred
+  signals only now. Isolated on staging before and after.
+- [ ] 14.4 Zero component tests across 38 pages. Every page in this rebuild has been verified by
+  calling its API, never by mounting it.
 
 ## Explicitly not changing
 
