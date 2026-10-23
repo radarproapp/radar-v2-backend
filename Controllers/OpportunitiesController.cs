@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using RadarV2.Helpers;
 using RadarV2.Models;
+using RadarV2.Services;
 using RadarV2.Services.Interfaces;
 
 namespace RadarV2.Controllers;
@@ -13,11 +14,16 @@ public class OpportunitiesController : ControllerBase
 {
     private readonly IOpportunityService _opportunities;
     private readonly IUserProfileService _profiles;
+    private readonly LearnerFootprint _footprint;
 
-    public OpportunitiesController(IOpportunityService opportunities, IUserProfileService profiles)
+    public OpportunitiesController(
+        IOpportunityService opportunities,
+        IUserProfileService profiles,
+        LearnerFootprint footprint)
     {
         _opportunities = opportunities;
         _profiles = profiles;
+        _footprint = footprint;
     }
 
     private static readonly Dictionary<string, Func<Opportunity, object?>> OpportunityFieldProjectors = new(StringComparer.OrdinalIgnoreCase)
@@ -68,6 +74,11 @@ public class OpportunitiesController : ControllerBase
         if (!FieldSet.TryParse(fields, OpportunityFieldProjectors.Keys.ToList(), out var fieldSet, out var fieldError))
             return BadRequest(new { error = fieldError });
 
+        // Nothing to match against yet. Matching on the degree alone produced confident
+        // percentages against a focus nobody had chosen.
+        if (!await _footprint.HasStartedAsync(profile.Id))
+            return Ok(Array.Empty<object>());
+
         var items = await _opportunities.GetOpportunitiesAsync(
             profile,
             ParseType(type),
@@ -86,6 +97,16 @@ public class OpportunitiesController : ControllerBase
     {
         var profile = await _profiles.GetCurrentUserAsync();
         if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        if (!await _footprint.HasStartedAsync(profile.Id))
+        {
+            return Ok(new DailyOpportunityFeed
+            {
+                TotalCount = 0,
+                Message = string.Empty,
+                EmptyReason = "Start a path or save something you are interested in, and Radar matches opportunities against it.",
+            });
+        }
 
         var feed = await _opportunities.GetDailyFeedAsync(profile);
         return Ok(feed);

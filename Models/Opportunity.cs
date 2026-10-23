@@ -99,6 +99,11 @@ public enum OpportunityUrgency
 
 public class DailyOpportunityFeed
 {
+    /// <summary>
+    /// Set when the learner has not started anywhere yet, so there is nothing to match against.
+    /// </summary>
+    public string? EmptyReason { get; set; }
+
     public int TotalCount { get; set; } = 12;
     public string Message { get; set; } = "12 new opportunities for you today";
     /// <summary>
