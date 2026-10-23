@@ -281,6 +281,38 @@ public class MongoRoadmapService : IRoadmapService
         }
     }
 
+    /// <summary>
+    /// A few slices from inside the document, rather than the first few thousand characters.
+    /// </summary>
+    /// <remarks>
+    /// The opening of a book is the worst sample of it. A 1,287 page Java textbook begins with
+    /// "This page intentionally left blank", a copyright notice and the publisher's staff
+    /// directory — the words "Java" and "programming" appear nowhere in the first six thousand
+    /// characters, because the cover is an image. Radar read the masthead and said, correctly,
+    /// that it could not tell what the document taught.
+    ///
+    /// Three slices from inside it land in actual chapters.
+    /// </remarks>
+    private static string Sample(string text, int budget = 6000)
+    {
+        if (text.Length <= budget) return text;
+
+        var sliceLength = budget / 3;
+        var sb = new StringBuilder();
+
+        foreach (var at in new[] { 0.15, 0.40, 0.65 })
+        {
+            var start = (int)(text.Length * at);
+            var take = Math.Min(sliceLength, text.Length - start);
+            if (take <= 0) continue;
+
+            sb.AppendLine(text.Substring(start, take));
+            sb.AppendLine("[...]");
+        }
+
+        return sb.ToString();
+    }
+
     /// <summary>What a document turned out to be about.</summary>
     public sealed class DocumentSubject
     {
@@ -481,17 +513,26 @@ public class MongoRoadmapService : IRoadmapService
     /// Returns null when the model cannot say — at which point the caller asks the learner
     /// instead, which is a better outcome than guessing a subject from a filename.
     /// </remarks>
-    public async Task<DocumentSubject?> ReadSubjectFromDocumentAsync(string text, CancellationToken ct = default)
+    public async Task<DocumentSubject?> ReadSubjectFromDocumentAsync(
+        string text,
+        string? fileName = null,
+        CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(text)) return null;
 
-        // The opening is enough to name a subject, and it keeps the call inside its budget. A
-        // whole textbook would not make the answer better, only slower and more expensive.
-        var excerpt = text.Length > 6000 ? text[..6000] : text;
+        var excerpt = Sample(text);
 
         var sb = new StringBuilder();
-        sb.AppendLine("Read this document and say what it teaches.");
+        sb.AppendLine("Read these excerpts and say what the document teaches.");
         sb.AppendLine();
+        if (!string.IsNullOrWhiteSpace(fileName))
+        {
+            // A weak signal, and said to be one. A textbook's cover is often an image, so the
+            // only place its title appears may be the filename — but the excerpts decide.
+            sb.AppendLine($"The file is named: {fileName}");
+            sb.AppendLine("Treat that as a hint only. The excerpts are the authority.");
+            sb.AppendLine();
+        }
         sb.AppendLine("Rules:");
         sb.AppendLine("- subject: two to four words naming the field or topic, as a learner would say it.");
         sb.AppendLine("- outcome: one sentence on what someone could do after working through this material.");
@@ -500,7 +541,7 @@ public class MongoRoadmapService : IRoadmapService
         sb.AppendLine();
         sb.AppendLine("Return strict JSON: { \"subject\": \"...\", \"outcome\": \"...\", \"level\": \"...\" }");
         sb.AppendLine();
-        sb.AppendLine("Document:");
+        sb.AppendLine("Excerpts:");
         sb.AppendLine(excerpt);
 
         var result = await _ai.GenerateJsonAsync<DocumentSubject>(

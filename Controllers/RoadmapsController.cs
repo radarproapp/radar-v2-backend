@@ -116,7 +116,7 @@ public class RoadmapsController : ControllerBase
         if (string.IsNullOrWhiteSpace(text))
             return BadRequest(new { error = "That file contained no readable text." });
 
-        var subject = await _roadmaps.ReadSubjectFromDocumentAsync(text, ct);
+        var subject = await _roadmaps.ReadSubjectFromDocumentAsync(text, file.FileName, ct);
         if (subject is null)
         {
             // Better to ask than to guess a subject off a filename.

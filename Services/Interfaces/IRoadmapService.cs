@@ -35,7 +35,10 @@ public interface IRoadmapService
     /// <summary>
     /// Names what an uploaded document teaches, so a section can be built from it.
     /// </summary>
-    Task<MongoRoadmapService.DocumentSubject?> ReadSubjectFromDocumentAsync(string text, CancellationToken ct = default);
+    Task<MongoRoadmapService.DocumentSubject?> ReadSubjectFromDocumentAsync(
+        string text,
+        string? fileName = null,
+        CancellationToken ct = default);
 
     Task<GrowthRoadmap> AddSectionAsync(
         string userId,
