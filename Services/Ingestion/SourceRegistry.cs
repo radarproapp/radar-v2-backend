@@ -58,8 +58,7 @@ public static class SourceRegistry
         new() { Id = "github-blog",           Name = "GitHub",                     Url = "https://github.blog/feed/",                            Layer = ContentLayer.Skills,   Tier = 1, Topics = ["Software Engineering", "Programming", "Open Source"] },
         new() { Id = "the-register",          Name = "The Register",               Url = "https://www.theregister.com/headlines.atom",           Layer = ContentLayer.Skills,   Tier = 2, Topics = ["Computer Science", "Cloud Computing", "Cybersecurity"] },
         new() { Id = "martin-fowler",         Name = "Martin Fowler",              Url = "https://martinfowler.com/feed.atom",                    Layer = ContentLayer.Skills,   Tier = 1, Topics = ["Software Engineering", "System Design", "Programming"] },
-        new() { Id = "devto",                 Name = "dev.to",                     Url = "https://dev.to/feed",                                   Layer = ContentLayer.Skills,   Tier = 2, Topics = ["Software Engineering", "Programming", "Web Development"] },
-
+        
         // Data science and machine learning
         new() { Id = "arxiv-cslg",            Name = "arXiv — Machine Learning",  Url = "http://export.arxiv.org/rss/cs.LG",                     Layer = ContentLayer.Academic, DefaultContentType = ContentType.ResearchPaper, Tier = 1, Topics = ["Machine Learning", "Data Science", "Artificial Intelligence"] },
         new() { Id = "google-ai-blog",        Name = "Google AI",                  Url = "https://blog.google/technology/ai/rss/",                Layer = ContentLayer.Skills,   Tier = 1, Topics = ["Artificial Intelligence", "Machine Learning", "Data Science"] },

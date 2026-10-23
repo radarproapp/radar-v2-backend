@@ -64,6 +64,29 @@ public class RssIngestionService
         return items;
     }
 
+    /// <summary>
+    /// Removes a CDATA wrapper that arrived as text rather than as markup.
+    /// </summary>
+    /// <remarks>
+    /// Some publishers escape their own CDATA, so the element contains
+    /// <c>&amp;lt;![CDATA[Real Title]]&amp;gt;</c>. XML decoding turns that into the literal
+    /// characters "&lt;![CDATA[Real Title]]&gt;", which is then a perfectly valid string as far
+    /// as everything downstream is concerned — and Pharmacy Times headlines reached the feed
+    /// reading "&lt;![CDATA[Kidney Week 2026: What to Know".
+    /// </remarks>
+    public static string Unwrap(string? text)
+    {
+        var value = (text ?? string.Empty).Trim();
+
+        const string open = "<![CDATA[";
+        const string close = "]]>";
+
+        if (value.StartsWith(open, StringComparison.Ordinal) && value.EndsWith(close, StringComparison.Ordinal))
+            value = value[open.Length..^close.Length].Trim();
+
+        return value;
+    }
+
     private static List<RawFeedItem> ParseRss(XDocument doc, FeedSource source)
     {
         return doc.Descendants("item")
@@ -91,10 +114,10 @@ public class RssIngestionService
                     Tier            = source.Tier,
                     DefaultType     = source.DefaultContentType,
                     Topics          = source.Topics,
-                    Title           = item.Element("title")?.Value?.Trim() ?? string.Empty,
+                    Title           = Unwrap(item.Element("title")?.Value),
                     Url             = url,
                     UrlHash         = HashUrl(url),
-                    Description     = StripHtml(item.Element("description")?.Value ?? string.Empty),
+                    Description     = StripHtml(Unwrap(item.Element("description")?.Value)),
                     PublishedAt     = ParseDate(item.Element("pubDate")?.Value
                                           ?? item.Element(Dc + "date")?.Value),
                     Author          = item.Element("author")?.Value?.Trim()
@@ -125,7 +148,7 @@ public class RssIngestionService
                     Tier        = source.Tier,
                     DefaultType = source.DefaultContentType,
                     Topics      = source.Topics,
-                    Title       = entry.Element(Atom + "title")?.Value?.Trim() ?? string.Empty,
+                    Title       = Unwrap(entry.Element(Atom + "title")?.Value),
                     Url         = url,
                     UrlHash     = HashUrl(url),
                     Description = StripHtml(entry.Element(Atom + "summary")?.Value
