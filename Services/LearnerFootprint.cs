@@ -22,11 +22,13 @@ public class LearnerFootprint
 {
     private readonly RadarDatabase _db;
     private readonly IRoadmapService _roadmaps;
+    private readonly ILogger<LearnerFootprint> _log;
 
-    public LearnerFootprint(RadarDatabase db, IRoadmapService roadmaps)
+    public LearnerFootprint(RadarDatabase db, IRoadmapService roadmaps, ILogger<LearnerFootprint> log)
     {
         _db = db;
         _roadmaps = roadmaps;
+        _log = log;
     }
 
     /// <summary>
@@ -36,6 +38,23 @@ public class LearnerFootprint
     {
         if (string.IsNullOrEmpty(userId)) return false;
 
+        try
+        {
+            return await HasAnythingAsync(userId, ct);
+        }
+        catch (Exception ex)
+        {
+            // Fail open. This gate decides whether to *hide* opportunities; it must never be the
+            // reason a page cannot load. When it broke, the Opportunities screen showed "Could
+            // not load opportunities" rather than simply showing them — a check on whether to
+            // withhold content took the content down with it.
+            _log.LogWarning(ex, "Footprint check failed for {UserId}; showing opportunities.", userId);
+            return true;
+        }
+    }
+
+    private async Task<bool> HasAnythingAsync(string userId, CancellationToken ct)
+    {
         // Learn: a path they asked for, or one they have worked through.
         if (await _roadmaps.GetActiveRoadmapAsync(userId) is not null) return true;
 

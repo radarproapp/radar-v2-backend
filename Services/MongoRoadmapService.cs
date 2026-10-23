@@ -112,14 +112,52 @@ public class MongoRoadmapService : IRoadmapService
     /// matters: a path nobody chose but somebody has been using is still their path, and hiding it
     /// would lose their progress from view.
     /// </remarks>
+    /// <summary>
+    /// Replaces any null collection on a stored roadmap with an empty one.
+    /// </summary>
+    /// <remarks>
+    /// The C# model defaults every list to empty, but a document written with an explicit null
+    /// deserializes to null — and the production database is the oldest, so it has them. There
+    /// are a dozen places downstream that call .Any(), .Count or .Add on these, and guarding each
+    /// one is a losing game: the next one added would miss it. Normalising on read fixes all of
+    /// them at once, including the ones not written yet.
+    ///
+    /// This is what took down Today, Opportunities and the Mentor together — they all reach
+    /// GetActiveRoadmapAsync, so one old roadmap with a null array broke three screens.
+    /// </remarks>
+    private static GrowthRoadmap Normalise(GrowthRoadmap roadmap)
+    {
+        roadmap.Modules ??= [];
+        roadmap.Resources ??= [];
+        roadmap.CompletedResourceIds ??= [];
+        roadmap.CompletedExerciseIds ??= [];
+        roadmap.QuizResults ??= [];
+        roadmap.WeakAreas ??= [];
+        roadmap.StageMastery ??= new();
+
+        foreach (var module in roadmap.Modules)
+        {
+            module.Lessons ??= [];
+            module.Resources ??= [];
+            module.ContentItemIds ??= [];
+        }
+
+        return roadmap;
+    }
+
     public static bool WasAskedFor(GrowthRoadmap roadmap)
     {
         if (string.Equals(roadmap.TemplateKey, UserBuiltTemplateKey, StringComparison.Ordinal)) return true;
 
-        return roadmap.Modules.Any(m => m.IsCompleted || m.Lessons.Any(l => l.IsCompleted))
-            || roadmap.CompletedResourceIds.Count > 0
-            || roadmap.CompletedExerciseIds.Count > 0
-            || roadmap.QuizResults.Count > 0;
+        // Null-guarded throughout. The C# defaults are empty lists, but a document stored with an
+        // explicit null — and the production database is the oldest, so it has them — deserializes
+        // to null, and .Any() on null throws. This method is called from GetActiveRoadmapAsync,
+        // which Today, Opportunities and the Mentor all depend on, so one old roadmap with a null
+        // array took down three screens at once.
+        return (roadmap.Modules ?? []).Any(m => m.IsCompleted || (m.Lessons ?? []).Any(l => l.IsCompleted))
+            || (roadmap.CompletedResourceIds?.Count ?? 0) > 0
+            || (roadmap.CompletedExerciseIds?.Count ?? 0) > 0
+            || (roadmap.QuizResults?.Count ?? 0) > 0;
     }
 
     public async Task<GrowthRoadmap?> GetActiveRoadmapAsync(string userId)
@@ -127,6 +165,7 @@ public class MongoRoadmapService : IRoadmapService
         var roadmap = await _db.Roadmaps
             .Find(r => r.UserId == userId && r.IsActive)
             .FirstOrDefaultAsync();
+        if (roadmap is not null) Normalise(roadmap);
 
         // A path generated before anyone was asked is not this learner's path.
         //
@@ -350,6 +389,7 @@ public class MongoRoadmapService : IRoadmapService
     public async Task CompleteLessonAsync(string userId, string roadmapId, string moduleId, string lessonId)
     {
         var roadmap = await _db.Roadmaps.Find(r => r.Id == roadmapId && r.UserId == userId).FirstOrDefaultAsync();
+        if (roadmap is not null) Normalise(roadmap);
         if (roadmap is null) return;
 
         var module = roadmap.Modules.FirstOrDefault(m => m.Id == moduleId);
@@ -372,6 +412,7 @@ public class MongoRoadmapService : IRoadmapService
     public async Task CompleteResourceAsync(string userId, string roadmapId, string resourceId)
     {
         var roadmap = await _db.Roadmaps.Find(r => r.Id == roadmapId && r.UserId == userId).FirstOrDefaultAsync();
+        if (roadmap is not null) Normalise(roadmap);
         if (roadmap is null) return;
 
         if (roadmap.CompletedResourceIds.Contains(resourceId))
@@ -397,6 +438,7 @@ public class MongoRoadmapService : IRoadmapService
     public async Task CompleteExerciseAsync(string userId, string roadmapId, string resourceId)
     {
         var roadmap = await _db.Roadmaps.Find(r => r.Id == roadmapId && r.UserId == userId).FirstOrDefaultAsync();
+        if (roadmap is not null) Normalise(roadmap);
         if (roadmap is null) return;
 
         if (roadmap.CompletedExerciseIds.Contains(resourceId))
@@ -422,6 +464,7 @@ public class MongoRoadmapService : IRoadmapService
     public async Task<GrowthRoadmap?> RecordQuizResultAsync(string userId, string roadmapId, string topic, string stage, int scorePercent)
     {
         var roadmap = await _db.Roadmaps.Find(r => r.Id == roadmapId && r.UserId == userId).FirstOrDefaultAsync();
+        if (roadmap is not null) Normalise(roadmap);
         if (roadmap is null) return null;
 
         var record = new QuizPerformanceRecord
@@ -452,6 +495,7 @@ public class MongoRoadmapService : IRoadmapService
     public async Task SetRoadmapStageAsync(string userId, string roadmapId, string stage)
     {
         var roadmap = await _db.Roadmaps.Find(r => r.Id == roadmapId && r.UserId == userId).FirstOrDefaultAsync();
+        if (roadmap is not null) Normalise(roadmap);
         if (roadmap is null) return;
 
         roadmap.CurrentStage = stage;
@@ -474,6 +518,7 @@ public class MongoRoadmapService : IRoadmapService
         var roadmap = await _db.Roadmaps
             .Find(r => r.UserId == userId && r.IsActive)
             .FirstOrDefaultAsync(ct);
+        if (roadmap is not null) Normalise(roadmap);
 
         var isNew = roadmap is null;
 
@@ -542,6 +587,7 @@ public class MongoRoadmapService : IRoadmapService
         var roadmap = await _db.Roadmaps
             .Find(r => r.UserId == userId && r.IsActive)
             .FirstOrDefaultAsync(ct);
+        if (roadmap is not null) Normalise(roadmap);
 
         var isNew = roadmap is null;
 
@@ -781,6 +827,7 @@ public class MongoRoadmapService : IRoadmapService
         var roadmap = await _db.Roadmaps
             .Find(r => r.UserId == userId && (r.Id == roadmapId || r.IsActive))
             .FirstOrDefaultAsync();
+        if (roadmap is not null) Normalise(roadmap);
 
         var isNew = roadmap is null;
 
@@ -825,6 +872,7 @@ public class MongoRoadmapService : IRoadmapService
     public async Task<int> GetProgressPercentAsync(string userId, string roadmapId)
     {
         var roadmap = await _db.Roadmaps.Find(r => r.Id == roadmapId && r.UserId == userId).FirstOrDefaultAsync();
+        if (roadmap is not null) Normalise(roadmap);
         return roadmap?.ProgressPercent ?? 0;
     }
 
