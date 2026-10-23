@@ -72,6 +72,7 @@ public class RadarDatabase
     public IMongoCollection<AiActivityLogDoc> AiActivities => _db.GetCollection<AiActivityLogDoc>("ai_activities");
     public IMongoCollection<YouTubeSearchCacheDoc> YouTubeSearches => _db.GetCollection<YouTubeSearchCacheDoc>("youtube_searches");
     public IMongoCollection<ErrorLogDoc> ErrorLog => _db.GetCollection<ErrorLogDoc>("error_log");
+    public IMongoCollection<SourceHealthDoc> SourceHealth => _db.GetCollection<SourceHealthDoc>("source_health");
     public IMongoCollection<OpportunityImpressionDoc> OpportunityImpressions => _db.GetCollection<OpportunityImpressionDoc>("opportunity_impressions");
     public IMongoCollection<DailyOpportunityBatchDoc> DailyOpportunityBatches => _db.GetCollection<DailyOpportunityBatchDoc>("daily_opportunity_batches");
 

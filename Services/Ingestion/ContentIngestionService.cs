@@ -1,5 +1,6 @@
 using MongoDB.Driver;
 using RadarV2.Data;
+using RadarV2.Data.Documents;
 using RadarV2.Models;
 
 namespace RadarV2.Services.Ingestion;
@@ -330,6 +331,61 @@ public class ContentIngestionService : BackgroundService
 
     // ── RSS batch ─────────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Writes what each source just did, so "is this source working?" is a question with an answer.
+    /// </summary>
+    /// <remarks>
+    /// Upserted per source and kept indefinitely — it is one small document per source, and the
+    /// value is in being able to see that a feed stopped producing three weeks ago.
+    /// </remarks>
+    private async Task RecordSourceHealthAsync(
+        Dictionary<string, RssIngestionService.FetchOutcome> outcomes,
+        CancellationToken ct)
+    {
+        if (outcomes.Count == 0) return;
+
+        try
+        {
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<RadarDatabase>();
+            var now = DateTime.UtcNow;
+
+            var writes = new List<WriteModel<SourceHealthDoc>>();
+
+            foreach (var source in SourceRegistry.All)
+            {
+                if (!outcomes.TryGetValue(source.Id, out var outcome)) continue;
+
+                var produced = outcome.Items.Count > 0;
+
+                var update = Builders<SourceHealthDoc>.Update
+                    .Set(h => h.Name, source.Name)
+                    .Set(h => h.Layer, source.Layer.ToString())
+                    .Set(h => h.LastAttemptAt, now)
+                    .Set(h => h.LastHttpStatus, outcome.HttpStatus)
+                    .Set(h => h.LastItemsFetched, outcome.Items.Count)
+                    .Set(h => h.LastError, outcome.Error);
+
+                // A run of empties is what distinguishes a quiet publisher from a dead feed.
+                update = produced
+                    ? update.Set(h => h.LastSuccessAt, now).Set(h => h.ConsecutiveEmpty, 0)
+                    : update.Inc(h => h.ConsecutiveEmpty, 1);
+
+                writes.Add(new UpdateOneModel<SourceHealthDoc>(
+                    Builders<SourceHealthDoc>.Filter.Eq(h => h.Id, source.Id),
+                    update)
+                { IsUpsert = true });
+            }
+
+            if (writes.Count > 0) await db.SourceHealth.BulkWriteAsync(writes, cancellationToken: ct);
+        }
+        catch (Exception ex)
+        {
+            // Recording health must never be the reason ingestion fails.
+            _log.LogWarning(ex, "Could not record source health; ingestion continues.");
+        }
+    }
+
     private async Task<List<RawFeedItem>> FetchRssAllSourcesAsync(RssIngestionService rss, CancellationToken ct)
     {
         // Fetched eight at a time. This is pure HTTP against 258 different hosts — nobody is
@@ -338,6 +394,7 @@ public class ContentIngestionService : BackgroundService
         // at that end, which is a large part of why twenty of them produced nothing for an hour.
         var sources = SourceRegistry.All.Where(s => s.IsEnabled).ToList();
         var all = new List<RawFeedItem>();
+        var health = new Dictionary<string, RssIngestionService.FetchOutcome>(StringComparer.Ordinal);
         var sync = new object();
 
         using var gate = new SemaphoreSlim(8);
@@ -348,8 +405,12 @@ public class ContentIngestionService : BackgroundService
             await gate.WaitAsync(ct);
             try
             {
-                var fetched = await rss.FetchAsync(source, ct);
-                lock (sync) all.AddRange(fetched);
+                var outcome = await rss.FetchAsync(source, ct);
+                lock (sync)
+                {
+                    all.AddRange(outcome.Items);
+                    health[source.Id] = outcome;
+                }
             }
             catch (OperationCanceledException) { }
             catch (Exception ex)
@@ -362,6 +423,7 @@ public class ContentIngestionService : BackgroundService
             }
         }));
 
+        await RecordSourceHealthAsync(health, ct);
         return all;
     }
 

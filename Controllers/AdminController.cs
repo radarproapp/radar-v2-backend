@@ -34,6 +34,70 @@ public class AdminController : ControllerBase
         return Ok(errors);
     }
 
+    /// <summary>
+    /// What every ingestion source last did, worst first.
+    /// </summary>
+    /// <remarks>
+    /// The question this exists to answer is "why is the feed missing X?". Before it, that took
+    /// adding a source, waiting, probing the feed and inferring — four rounds, in the case that
+    /// prompted it, each one finding a different silent failure. Now it is one request.
+    ///
+    /// Sorted by how long a source has been silent, because the interesting ones are the ones
+    /// that have stopped.
+    /// </remarks>
+    [HttpGet("sources")]
+    public async Task<IActionResult> GetSourceHealthAsync(CancellationToken ct = default)
+    {
+        var health = await _db.SourceHealth
+            .Find(FilterDefinition<Data.Documents.SourceHealthDoc>.Empty)
+            .ToListAsync(ct);
+
+        var byId = health.ToDictionary(h => h.Id, StringComparer.Ordinal);
+        var now = DateTime.UtcNow;
+
+        var rows = Services.Ingestion.SourceRegistry.All
+            .Where(source => source.IsEnabled)
+            .Select(source =>
+            {
+                byId.TryGetValue(source.Id, out var h);
+                return new
+                {
+                    id = source.Id,
+                    name = source.Name,
+                    layer = source.Layer.ToString(),
+                    // Never fetched at all is a different failure from fetched and empty, and the
+                    // two were indistinguishable for as long as there was nothing to look at.
+                    state = h is null ? "never attempted"
+                        : h.LastSuccessAt is null ? "never produced an item"
+                        : h.ConsecutiveEmpty >= 3 ? "silent"
+                        : "producing",
+                    lastAttemptAt = h?.LastAttemptAt,
+                    lastSuccessAt = h?.LastSuccessAt,
+                    hoursSinceSuccess = h?.LastSuccessAt is null
+                        ? (double?)null
+                        : Math.Round((now - h.LastSuccessAt.Value).TotalHours, 1),
+                    lastHttpStatus = h?.LastHttpStatus,
+                    lastItemsFetched = h?.LastItemsFetched,
+                    consecutiveEmpty = h?.ConsecutiveEmpty,
+                    lastError = h?.LastError,
+                };
+            })
+            .OrderByDescending(r => r.state == "never attempted")
+            .ThenByDescending(r => r.state == "never produced an item")
+            .ThenByDescending(r => r.consecutiveEmpty ?? 0)
+            .ToList();
+
+        return Ok(new
+        {
+            total = rows.Count,
+            producing = rows.Count(r => r.state == "producing"),
+            silent = rows.Count(r => r.state == "silent"),
+            neverProduced = rows.Count(r => r.state == "never produced an item"),
+            neverAttempted = rows.Count(r => r.state == "never attempted"),
+            sources = rows,
+        });
+    }
+
     [HttpGet("summary")]
     public async Task<IActionResult> GetSummaryAsync(CancellationToken ct)
     {

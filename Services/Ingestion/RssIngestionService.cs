@@ -23,7 +23,18 @@ public class RssIngestionService
         _log = log;
     }
 
-    public async Task<List<RawFeedItem>> FetchAsync(FeedSource source, CancellationToken ct)
+    /// <summary>
+    /// What one fetch of one source did. Returned rather than logged, so the caller can record it.
+    /// </summary>
+    /// <remarks>
+    /// An empty list used to mean four different things — the feed refused us, the request never
+    /// completed, the XML would not parse, or the publisher genuinely had nothing new. They are
+    /// indistinguishable to the caller, and that is most of why a silent source took an afternoon
+    /// to diagnose.
+    /// </remarks>
+    public sealed record FetchOutcome(List<RawFeedItem> Items, int HttpStatus, string? Error);
+
+    public async Task<FetchOutcome> FetchAsync(FeedSource source, CancellationToken ct)
     {
         return source.SourceType switch
         {
@@ -34,18 +45,24 @@ public class RssIngestionService
 
     // ── RSS 2.0 + Atom ────────────────────────────────────────────────────────
 
-    private async Task<List<RawFeedItem>> FetchXmlFeedAsync(FeedSource source, CancellationToken ct)
+    private async Task<FetchOutcome> FetchXmlFeedAsync(FeedSource source, CancellationToken ct)
     {
         var items = new List<RawFeedItem>();
+        var status = 0;
+        string? error = null;
+
         try
         {
             var client = _httpFactory.CreateClient("Ingestion");
             using var response = await client.GetAsync(source.Url, ct);
+            status = (int)response.StatusCode;
+
             if (!response.IsSuccessStatusCode)
             {
+                error = $"HTTP {(int)response.StatusCode} {response.StatusCode}";
                 _log.LogWarning("Feed {Source} returned {Status}; it published nothing as far as Radar can tell.",
                     source.Name, response.StatusCode);
-                return items;
+                return new FetchOutcome(items, status, error);
             }
 
             var xml = await response.Content.ReadAsStringAsync(ct);
@@ -59,9 +76,14 @@ public class RssIngestionService
         }
         catch (Exception ex)
         {
+            error = $"{ex.GetType().Name}: {ex.Message}";
             _log.LogWarning("Feed fetch failed for {Source}: {Message}", source.Name, ex.Message);
         }
-        return items;
+
+        if (error is null && items.Count == 0)
+            error = "Fetched successfully but the feed offered no items.";
+
+        return new FetchOutcome(items, status, error);
     }
 
     /// <summary>
@@ -166,9 +188,12 @@ public class RssIngestionService
 
     // ── OpenAlex REST API ─────────────────────────────────────────────────────
 
-    private async Task<List<RawFeedItem>> FetchOpenAlexAsync(FeedSource source, CancellationToken ct)
+    private async Task<FetchOutcome> FetchOpenAlexAsync(FeedSource source, CancellationToken ct)
     {
         var items = new List<RawFeedItem>();
+        var status = 0;
+        string? error = null;
+
         try
         {
             var client = _httpFactory.CreateClient("Ingestion");
@@ -187,7 +212,10 @@ public class RssIngestionService
             var json = await client.GetStringAsync(requestUrl + suffix, ct);
             using var doc = JsonDocument.Parse(json);
 
-            if (!doc.RootElement.TryGetProperty("results", out var results)) return items;
+            status = 200;
+
+            if (!doc.RootElement.TryGetProperty("results", out var results))
+                return new FetchOutcome(items, status, "The response carried no results array.");
 
             foreach (var work in results.EnumerateArray())
             {
@@ -230,9 +258,14 @@ public class RssIngestionService
         }
         catch (Exception ex)
         {
+            error = $"{ex.GetType().Name}: {ex.Message}";
             _log.LogWarning("OpenAlex fetch failed for {Source}: {Message}", source.Name, ex.Message);
         }
-        return items;
+
+        if (error is null && items.Count == 0)
+            error = "Fetched successfully but the query returned nothing.";
+
+        return new FetchOutcome(items, status, error);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
