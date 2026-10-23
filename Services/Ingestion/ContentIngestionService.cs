@@ -42,7 +42,11 @@ public class ContentIngestionService : BackgroundService
 
         await BackfillTopicsAsync(ct);
         await ReconcileLayersAsync(ct);
-        await BackfillEnrichmentAsync(ct);
+
+        // Fetch before backfilling. The enrichment backfill is up to 120 sequential model calls —
+        // six to ten minutes — and running it here put a repair of old items in front of getting
+        // new ones, so twenty newly added sources sat unfetched while the queue drained. The
+        // cycle ends with the same backfill, so nothing is skipped by dropping it from here.
         await RunCycleOnceAsync(ct);
 
         using var timer = new PeriodicTimer(RssInterval);

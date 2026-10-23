@@ -21,17 +21,21 @@ public static class InterestLayerMapper
             ContentLayer[] mapped = norm switch
             {
                 var s when s.Contains("tech") || s.Contains("ai") || s.Contains("software") || s.Contains("computer") || s.Contains("cloud") || s.Contains("cyber") || s.Contains("data") || s.Contains("machine learning") || s.Contains("mlops") || s.Contains("robot") || s.Contains("web development") || s.Contains("mobile development") || s.Contains("system design")
-                    => [ContentLayer.Ideas, ContentLayer.Science],
+                    => [ContentLayer.Ideas, ContentLayer.Science, ContentLayer.Skills],
                 var s when s.Contains("business") || s.Contains("entrepreneur") || s.Contains("startup") || s.Contains("marketing") || s.Contains("sales") || s.Contains("leadership") || s.Contains("strategy") || s.Contains("operations") || s.Contains("product management") || s.Contains("growth")
                     => [ContentLayer.Ideas, ContentLayer.Finance, ContentLayer.Career],
                 var s when s.Contains("finance") || s.Contains("financial") || s.Contains("invest") || s.Contains("money") || s.Contains("banking") || s.Contains("fintech") || s.Contains("accounting") || s.Contains("tax") || s.Contains("insurance") || s.Contains("wealth") || s.Contains("portfolio") || s.Contains("valuation")
                     => [ContentLayer.Finance],
+                var s when s.Contains("econom")
+                    => [ContentLayer.Finance, ContentLayer.Policy, ContentLayer.Ideas],
                 var s when s.Contains("policy") || s.Contains("governance") || s.Contains("politi")
                     => [ContentLayer.Policy],
                 var s when s.Contains("health") || s.Contains("medicine") || s.Contains("medical")
                     => [ContentLayer.Medicine],
                 var s when s.Contains("climate") || s.Contains("environment") || s.Contains("green")
                     => [ContentLayer.Environment],
+                var s when s.Contains("data scien") || s.Contains("machine learn") || s.Contains("analytics")
+                    => [ContentLayer.Skills, ContentLayer.Science, ContentLayer.Academic],
                 var s when s.Contains("science") || s.Contains("research") || s.Contains("academic") || s.Contains("statistics") || s.Contains("quantitative") || s.Contains("qualitative") || s.Contains("literature review")
                     => [ContentLayer.Science, ContentLayer.Academic],
                 var s when s.Contains("sport") || s.Contains("football") || s.Contains("soccer")
@@ -58,6 +62,12 @@ public static class InterestLayerMapper
                     => [ContentLayer.Energy],
                 var s when s.Contains("agriculture") || s.Contains("farming") || s.Contains("food")
                     => [ContentLayer.Agriculture],
+                var s when s.Contains("engineer")
+                    => [ContentLayer.Industry, ContentLayer.Skills, ContentLayer.Science],
+                var s when s.Contains("pharm")
+                    => [ContentLayer.Medicine, ContentLayer.Science],
+                var s when s.Contains("nurs")
+                    => [ContentLayer.Medicine],
                 var s when s.Contains("industry") || s.Contains("mining") || s.Contains("manufacturing")
                     => [ContentLayer.Industry],
                 var s when s.Contains("career") || s.Contains("job") || s.Contains("work")
