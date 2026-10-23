@@ -15,6 +15,9 @@ public class ContentIngestionService : BackgroundService
 
     private const int MaxEnrichPerSource = 5;
 
+    /// <summary>How many items are enriched at once. Four keeps a cycle to minutes, not an hour.</summary>
+    private const int EnrichConcurrency = 4;
+
     private DateTime _lastSlowCycle = DateTime.MinValue;
 
     // Serialises the periodic timer and on-demand (cron) triggers so cycles never overlap.
@@ -346,29 +349,59 @@ public class ContentIngestionService : BackgroundService
         List<RawFeedItem> rawItems, CancellationToken ct)
     {
         var newItems = await FilterNewItemsAsync(db, rawItems, ct);
-        // Group by source, limit per source to control costs
-        var toEnrich = newItems
+
+        // Round-robin across sources, not source by source.
+        //
+        // Taking five from each source in turn put every item from the last source behind every
+        // item from all the others, so a cycle cut short — by a deploy, a restart, a
+        // cancellation — covered the start of the registry and never reached the end. Twenty
+        // sources appended to the registry produced nothing for an hour for exactly this reason.
+        //
+        // Interleaved, every source gets its first item before any source gets its second, so a
+        // partial cycle is a thin slice of everything rather than all of a few.
+        var bySource = newItems
             .GroupBy(i => i.SourceId)
-            .SelectMany(g => g.Take(MaxEnrichPerSource))
+            .Select(g => g.Take(MaxEnrichPerSource).ToList())
             .ToList();
 
-        int count = 0;
-        foreach (var raw in toEnrich)
+        var toEnrich = new List<RawFeedItem>();
+        for (var round = 0; round < MaxEnrichPerSource; round++)
+            foreach (var group in bySource)
+                if (round < group.Count)
+                    toEnrich.Add(group[round]);
+
+        // Enriched a few at a time rather than one after another with a two-second sleep between.
+        //
+        // That sleep, plus the model call, cost about five seconds an item. At five items from
+        // each of 258 sources it put a cycle at roughly an hour — and sources added to the end of
+        // the registry sit at the end of that queue, which is why twenty newly added feeds showed
+        // nothing an hour after they were configured. The delay was presumably there to be polite
+        // to the provider; four at a time with a short pause is still polite, and finishes.
+        using var gate = new SemaphoreSlim(EnrichConcurrency);
+        var count = 0;
+
+        var work = toEnrich.Select(async raw =>
         {
-            if (ct.IsCancellationRequested) break;
+            await gate.WaitAsync(ct);
             try
             {
                 var item = await enricher.EnrichAsync(raw, ct);
                 await db.ContentItems.InsertOneAsync(item, cancellationToken: ct);
-                count++;
-                await Task.Delay(TimeSpan.FromSeconds(2), ct);
+                Interlocked.Increment(ref count);
+                await Task.Delay(TimeSpan.FromMilliseconds(250), ct);
             }
-            catch (OperationCanceledException) { break; }
+            catch (OperationCanceledException) { }
             catch (Exception ex)
             {
                 _log.LogWarning("Enrichment/persist failed for '{Title}': {Message}", raw.Title, ex.Message);
             }
-        }
+            finally
+            {
+                gate.Release();
+            }
+        });
+
+        await Task.WhenAll(work);
         return count;
     }
 
