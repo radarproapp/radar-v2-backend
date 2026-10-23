@@ -95,11 +95,16 @@ public class ContentIngestionService : BackgroundService
     /// </remarks>
     private async Task BackfillEnrichmentAsync(CancellationToken ct)
     {
-        const int perCycle = 20;
-
+        // Twenty was over-careful. Measured on staging: 4,222 enrichment calls cost $0.92, about
+        // two hundredths of a cent each, so draining several hundred stale items costs about ten
+        // cents — against a cap the enricher already checks before every call. At twenty per
+        // six-hour cycle the backlog would have taken the better part of a week to clear.
         try
         {
             await using var scope = _scopeFactory.CreateAsyncScope();
+            var perCycle = scope.ServiceProvider
+                .GetRequiredService<IConfiguration>()
+                .GetValue("Ingestion:EnrichmentBackfillPerCycle", 120);
             var db = scope.ServiceProvider.GetRequiredService<RadarDatabase>();
             var enricher = scope.ServiceProvider.GetRequiredService<ContentEnricherService>();
 
