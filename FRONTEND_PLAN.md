@@ -95,6 +95,79 @@ than as one large change.
 
 ---
 
+## Part 1b — Radar Intelligence: let them build it
+
+Direction set 2026-10-23, adapting Feedly's onboarding.
+
+### The idea, and why it is structural
+
+Today Radar meets a new user with information it guessed they wanted. The guessing is the source
+of most of what has been fixed this week: cybersecurity as everyone's default field, a nursing
+learner handed data-modelling weeks, a London postcode described to a reader as "a structured
+methodology designed to solve complex operational challenges".
+
+Every one of those is the same failure — inferring a subject when none was stated, then writing
+confidently about the inference.
+
+Letting the user declare removes the need to guess. Personalisation becomes **stated** rather than
+inferred. That is not a UX preference; it deletes a whole class of bug by making the input
+explicit.
+
+### The flow
+
+1. **Who are you** — student / graduate / professional. *Already exists* (`/onboarding`).
+2. **Narrow it** — searchable course and field cards. *Data already exists*: `lib/interests.ts`
+   holds 235 entries across 14 groups, six of them `Academic Programs ·` (STEM, Business, Health &
+   Medicine, Social Sciences, Education, Creative & Applied). The UI does not.
+3. **Start empty, on purpose** — the user adds what they want to follow. Nothing is pre-filled.
+4. **Group it** — the user organises what they added. This is the genuinely new build.
+
+### Where we adapt rather than mirror
+
+**Feedly's unit is a source. Radar's unit must be a subject.**
+
+Feedly works because its users already know which blogs matter to them. A second-year nursing
+student does not, and asking them to name sources produces an empty app they never return to.
+
+So: the user declares *what* ("Nursing", "Medical-Surgical Nursing"), and Radar resolves *where* —
+the feeds, the videos, the opportunities behind it. That division is the whole value over an RSS
+reader, and it is why the 235 subject entries matter more than a source list would.
+
+### What this changes elsewhere
+
+- **The empty state reverses responsibility.** `lib/feed-empty.ts` currently says "Radar has not
+  pulled anything in yet" — Radar's failure. Under this model it is "You have not added anything
+  yet", with the action to add. Feedly's version is "Personalize your Feedly → Add articles", not
+  an apology. Small change, different meaning.
+- **`WhatRadarKnows` gets simpler and stronger.** It currently shows inferred signals a user can
+  reject. With declared subjects, most of what it shows is what they chose — which is easier to
+  trust and easier to correct.
+- **The learning record keeps its job.** Declared subjects say what to follow; behaviour still
+  says what is working. The record stops having to guess the subject and starts only ranking
+  within it, which is what it is good at.
+
+### What does not exist yet
+
+| Piece | State |
+|---|---|
+| Persona selection | Built |
+| Subject catalogue (235 entries, 14 groups) | Built, as data |
+| Narrowing screen with searchable cards | **Not built** |
+| Follow / unfollow a subject | **Not built** |
+| User-created groups — Feedly's folders and boards | **Not built** — the real new work |
+| Empty state that invites building | Partly; wording reverses responsibility |
+
+### Risk worth naming
+
+An empty first screen is a real cost. Feedly can afford it because its users arrive knowing what
+they want. A student may not, and a blank app is easy to abandon.
+
+The mitigation is the narrowing screen doing actual work: once someone picks "Nursing", offer a
+sensible starter set they can accept wholesale or edit — chosen *from* their declaration, not
+guessed before it. Declared, then helped. Not helped, then guessed at.
+
+---
+
 ## Part 2 — Frontend assessment
 
 Measured on 2026-10-23.
