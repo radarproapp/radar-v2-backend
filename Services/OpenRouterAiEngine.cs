@@ -45,6 +45,31 @@ public sealed class OpenRouterAiEngine : IAiEngine
         _log = log;
     }
 
+    /// <summary>
+    /// Features that write structured content, rather than scoring or labelling something.
+    /// </summary>
+    /// <remarks>
+    /// The two want opposite things from a timeout. Scoring a feed item happens while somebody
+    /// waits for a page, so 20 seconds is already generous. Writing a section of a learning path
+    /// is a deliberate action behind a progress indicator, and 20 seconds is not enough — the
+    /// model was being cut off mid-answer every time, which is why every section came back with
+    /// no lessons even once the API key was valid.
+    /// </remarks>
+    private static bool IsGeneration(string feature) =>
+        feature is "learning-section" or "learning-pathway";
+
+    /// <summary>How long a single attempt may take.</summary>
+    private TimeSpan AttemptBudget(string feature) => TimeSpan.FromSeconds(
+        IsGeneration(feature)
+            ? _config.GetValue("OpenRouter:GenerationTimeoutSeconds", 55)
+            : _config.GetValue("OpenRouter:TimeoutSeconds", 20));
+
+    /// <summary>
+    /// How many times to try. Generation gets one: a retry after a 55-second timeout doubles the
+    /// wait for an answer that is unlikely to arrive any faster the second time.
+    /// </summary>
+    private static int MaxAttempts(string feature) => IsGeneration(feature) ? 1 : 2;
+
     public async Task<T?> GenerateJsonAsync<T>(string feature, string systemPrompt, string userPrompt, CancellationToken ct = default)
     {
         // Applied at the boundary rather than at each call site: every feature funnels through
@@ -85,8 +110,13 @@ public sealed class OpenRouterAiEngine : IAiEngine
             // Overall deadline across attempts. The per-request HttpClient timeout bounds one call;
             // without this a retry could stack a second full timeout on top of the first, which is how
             // a single slow provider turned into a 40-second page.
-            var deadline = TimeSpan.FromSeconds(_config.GetValue("OpenRouter:DeadlineSeconds", 25));
-            for (var attempt = 1; attempt <= 2; attempt++)
+            var deadline = TimeSpan.FromSeconds(
+                IsGeneration(feature)
+                    ? _config.GetValue("OpenRouter:GenerationDeadlineSeconds", 60)
+                    : _config.GetValue("OpenRouter:DeadlineSeconds", 25));
+
+            var maxAttempts = MaxAttempts(feature);
+            for (var attempt = 1; attempt <= maxAttempts; attempt++)
             {
                 try
                 {
@@ -94,7 +124,12 @@ public sealed class OpenRouterAiEngine : IAiEngine
                     {
                         Content = new StringContent(body, Encoding.UTF8, "application/json")
                     };
-                    using var response = await _httpFactory.CreateClient("OpenRouter").SendAsync(request, ct);
+                    using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    attemptCts.CancelAfter(AttemptBudget(feature));
+
+                    using var response = await _httpFactory
+                        .CreateClient("OpenRouter")
+                        .SendAsync(request, attemptCts.Token);
                     if (!response.IsSuccessStatusCode)
                     {
                         // Kept, not just logged. The log line lives in the host's dashboard; this
@@ -102,7 +137,7 @@ public sealed class OpenRouterAiEngine : IAiEngine
                         var detail = await response.Content.ReadAsStringAsync(ct);
                         failureReason = $"HTTP {(int)response.StatusCode} {response.StatusCode}: {Trim(detail)}";
                         _log.LogWarning("OpenRouter feature {Feature} returned {Status} on attempt {Attempt}: {Detail}", feature, response.StatusCode, attempt, detail);
-                        if (attempt == 2 || sw.Elapsed >= deadline) break;
+                        if (attempt == maxAttempts || sw.Elapsed >= deadline) break;
                         await Task.Delay(TimeSpan.FromMilliseconds(250 * attempt), ct);
                         continue;
                     }
@@ -123,7 +158,7 @@ public sealed class OpenRouterAiEngine : IAiEngine
                         }
                     }
                 }
-                catch (Exception ex) when (attempt < 2 && sw.Elapsed < deadline && ex is not OperationCanceledException)
+                catch (Exception ex) when (attempt < maxAttempts && sw.Elapsed < deadline && ex is not OperationCanceledException)
                 {
                     failureReason = $"{ex.GetType().Name}: {ex.Message}";
                     _log.LogWarning(ex, "OpenRouter feature {Feature} failed on attempt {Attempt}; retrying", feature, attempt);

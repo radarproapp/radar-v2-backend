@@ -175,7 +175,10 @@ builder.Services.AddHttpClient("OpenRouter", (sp, client) =>
     // Without this the client inherits HttpClient's 100-second default. Combined with the engine's
     // two-attempt retry, a hung provider could pin a page render for well over three minutes — which
     // is exactly what "it takes a lot of time to load" was describing.
-    client.Timeout = TimeSpan.FromSeconds(config.GetValue("OpenRouter:TimeoutSeconds", 20));
+    // A ceiling, not the working bound. Each call is now bounded per attempt by the engine,
+    // because a feed score and a written learning section want very different limits — the
+    // shared 20 seconds was cutting the model off mid-section every time.
+    client.Timeout = TimeSpan.FromSeconds(config.GetValue("OpenRouter:CeilingTimeoutSeconds", 70));
 });
 
 // RSS / Atom / OpenAlex feeds — long timeout, custom UA

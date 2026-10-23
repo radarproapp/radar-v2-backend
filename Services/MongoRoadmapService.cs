@@ -488,12 +488,12 @@ public class MongoRoadmapService : IRoadmapService
                 sb.AppendLine($"they want to be able to: {outcome}");
             sb.AppendLine();
             sb.AppendLine("Rules:");
-            sb.AppendLine("- Between 4 and 7 lessons, ordered, each a concrete thing to learn or do.");
+            sb.AppendLine("- Between 4 and 6 lessons, ordered, each a concrete thing to learn or do.");
             sb.AppendLine("- Write for what they said they want, not for their degree or job title.");
             sb.AppendLine("- No lesson may restate the subject name as its content. A lesson called");
             sb.AppendLine($"  \"Introduction to {subject}\" or \"Core concepts of {subject}\" is a failure:");
             sb.AppendLine("  name the actual concept, tool or technique the lesson covers.");
-            sb.AppendLine("- The body is 2-3 sentences on what they will be able to do after it.");
+            sb.AppendLine("- The body is 1-2 sentences on what they will be able to do after it.");
             sb.AppendLine("- estimatedTime is realistic, e.g. \"25 min\", \"1 hr 30 min\".");
             sb.AppendLine();
             sb.AppendLine("Return strict JSON:");
