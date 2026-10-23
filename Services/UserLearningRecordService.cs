@@ -23,7 +23,39 @@ public class UserLearningRecordService : IUserLearningRecordService
         _signals = signals;
     }
 
+    /// <summary>
+    /// The record built for this request, keyed by user.
+    ///
+    /// The service is registered scoped, so this lives exactly one HTTP request and never leaks
+    /// one user's record into another's. A static cache here would be a serious bug; a scoped one
+    /// is just not repeating work.
+    /// </summary>
+    private readonly Dictionary<string, UserLearningRecord> _perRequest = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// What the user's behaviour says about them.
+    ///
+    /// Memoised per request because a single /api/home rebuilt it three times - once for the
+    /// feed, once for opportunities, once for the tracked pipeline behind "closing soon" - each
+    /// costing two database round trips plus the derivation. That arrived gradually: each of
+    /// 5c.10, 5c.10b and 7.3 added one caller, and none of them was wrong on its own.
+    ///
+    /// The record is derived rather than stored, so recomputing it is always correct - just
+    /// wasteful. Within one request nothing it derives from can change.
+    /// </summary>
     public async Task<UserLearningRecord> BuildAsync(UserProfile profile, CancellationToken ct = default)
+    {
+        if (!string.IsNullOrEmpty(profile.Id) && _perRequest.TryGetValue(profile.Id, out var cached))
+        {
+            return cached;
+        }
+
+        var built = await BuildUncachedAsync(profile, ct);
+        if (!string.IsNullOrEmpty(profile.Id)) _perRequest[profile.Id] = built;
+        return built;
+    }
+
+    private async Task<UserLearningRecord> BuildUncachedAsync(UserProfile profile, CancellationToken ct = default)
     {
         var record = new UserLearningRecord
         {
