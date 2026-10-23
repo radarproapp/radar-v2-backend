@@ -103,11 +103,42 @@ public class MongoRoadmapService : IRoadmapService
     /// </remarks>
     public const string UserBuiltTemplateKey = "user-built";
 
+    /// <summary>
+    /// Whether this path is one the learner actually asked for.
+    /// </summary>
+    /// <remarks>
+    /// True when they built it a section at a time, or when they have put work into a generated
+    /// one — a finished lesson, a completed resource or exercise, a quiz attempt. The second case
+    /// matters: a path nobody chose but somebody has been using is still their path, and hiding it
+    /// would lose their progress from view.
+    /// </remarks>
+    public static bool WasAskedFor(GrowthRoadmap roadmap)
+    {
+        if (string.Equals(roadmap.TemplateKey, UserBuiltTemplateKey, StringComparison.Ordinal)) return true;
+
+        return roadmap.Modules.Any(m => m.IsCompleted || m.Lessons.Any(l => l.IsCompleted))
+            || roadmap.CompletedResourceIds.Count > 0
+            || roadmap.CompletedExerciseIds.Count > 0
+            || roadmap.QuizResults.Count > 0;
+    }
+
     public async Task<GrowthRoadmap?> GetActiveRoadmapAsync(string userId)
     {
         var roadmap = await _db.Roadmaps
             .Find(r => r.UserId == userId && r.IsActive)
             .FirstOrDefaultAsync();
+
+        // A path generated before anyone was asked is not this learner's path.
+        //
+        // Stopping the generator helps nobody who already has one of its roadmaps stored, and
+        // that is every existing user — they still open Radar Learn to "Foundations of Computer
+        // Science" and twelve lessons they never chose. Treated as absent, so they get the empty
+        // state and the three questions, same as a new account.
+        //
+        // Nothing is deleted. The document stays, and anything with real progress on it is kept
+        // and shown, because a learner who has been working through a generated path has made it
+        // theirs by working through it.
+        if (roadmap is not null && !WasAskedFor(roadmap)) return null;
 
         if (roadmap is not null)
         {
@@ -392,6 +423,19 @@ public class MongoRoadmapService : IRoadmapService
 
         var isNew = roadmap is null;
 
+        // The stored path may be one of the generated ones nobody asked for. Appending to it
+        // would hand the learner their first chosen section underneath twelve lessons they never
+        // chose, so it is emptied and becomes theirs instead.
+        if (roadmap is not null && !WasAskedFor(roadmap))
+        {
+            roadmap.Modules.Clear();
+            roadmap.Resources.Clear();
+            roadmap.TemplateKey = UserBuiltTemplateKey;
+            roadmap.Title = "Your path";
+            roadmap.Interest = subject;
+            roadmap.Level = level;
+        }
+
         // An empty path, not a generated one. The learner asked for one subject; handing back
         // four stages of a curriculum derived from their degree is the behaviour being removed.
         roadmap ??= new GrowthRoadmap
@@ -543,6 +587,18 @@ public class MongoRoadmapService : IRoadmapService
             .FirstOrDefaultAsync();
 
         var isNew = roadmap is null;
+
+        // Same reasoning as AddSectionAsync: a generated path nobody asked for is not something
+        // to append to.
+        if (roadmap is not null && !WasAskedFor(roadmap))
+        {
+            roadmap.Modules.Clear();
+            roadmap.Resources.Clear();
+            roadmap.TemplateKey = UserBuiltTemplateKey;
+            roadmap.Title = "Your path";
+            roadmap.Interest = topic;
+        }
+
         roadmap ??= new GrowthRoadmap
         {
             UserId   = userId,
