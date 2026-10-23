@@ -14,6 +14,26 @@ public class AdminController : ControllerBase
 
     public AdminController(RadarDatabase db) => _db = db;
 
+    /// <summary>
+    /// The most recent unhandled exceptions, newest first.
+    /// </summary>
+    /// <remarks>
+    /// Production responses carry no error detail on purpose, so without this the only way to see
+    /// why something is failing there is the host's log dashboard. Admin-gated, because a stack
+    /// trace is not for everyone.
+    /// </remarks>
+    [HttpGet("errors")]
+    public async Task<IActionResult> GetRecentErrorsAsync([FromQuery] int take = 20, CancellationToken ct = default)
+    {
+        var errors = await _db.ErrorLog
+            .Find(FilterDefinition<Data.Documents.ErrorLogDoc>.Empty)
+            .SortByDescending(e => e.OccurredAt)
+            .Limit(Math.Clamp(take, 1, 100))
+            .ToListAsync(ct);
+
+        return Ok(errors);
+    }
+
     [HttpGet("summary")]
     public async Task<IActionResult> GetSummaryAsync(CancellationToken ct)
     {

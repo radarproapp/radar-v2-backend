@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.IdentityModel.Tokens;
 using RadarV2.Data;
+using RadarV2.Data.Documents;
 using RadarV2.Services;
 using RadarV2.Services.Ingestion;
 using RadarV2.Services.Interfaces;
@@ -327,6 +328,7 @@ if (!app.Environment.IsDevelopment())
     app.UseExceptionHandler(errorApp => errorApp.Run(async context =>
     {
         var feature = context.Features.Get<IExceptionHandlerPathFeature>();
+        var error = feature?.Error;
         var logger = context.RequestServices
             .GetRequiredService<ILoggerFactory>()
             .CreateLogger("RadarV2.UnhandledException");
@@ -336,6 +338,36 @@ if (!app.Environment.IsDevelopment())
             "Unhandled exception for {Method} {Path}",
             context.Request.Method,
             feature?.Path ?? context.Request.Path.Value);
+
+        // Written where it can be read back. In production the response deliberately carries no
+        // detail, which left the host's log dashboard as the only way to see a fault — the same
+        // blind spot that made the staging outage take an afternoon. An admin can read this.
+        try
+        {
+            var db = context.RequestServices.GetRequiredService<RadarDatabase>();
+            await db.ErrorLog.InsertOneAsync(new ErrorLogDoc
+            {
+                Method = context.Request.Method,
+                Path = feature?.Path ?? context.Request.Path.Value ?? string.Empty,
+                ExceptionType = error?.GetType().FullName ?? "Unknown",
+                Message = error?.Message ?? string.Empty,
+                InnerException = error?.InnerException is null
+                    ? null
+                    : $"{error.InnerException.GetType().Name}: {error.InnerException.Message}",
+                Stack = error?.StackTrace?
+                    .Split('\n')
+                    .Select(line => line.Trim())
+                    .Where(line => line.Length > 0)
+                    .Take(6)
+                    .ToList() ?? [],
+                UserId = context.User.FindFirstValue(ClaimTypes.NameIdentifier),
+            });
+        }
+        catch (Exception logFailure)
+        {
+            // Never let recording a failure become a second one.
+            logger.LogWarning(logFailure, "Could not persist the unhandled exception.");
+        }
 
         if (context.Response.HasStarted) return;
 
@@ -350,7 +382,6 @@ if (!app.Environment.IsDevelopment())
         // when the message is "Something went wrong" the only remaining tool is guessing. The
         // type, the message and the top frames are enough to act on and are withheld in
         // production, where an error body reaches real users.
-        var error = feature?.Error;
         var detail = app.Environment.IsProduction() || error is null
             ? null
             : new

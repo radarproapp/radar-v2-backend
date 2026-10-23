@@ -71,11 +71,19 @@ public class RadarDatabase
     public IMongoCollection<SpacedRevisionItem> SpacedRevisions => _db.GetCollection<SpacedRevisionItem>("spaced_revisions");
     public IMongoCollection<AiActivityLogDoc> AiActivities => _db.GetCollection<AiActivityLogDoc>("ai_activities");
     public IMongoCollection<YouTubeSearchCacheDoc> YouTubeSearches => _db.GetCollection<YouTubeSearchCacheDoc>("youtube_searches");
+    public IMongoCollection<ErrorLogDoc> ErrorLog => _db.GetCollection<ErrorLogDoc>("error_log");
     public IMongoCollection<OpportunityImpressionDoc> OpportunityImpressions => _db.GetCollection<OpportunityImpressionDoc>("opportunity_impressions");
     public IMongoCollection<DailyOpportunityBatchDoc> DailyOpportunityBatches => _db.GetCollection<DailyOpportunityBatchDoc>("daily_opportunity_batches");
 
     private void EnsureIndexes()
     {
+        // Expire after a fortnight: these exist to diagnose what is breaking now, and an
+        // unbounded error log is its own outage waiting to happen.
+        ErrorLog.Indexes.CreateOne(
+            new CreateIndexModel<ErrorLogDoc>(
+                Builders<ErrorLogDoc>.IndexKeys.Ascending(e => e.OccurredAt),
+                new CreateIndexOptions { ExpireAfter = TimeSpan.FromDays(14) }));
+
         Users.Indexes.CreateOne(
             new CreateIndexModel<UserDocument>(
                 Builders<UserDocument>.IndexKeys.Ascending(u => u.Email),
