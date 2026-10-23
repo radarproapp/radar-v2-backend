@@ -371,6 +371,14 @@ public sealed class OpenRouterAiEngine : IAiEngine
 
         var totalActivities = await _db.AiActivities.CountDocumentsAsync(_ => true, cancellationToken: ct);
 
+        // The most recent attempt that reached the provider and came back wrong. Taken from the
+        // activity log rather than held in memory so it survives a restart and is the same answer
+        // for every instance.
+        var lastCloudFailure = recentActivities
+            .Where(a => !a.Success && a.Summary is not null && a.Summary.Contains("Cloud call failed", StringComparison.Ordinal))
+            .Select(a => a.Summary)
+            .FirstOrDefault();
+
         // Group counts by feature
         var featureCounts = new Dictionary<string, long>();
         try
@@ -392,10 +400,19 @@ public sealed class OpenRouterAiEngine : IAiEngine
         {
             EngineName = "Radar Central AI Engine",
             Model = _config["OpenRouter:Model"] ?? "deepseek/deepseek-chat",
-            IsCloudLlmActive = !string.IsNullOrWhiteSpace(apiKey) && (quota?.SpendUsd ?? 0m) < cap,
+            // Whether the model is answering, not whether a key is present.
+            //
+            // This read "configured and within budget", so a revoked key reported a live engine
+            // for as long as the string was set. Staging ran that way: isCloudLlmActive true,
+            // budget fine, every call failing 401 "User not found", every learning section coming
+            // back empty, and nothing on this endpoint saying so.
+            IsCloudLlmActive = !string.IsNullOrWhiteSpace(apiKey)
+                && (quota?.SpendUsd ?? 0m) < cap
+                && lastCloudFailure is null,
             IsBudgetExhausted = !string.IsNullOrWhiteSpace(apiKey) && (quota?.SpendUsd ?? 0m) >= cap,
             DegradedReason =
                 string.IsNullOrWhiteSpace(apiKey) ? "No OpenRouter API key is configured."
+                : lastCloudFailure is not null ? lastCloudFailure
                 : (quota?.SpendUsd ?? 0m) >= cap
                     ? $"Monthly spend cap of ${cap} reached (${quota?.SpendUsd ?? 0m:0.00} used). Radar is running on the deterministic brain until next month or until the cap is raised."
                     : null,

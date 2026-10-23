@@ -654,6 +654,34 @@ subject) and a Udemy-style journey (collapsible sections, checkable lessons, dur
 - [ ] 11.6 Neither new page has been seen rendering. The styles are written against the existing
   variables and the logic is covered by unit tests, but no component test mounts either page.
 
+## Phase 12 — Video, and why nothing could play (2026-10-23)
+
+- [x] 12.1 ~~Every resource on the path was an external link~~ — a learner working through a
+  section was sent out of Radar for each one. The lesson now leads with its video, played in
+  place; picking another swaps the player. `VideoEmbed` already did this for the feed and the
+  hub, so the path was the only place not using it.
+- [x] 12.2 ~~A path generated before anyone was asked stayed visible to existing users~~ — see
+  11.7; stopping the generator did nothing for roadmaps already stored. An unasked-for path reads
+  as absent now. Nothing deleted; a generated path with real progress on it is kept.
+- [x] 12.3 ~~A failed cloud call reported itself as a success~~ — `/api/ai/status` showed
+  `isCloudLlmActive: true`, budget fine, `learning-section success=true`, while every section came
+  back with no lessons. Falling back to the deterministic brain was recorded as success, and the
+  fallback was cached 30 minutes under the key a real answer would use, so one failure became half
+  an hour of empty sections that never retried. The reason now travels with the record, and
+  `isCloudLlmActive` reflects whether calls succeed rather than whether a key string is set.
+- [ ] 12.4 **The OpenRouter API key is invalid.** Staging returns
+  `HTTP 401 Unauthorized: {"error":{"message":"User not found.","code":401}}` on every call —
+  the key no longer maps to an account. Production shows the same `openRouter: true` and $0.80 of
+  spend, so it was working and has since been revoked; assume it is affected too. Needs a new key
+  set as `OpenRouter__ApiKey` on both Railway services. **Set it in the Railway dashboard — do not
+  paste it into a chat.** Until then: no AI lessons, so every built section is empty, so there are
+  no per-lesson video queries, so nothing resolves to a playable video. 12.1 is correct and will
+  light up once this is fixed.
+- [ ] 12.5 Catalogue resources are channel-scoped search URLs
+  (`youtube.com/@NetworkChuck/search?query=...`) which cannot be embedded. Lesson-level resources
+  resolve to real videos through `YouTubeSearchService`; catalogue ones never will. Once 12.4 is
+  fixed, check whether the catalogue fallback is still reached often enough to matter.
+
 ## Explicitly not changing
 
 - **Ask Radar** — _"You cooked for real! It's concise and very easy to understand."_
