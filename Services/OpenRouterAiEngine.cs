@@ -63,6 +63,11 @@ public sealed class OpenRouterAiEngine : IAiEngine
         var hasApiKey = !string.IsNullOrWhiteSpace(apiKey);
         var withinBudget = await WithinBudgetAsync(feature, ct);
 
+        // Why the model was not used. Null means it was.
+        var failureReason = !hasApiKey ? "No OpenRouter:ApiKey configured."
+            : !withinBudget ? "Monthly spend cap reached."
+            : null;
+
         if (hasApiKey && withinBudget)
         {
             var body = JsonSerializer.Serialize(new
@@ -92,7 +97,11 @@ public sealed class OpenRouterAiEngine : IAiEngine
                     using var response = await _httpFactory.CreateClient("OpenRouter").SendAsync(request, ct);
                     if (!response.IsSuccessStatusCode)
                     {
-                        _log.LogWarning("OpenRouter feature {Feature} returned {Status} on attempt {Attempt}", feature, response.StatusCode, attempt);
+                        // Kept, not just logged. The log line lives in the host's dashboard; this
+                        // reason reaches /api/ai/status, where it can be read without one.
+                        var detail = await response.Content.ReadAsStringAsync(ct);
+                        failureReason = $"HTTP {(int)response.StatusCode} {response.StatusCode}: {Trim(detail)}";
+                        _log.LogWarning("OpenRouter feature {Feature} returned {Status} on attempt {Attempt}: {Detail}", feature, response.StatusCode, attempt, detail);
                         if (attempt == 2 || sw.Elapsed >= deadline) break;
                         await Task.Delay(TimeSpan.FromMilliseconds(250 * attempt), ct);
                         continue;
@@ -116,11 +125,13 @@ public sealed class OpenRouterAiEngine : IAiEngine
                 }
                 catch (Exception ex) when (attempt < 2 && sw.Elapsed < deadline && ex is not OperationCanceledException)
                 {
+                    failureReason = $"{ex.GetType().Name}: {ex.Message}";
                     _log.LogWarning(ex, "OpenRouter feature {Feature} failed on attempt {Attempt}; retrying", feature, attempt);
                     await Task.Delay(250, ct);
                 }
                 catch (Exception ex)
                 {
+                    failureReason = $"{ex.GetType().Name}: {ex.Message}";
                     _log.LogWarning(ex, "OpenRouter feature {Feature} failed; engaging resilient brain", feature);
                     break;
                 }
@@ -128,8 +139,18 @@ public sealed class OpenRouterAiEngine : IAiEngine
         }
 
         // Resilient Deterministic Intelligence Brain
+        //
+        // Reaching here is a failure even when the fallback returns something. It was recorded as
+        // success=true with the summary "Processed via resilient deterministic intelligence
+        // brain", so /api/ai/status reported a healthy engine while every learning section came
+        // back empty. The reason now travels with the record, because the log line that holds it
+        // lives in the host's dashboard and this does not.
         var fallback = GetDeterministicJsonFallback<T>(feature, systemPrompt, userPrompt);
-        await RecordActivityAsync(feature, null, "DeterministicBrain", fallback is not null, sw.ElapsedMilliseconds, "Processed via resilient deterministic intelligence brain", ct);
+        var summary = failureReason is null
+            ? "Processed via resilient deterministic intelligence brain"
+            : $"Fell back to the deterministic brain. Cloud call failed: {failureReason}";
+
+        await RecordActivityAsync(feature, null, "DeterministicBrain", false, sw.ElapsedMilliseconds, summary, ct);
         if (fallback is not null)
         {
             _cache.Set(cacheKey, fallback, TimeSpan.FromMinutes(30));
@@ -295,6 +316,14 @@ public sealed class OpenRouterAiEngine : IAiEngine
     public Task<float[]?> EmbedAsync(string text, CancellationToken ct = default)
     {
         return Task.FromResult<float[]?>(null);
+    }
+
+    /// <summary>One line of a provider error body — enough to act on, short enough to store.</summary>
+    private static string Trim(string? detail)
+    {
+        if (string.IsNullOrWhiteSpace(detail)) return "(no body)";
+        var flat = detail.ReplaceLineEndings(" ").Trim();
+        return flat.Length <= 300 ? flat : flat[..300] + "…";
     }
 
     public async Task RecordActivityAsync(
