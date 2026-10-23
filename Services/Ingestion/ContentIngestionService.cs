@@ -332,13 +332,36 @@ public class ContentIngestionService : BackgroundService
 
     private async Task<List<RawFeedItem>> FetchRssAllSourcesAsync(RssIngestionService rss, CancellationToken ct)
     {
+        // Fetched eight at a time. This is pure HTTP against 258 different hosts — nobody is
+        // rate-limited by it — and sequentially at a second or two each it took the better part of
+        // ten minutes before the end of the registry was reached at all. Newly added sources live
+        // at that end, which is a large part of why twenty of them produced nothing for an hour.
+        var sources = SourceRegistry.All.Where(s => s.IsEnabled).ToList();
         var all = new List<RawFeedItem>();
-        foreach (var source in SourceRegistry.All.Where(s => s.IsEnabled))
+        var sync = new object();
+
+        using var gate = new SemaphoreSlim(8);
+
+        await Task.WhenAll(sources.Select(async source =>
         {
-            if (ct.IsCancellationRequested) break;
-            try { all.AddRange(await rss.FetchAsync(source, ct)); }
-            catch (Exception ex) { _log.LogWarning("RSS fetch failed for {Source}: {Message}", source.Name, ex.Message); }
-        }
+            if (ct.IsCancellationRequested) return;
+            await gate.WaitAsync(ct);
+            try
+            {
+                var fetched = await rss.FetchAsync(source, ct);
+                lock (sync) all.AddRange(fetched);
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                _log.LogWarning("RSS fetch failed for {Source}: {Message}", source.Name, ex.Message);
+            }
+            finally
+            {
+                gate.Release();
+            }
+        }));
+
         return all;
     }
 

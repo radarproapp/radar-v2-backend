@@ -41,7 +41,12 @@ public class RssIngestionService
         {
             var client = _httpFactory.CreateClient("Ingestion");
             using var response = await client.GetAsync(source.Url, ct);
-            if (!response.IsSuccessStatusCode) return items;
+            if (!response.IsSuccessStatusCode)
+            {
+                _log.LogWarning("Feed {Source} returned {Status}; it published nothing as far as Radar can tell.",
+                    source.Name, response.StatusCode);
+                return items;
+            }
 
             var xml = await response.Content.ReadAsStringAsync(ct);
             var doc = XDocument.Parse(xml);
