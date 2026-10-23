@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 using RadarV2.Helpers;
 using RadarV2.Models;
 using RadarV2.Services.Interfaces;
+using RadarV2.Services.Ingestion;
 
 namespace RadarV2.Controllers;
 
@@ -23,12 +24,63 @@ public class AskRadarController : ControllerBase
     private readonly IAskRadarService _ask;
     private readonly IUserProfileService _profiles;
     private readonly IHttpClientFactory _httpFactory;
+    private readonly GroqWhisperClient _whisper;
 
-    public AskRadarController(IAskRadarService ask, IUserProfileService profiles, IHttpClientFactory httpFactory)
+    public AskRadarController(
+        IAskRadarService ask,
+        IUserProfileService profiles,
+        IHttpClientFactory httpFactory,
+        GroqWhisperClient whisper)
     {
         _ask = ask;
         _profiles = profiles;
         _httpFactory = httpFactory;
+        _whisper = whisper;
+    }
+
+    /// <summary>
+    /// What the "bring your own material" lane can actually do right now. The Learn entry screen
+    /// offers three ways in; recording depends on a transcription key that may not be set, and the
+    /// UI needs to know that before someone records ten minutes of a lecture.
+    /// </summary>
+    [HttpGet("capabilities")]
+    public IActionResult Capabilities() => Ok(new
+    {
+        upload = true,
+        link = true,
+        record = _whisper.IsConfigured,
+    });
+
+    /// <summary>
+    /// Transcribes an audio recording made in the browser. Returns the text only — what the user
+    /// does with it next (ask a question, summarise it, keep it as a note) is their choice.
+    /// </summary>
+    [HttpPost("transcribe")]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(25_000_000)]
+    public async Task<IActionResult> TranscribeAsync([FromForm] IFormFile? audio, CancellationToken ct = default)
+    {
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        if (!_whisper.IsConfigured)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+            {
+                error = "Recording is not available yet — this deployment has no transcription key configured.",
+            });
+        }
+
+        if (audio is null || audio.Length == 0)
+            return BadRequest(new { error = "No audio received." });
+
+        await using var stream = audio.OpenReadStream();
+        var text = await _whisper.TranscribeStreamAsync(stream, audio.FileName ?? "recording.webm", ct: ct);
+
+        if (string.IsNullOrWhiteSpace(text))
+            return StatusCode(StatusCodes.Status502BadGateway, new { error = "The recording could not be transcribed. Try again, or type instead." });
+
+        return Ok(new { text = text.Trim() });
     }
 
     public sealed class ChatRequest

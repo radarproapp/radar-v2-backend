@@ -590,6 +590,35 @@ Four separate faults, one root cause: nothing interpreted the goal before genera
   hidden for the same reason as in Settings: an unanswered question is usually what explains thin
   personalisation.
 
+## Phase 11 — Radar Learn takes its shape (user direction, 2026-10-23)
+
+Two reference screens: a Studley-style way in (bring your own material, or search and pick a
+subject) and a Udemy-style journey (collapsible sections, checkable lessons, durations, progress).
+
+- [x] 11.1 ~~Entry screen asks before it tells~~ — `/learn` opened with four stage cards, three
+  tabs and a resource list before the learner had said what they wanted to learn. Replaced by
+  `LearnStart`: three lanes for your own material (upload, paste, record) and a searchable subject
+  catalogue where anything added becomes a section on your path.
+- [x] 11.2 ~~The journey shows the whole path~~ — the data was always modules of ordered, timed,
+  completable lessons, but the old page surfaced exactly one module per stage, so anything added
+  past the fourth module could not be reached. `LearnPath` lists every section, checkable, with
+  per-section counts and durations and an overall progress bar counted from the lessons themselves.
+- [x] 11.3 ~~Recording was offered nowhere and possible nowhere~~ — `GroqWhisperClient` could only
+  transcribe a public URL, which a browser recording does not have. Added
+  `TranscribeStreamAsync`, `POST /api/ask/transcribe`, and `GET /api/ask/capabilities` so the UI
+  can disable the lane with a reason instead of failing after someone records a lecture.
+- [ ] 11.4 Practice-exercise completion is unreachable. `completeLearningExercise` was only ever
+  called from the retired `/learn` page. Learn Hub shows the exercise but cannot mark it done, and
+  the hub DTO carries no `isExerciseCompleted`, so this needs the field added server-side before
+  the button can go back. Until then `CompletedExerciseIds` stops growing, which feeds
+  `RecalculateMastery` — mastery percentages will read low.
+- [ ] 11.5 `AddTopicToRoadmapAsync` gives every added subject the same three stub lessons
+  ("Introduction to X", "Core concepts of X", "Applying X in practice") with empty bodies. Honest,
+  in that the titles promise nothing specific, but a section added from Explore deserves the same
+  AI-built lessons `CreateAiRoadmapAsync` produces.
+- [ ] 11.6 Neither new page has been seen rendering. The styles are written against the existing
+  variables and the logic is covered by unit tests, but no component test mounts either page.
+
 ## Explicitly not changing
 
 - **Ask Radar** — _"You cooked for real! It's concise and very easy to understand."_

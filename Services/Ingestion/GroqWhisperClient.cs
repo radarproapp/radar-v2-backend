@@ -27,6 +27,60 @@ public class GroqWhisperClient
     public bool IsConfigured => !string.IsNullOrWhiteSpace(_config["GroqWhisper:ApiKey"]);
 
     /// <summary>
+    /// Transcribes audio the user just recorded in the browser. Unlike the URL overload there is
+    /// no public address to hand Groq — the bytes themselves are posted.
+    ///
+    /// Returns null when the key is absent so callers can say so plainly; a recording that
+    /// silently produces nothing is worse than one that is refused up front.
+    /// </summary>
+    public async Task<string?> TranscribeStreamAsync(
+        Stream audio,
+        string fileName,
+        string? languageHint = null,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured)
+        {
+            _log.LogDebug("GroqWhisper API key not configured — refusing transcription.");
+            return null;
+        }
+
+        try
+        {
+            var client = _httpFactory.CreateClient("GroqWhisper");
+
+            using var form = new MultipartFormDataContent();
+            var fileContent = new StreamContent(audio);
+            fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+            form.Add(fileContent, "file", fileName);
+            form.Add(new StringContent("whisper-large-v3-turbo"), "model");
+            form.Add(new StringContent("json"), "response_format");
+            if (!string.IsNullOrWhiteSpace(languageHint))
+                form.Add(new StringContent(languageHint), "language");
+
+            using var response = await client.PostAsync("audio/transcriptions", form, ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                // Logged with the body: a 400 from Groq names the problem (unsupported codec,
+                // file too large), and swallowing it is how the AI engine stayed broken for days.
+                var detail = await response.Content.ReadAsStringAsync(ct);
+                _log.LogWarning("GroqWhisper returned {Status} for upload '{File}': {Detail}",
+                    response.StatusCode, fileName, detail);
+                return null;
+            }
+
+            var json = await response.Content.ReadAsStringAsync(ct);
+            using var doc = JsonDocument.Parse(json);
+            return doc.RootElement.TryGetProperty("text", out var text) ? text.GetString() : null;
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning("GroqWhisper upload transcription failed for '{File}': {Message}", fileName, ex.Message);
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Sends a public audio URL to Groq Whisper and returns the full transcript text.
     /// Returns null on failure or if not configured.
     /// </summary>
