@@ -1,5 +1,6 @@
 using MongoDB.Driver;
 using RadarV2.Data;
+using RadarV2.Models;
 using RadarV2.Services.Interfaces;
 
 namespace RadarV2.Services;
@@ -44,8 +45,14 @@ public class LearnerFootprint
         if (await _db.Notes.CountDocumentsAsync(d => d.UserId == userId, limit1, ct) > 0) return true;
 
         // Or read enough of the feed for Radar to have learned something from it.
+        //
+        // Inferred only. Onboarding records a Declared signal for every interest ticked at
+        // signup, so counting those made the gate open the moment someone finished onboarding —
+        // which is the exact inference this gate exists to stop. Verified on staging: a
+        // never-onboarded account got nothing, and onboarding alone unlocked twenty matches.
         if (await _db.BehavioralSignals.CountDocumentsAsync(
-                s => s.UserId == userId && s.PositiveCount > 0, limit1, ct) > 0) return true;
+                s => s.UserId == userId && s.Source == SignalSource.Inferred && s.PositiveCount > 0,
+                limit1, ct) > 0) return true;
 
         return false;
     }
