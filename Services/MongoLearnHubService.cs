@@ -25,6 +25,20 @@ public class MongoLearnHubService : ILearnHubService
         var roadmap = await _roadmaps.GetActiveRoadmapAsync(userId);
         var profile = await _db.Profiles.Find(p => p.Id == userId).FirstOrDefaultAsync();
 
+        // An empty path means an empty Hub.
+        //
+        // Everything below derives a subject from whatever it can find — the roadmap, the stated
+        // interests, the degree — and builds a whole hub around it. That is the same inference My
+        // path stopped making, and leaving it here would have meant a learner who was told their
+        // path is empty finding a full curriculum for their degree one tab over.
+        if (roadmap is null)
+        {
+            return new LearnHubPayload
+            {
+                EmptyReason = "Build a path first. The Hub fills with material for the sections you choose.",
+            };
+        }
+
         // Check if user has cybersecurity interest or goal
         // Includes the interpreted field so an outcome goal still routes to the right domain.
         var interpretedDomain = profile is not null ? LearningIntentReader.Read(profile).Domain : "";

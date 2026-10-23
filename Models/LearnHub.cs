@@ -144,6 +144,17 @@ public class NextBestAction
 
 public class LearnHubPayload
 {
+    /// <summary>
+    /// Set when there is nothing to show because the learner has not built a path yet.
+    /// </summary>
+    /// <remarks>
+    /// The Hub used to fall back to the learner's stated interests, or their degree, and present
+    /// a curriculum for whatever that implied — the same guessing that was removed from My path.
+    /// A learner who has answered nothing gets an empty Hub and an invitation, not a hub for a
+    /// subject nobody picked.
+    /// </remarks>
+    public string? EmptyReason { get; set; }
+
     public string PrimarySkill { get; set; } = string.Empty;
     public string Goal { get; set; } = string.Empty;
     public string CurrentStage { get; set; } = "Beginner";

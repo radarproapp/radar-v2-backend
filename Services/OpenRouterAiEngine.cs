@@ -406,13 +406,18 @@ public sealed class OpenRouterAiEngine : IAiEngine
 
         var totalActivities = await _db.AiActivities.CountDocumentsAsync(_ => true, cancellationToken: ct);
 
-        // The most recent attempt that reached the provider and came back wrong. Taken from the
-        // activity log rather than held in memory so it survives a restart and is the same answer
-        // for every instance.
-        var lastCloudFailure = recentActivities
-            .Where(a => !a.Success && a.Summary is not null && a.Summary.Contains("Cloud call failed", StringComparison.Ordinal))
-            .Select(a => a.Summary)
-            .FirstOrDefault();
+        // Whether the *most recent* attempt to reach the provider failed — not merely whether a
+        // failure appears anywhere in the recent list. The first version reported degraded on the
+        // strength of any failure in the last twenty activities, so the engine still read as down
+        // after it had started working again. Read from the activity log rather than held in
+        // memory, so it survives a restart and is the same answer on every instance.
+        var lastCloudAttempt = recentActivities
+            .FirstOrDefault(a => a.Mode == "LLM"
+                || (a.Summary is not null && a.Summary.Contains("Cloud call failed", StringComparison.Ordinal)));
+
+        var lastCloudFailure = lastCloudAttempt is not null && lastCloudAttempt.Mode != "LLM"
+            ? lastCloudAttempt.Summary
+            : null;
 
         // Group counts by feature
         var featureCounts = new Dictionary<string, long>();
