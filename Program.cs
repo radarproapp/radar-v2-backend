@@ -4,6 +4,7 @@ using System.Security.Claims;
 using System.Text;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.IdentityModel.Tokens;
@@ -316,11 +317,39 @@ app.UseResponseCompression();
 
 if (!app.Environment.IsDevelopment())
 {
-    app.UseExceptionHandler("/Error", createScopeForErrors: true);
+    // Both of these used to re-execute into Razor pages — "/Error" and "/not-found" — that were
+    // deleted when the Blazor UI was retired. Neither route matched, so the re-execute produced a
+    // bodiless 404, and the later JSON envelope stamped it "Not Found".
+    //
+    // The result: every unhandled exception in staging and production was reported to the client
+    // as a 404 and written to no log. A brief that threw looked identical to a brief whose route
+    // did not exist, which is exactly as undiagnosable as it sounds.
+    app.UseExceptionHandler(errorApp => errorApp.Run(async context =>
+    {
+        var feature = context.Features.Get<IExceptionHandlerPathFeature>();
+        var logger = context.RequestServices
+            .GetRequiredService<ILoggerFactory>()
+            .CreateLogger("RadarV2.UnhandledException");
+
+        logger.LogError(
+            feature?.Error,
+            "Unhandled exception for {Method} {Path}",
+            context.Request.Method,
+            feature?.Path ?? context.Request.Path.Value);
+
+        if (context.Response.HasStarted) return;
+
+        context.Response.Clear();
+        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        context.Response.ContentType = "application/json";
+        await context.Response.WriteAsJsonAsync(new
+        {
+            error = "Something went wrong handling that request.",
+        });
+    }));
+
     app.UseHsts();
 }
-
-app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
 app.UseHttpsRedirection();
 
 app.UseCors("Spa");

@@ -50,6 +50,9 @@ public class MongoRoadmapService : IRoadmapService
     /// </summary>
     private async Task<GrowthRoadmap> RebuildIfStaleAsync(GrowthRoadmap roadmap, string userId)
     {
+        // The learner built this one. Rebuilding would throw away the sections they asked for.
+        if (string.Equals(roadmap.TemplateKey, UserBuiltTemplateKey, StringComparison.Ordinal)) return roadmap;
+
         var profile = await _db.Profiles.Find(p => p.Id == userId).FirstOrDefaultAsync();
         if (profile is null) return roadmap;
 
@@ -89,6 +92,17 @@ public class MongoRoadmapService : IRoadmapService
             .ToListAsync();
     }
 
+    /// <summary>
+    /// Marks a path the learner built themselves, section by section.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="RebuildIfStaleAsync"/> exists to repair template paths whose goal has since
+    /// changed, and it does that by replacing every module. On a path the learner built, that is
+    /// not a repair — it is deleting their work and substituting a curriculum guessed from their
+    /// degree. This key tells it to keep its hands off.
+    /// </remarks>
+    public const string UserBuiltTemplateKey = "user-built";
+
     public async Task<GrowthRoadmap?> GetActiveRoadmapAsync(string userId)
     {
         var roadmap = await _db.Roadmaps
@@ -110,43 +124,17 @@ public class MongoRoadmapService : IRoadmapService
             return roadmap;
         }
 
-        // No roadmap yet — look up the user's goal and auto-create from template
-        var profile = await _db.Profiles.Find(p => p.Id == userId).FirstOrDefaultAsync();
-        if (profile is null) return null;
-
-        var primaryInterests = InterestPathService.ActiveInterests(profile);
-        var context = InterestPersonalization.Contexts(profile).FirstOrDefault(c => primaryInterests.Contains(c.Interest, StringComparer.OrdinalIgnoreCase))
-            ?? InterestPersonalization.Contexts(profile).FirstOrDefault();
-        var path = profile.InterestPaths.FirstOrDefault(p => p.IsPrimary);
-        var roadmapGoal = path is null ? profile.PrimaryGoal : $"{profile.PrimaryGoal} {path.Title}";
-        var createdRoadmap = await CreateRoadmapAsync(userId, roadmapGoal, profile.PrimaryGoal, LearningIntentReader.Read(profile));
-        createdRoadmap.Goal = profile.PrimaryGoal;
-        if (context is not null)
-        {
-            createdRoadmap.Interest = context.Interest;
-            createdRoadmap.Level = context.Level;
-            createdRoadmap.Interest = path?.Title ?? context.Interest;
-            // Uses the interpreted subject, not the raw goal, so an outcome goal does not come back
-            // as "Cybersecurity: Get Promotion" after BuildFromTemplate already phrased it properly.
-            var titleIntent = LearningIntentReader.Read(profile);
-            createdRoadmap.Title = titleIntent.IsOutcomeDriven
-                ? Capitalise(titleIntent.Subject)
-                : $"{createdRoadmap.Interest}: {profile.PrimaryGoal}";
-            await EnrichRoadmapWithResourcesAsync(createdRoadmap);
-
-            if (profile.Persona == PersonaType.Student && profile.PersonaDetails.TryGetValue("difficultCourses", out var diffCourses) && !string.IsNullOrWhiteSpace(diffCourses))
-            {
-                var split = diffCourses.Split(new[] { ',', ';', '/', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-                foreach (var d in split)
-                {
-                    if (!createdRoadmap.WeakAreas.Contains(d))
-                        createdRoadmap.WeakAreas.Add(d);
-                }
-            }
-
-            await _db.Roadmaps.ReplaceOneAsync(r => r.Id == createdRoadmap.Id, createdRoadmap);
-        }
-        return createdRoadmap;
+        // No roadmap, and none is invented.
+        //
+        // This used to auto-create one from the profile's goal, so simply *reading* the path
+        // built a whole templated pathway. A Computer Science student who had never opened Radar
+        // Learn already had four stages and lessons called "What Computer Science actually
+        // involves day to day" waiting for them, and nobody had asked whether they wanted any of
+        // it. The degree says what they study, not what they want to learn next.
+        //
+        // Every caller already handles null: the controller returns 404, which the client reads
+        // as an empty path and answers with three questions.
+        return null;
     }
 
     public Task<GrowthRoadmap> CreateRoadmapAsync(string userId, string goal) =>
@@ -390,27 +378,196 @@ public class MongoRoadmapService : IRoadmapService
         await _db.Roadmaps.ReplaceOneAsync(r => r.Id == roadmapId, roadmap);
     }
 
+    public async Task<GrowthRoadmap> AddSectionAsync(
+        string userId,
+        UserProfile profile,
+        string subject,
+        string level,
+        string? outcome,
+        CancellationToken ct = default)
+    {
+        var roadmap = await _db.Roadmaps
+            .Find(r => r.UserId == userId && r.IsActive)
+            .FirstOrDefaultAsync(ct);
+
+        var isNew = roadmap is null;
+
+        // An empty path, not a generated one. The learner asked for one subject; handing back
+        // four stages of a curriculum derived from their degree is the behaviour being removed.
+        roadmap ??= new GrowthRoadmap
+        {
+            UserId   = userId,
+            Title    = "Your path",
+            Goal     = outcome ?? string.Empty,
+            Interest = subject,
+            Level    = level,
+            IsActive = true,
+            TemplateKey = UserBuiltTemplateKey,
+        };
+
+        var section = await BuildAiSectionAsync(profile, subject, level, outcome, ct)
+                      ?? PlaceholderSection(subject, level);
+
+        section.Order    = roadmap.Modules.Count + 1;
+        section.Level    = level;
+        section.IsLocked = false;
+        roadmap.Modules.Add(section);
+
+        await EnrichRoadmapWithResourcesAsync(roadmap, ct);
+
+        if (isNew) await _db.Roadmaps.InsertOneAsync(roadmap, cancellationToken: ct);
+        else await _db.Roadmaps.ReplaceOneAsync(r => r.Id == roadmap.Id, roadmap, cancellationToken: ct);
+
+        return roadmap;
+    }
+
+    /// <summary>
+    /// One section for one subject, at the level the learner said they were starting from and
+    /// aimed at what they said they wanted to be able to do.
+    /// </summary>
+    private async Task<RoadmapModule?> BuildAiSectionAsync(
+        UserProfile profile,
+        string subject,
+        string level,
+        string? outcome,
+        CancellationToken ct)
+    {
+        try
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine($"Build ONE section of a learning path on: {subject}");
+            sb.AppendLine();
+            sb.AppendLine("What the learner told us:");
+            sb.AppendLine($"they want to learn: {subject}");
+            sb.AppendLine($"they are starting from: {level}");
+            if (!string.IsNullOrWhiteSpace(outcome))
+                sb.AppendLine($"they want to be able to: {outcome}");
+            sb.AppendLine();
+            sb.AppendLine("Rules:");
+            sb.AppendLine("- Between 4 and 7 lessons, ordered, each a concrete thing to learn or do.");
+            sb.AppendLine("- Write for what they said they want, not for their degree or job title.");
+            sb.AppendLine("- No lesson may restate the subject name as its content. A lesson called");
+            sb.AppendLine($"  \"Introduction to {subject}\" or \"Core concepts of {subject}\" is a failure:");
+            sb.AppendLine("  name the actual concept, tool or technique the lesson covers.");
+            sb.AppendLine("- The body is 2-3 sentences on what they will be able to do after it.");
+            sb.AppendLine("- estimatedTime is realistic, e.g. \"25 min\", \"1 hr 30 min\".");
+            sb.AppendLine();
+            sb.AppendLine("Return strict JSON:");
+            sb.AppendLine("{ \"title\": \"...\", \"description\": \"...\", \"stageGoal\": \"...\",");
+            sb.AppendLine("  \"lessons\": [ { \"title\": \"...\", \"body\": \"...\", \"estimatedTime\": \"...\" } ] }");
+
+            var result = await _ai.GenerateJsonAsync<ModuleResult>(
+                "learning-section",
+                "You are Radar's learning architect. You design one focused, ordered section of a learning path from what the learner has told you they want. You never pad with generic overview lessons.",
+                sb.ToString(),
+                ct);
+
+            if (result is null || string.IsNullOrWhiteSpace(result.Title)) return null;
+
+            // The prompt asks for this; the filter enforces it. A model told not to write
+            // "Introduction to X" will still write it often enough that asking is not a control.
+            var named = LessonTitleQuality.RemoveGeneric(result.Lessons ?? [], subject, l => l.Title);
+
+            var lessons = named
+                .Select((l, index) => new RoadmapLesson
+                {
+                    Title         = l.Title!,
+                    Body          = l.Body ?? string.Empty,
+                    Order         = index + 1,
+                    EstimatedTime = l.EstimatedTime ?? string.Empty,
+                })
+                .ToList();
+
+            // Two lessons is the floor for something worth calling a section. Below it, the model
+            // produced an outline rather than a plan, and an honest empty section with real
+            // resources attached beats three restatements of the subject.
+            if (lessons.Count < 2)
+            {
+                _log.LogInformation(
+                    "Section for '{Subject}' discarded: {Kept} of {Total} lesson titles named anything.",
+                    subject, lessons.Count, (result.Lessons ?? []).Count);
+                return null;
+            }
+
+            return new RoadmapModule
+            {
+                Title       = result.Title!,
+                Description = result.Description ?? string.Empty,
+                StageGoal   = result.StageGoal ?? string.Empty,
+                Lessons     = lessons,
+            };
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _log.LogWarning(ex, "Section generation failed for subject '{Subject}'", subject);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// What a section is when the AI could not build one: the subject, the level, and no lessons.
+    /// </summary>
+    /// <remarks>
+    /// It would be easy to emit "Introduction to X / Core concepts of X / Applying X in practice"
+    /// here, as the old add-topic path did. Those are not lessons, they are the subject's name in
+    /// three costumes, and a path full of them is what made the old screen feel like filler. An
+    /// empty section says plainly that the lessons could not be written, and the curated resources
+    /// attached to it are real.
+    /// </remarks>
+    private static RoadmapModule PlaceholderSection(string subject, string level) => new()
+    {
+        Title       = subject,
+        Description = string.Empty,
+        StageGoal   = $"Work through the resources below at {level.ToLowerInvariant()} level.",
+        Lessons     = [],
+    };
+
+    /// <summary>
+    /// "Add to my path" from the feed or a capture: one named section, with the curated resources
+    /// for it and nothing invented.
+    /// </summary>
+    /// <remarks>
+    /// This used to add three lessons — "Introduction to X", "Core concepts of X", "Applying X in
+    /// practice" — for every topic. They are the subject's name in three costumes, and a path made
+    /// of them is what made Radar Learn read as filler. The section now carries real resources and
+    /// no lessons; <see cref="AddSectionAsync"/> is the route for lessons, because that one asks
+    /// what the learner actually wants.
+    ///
+    /// It also creates the path when there is none. A learner's path starts empty by design, so
+    /// "add to my path" from the feed must work on the very first click rather than 404.
+    /// </remarks>
     public async Task AddTopicToRoadmapAsync(string userId, string roadmapId, string topic)
     {
-        var roadmap = await _db.Roadmaps.Find(r => r.Id == roadmapId && r.UserId == userId).FirstOrDefaultAsync();
-        if (roadmap is null) return;
+        var roadmap = await _db.Roadmaps
+            .Find(r => r.UserId == userId && (r.Id == roadmapId || r.IsActive))
+            .FirstOrDefaultAsync();
 
-        var newModule = new RoadmapModule
+        var isNew = roadmap is null;
+        roadmap ??= new GrowthRoadmap
+        {
+            UserId   = userId,
+            Title    = "Your path",
+            Interest = topic,
+            IsActive = true,
+            TemplateKey = UserBuiltTemplateKey,
+        };
+
+        // Adding the same topic twice from two different feed items should not grow the path.
+        if (roadmap.Modules.Any(m => m.Title.Equals(topic, StringComparison.OrdinalIgnoreCase))) return;
+
+        roadmap.Modules.Add(new RoadmapModule
         {
             Title    = topic,
             Order    = roadmap.Modules.Count + 1,
             Level    = "Intermediate",
             IsLocked = false,
-            Lessons  =
-            [
-                new RoadmapLesson { Title = $"Introduction to {topic}", Order = 1, EstimatedTime = "20 min" },
-                new RoadmapLesson { Title = $"Core concepts of {topic}", Order = 2, EstimatedTime = "30 min" },
-                new RoadmapLesson { Title = $"Applying {topic} in practice", Order = 3, EstimatedTime = "25 min" },
-            ]
-        };
-        roadmap.Modules.Add(newModule);
+            Lessons  = [],
+        });
+
         await EnrichRoadmapWithResourcesAsync(roadmap);
-        await _db.Roadmaps.ReplaceOneAsync(r => r.Id == roadmapId, roadmap);
+
+        if (isNew) await _db.Roadmaps.InsertOneAsync(roadmap);
+        else await _db.Roadmaps.ReplaceOneAsync(r => r.Id == roadmap.Id, roadmap);
     }
 
     public async Task<int> GetProgressPercentAsync(string userId, string roadmapId)

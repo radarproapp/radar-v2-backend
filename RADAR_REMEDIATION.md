@@ -612,10 +612,29 @@ subject) and a Udemy-style journey (collapsible sections, checkable lessons, dur
   the hub DTO carries no `isExerciseCompleted`, so this needs the field added server-side before
   the button can go back. Until then `CompletedExerciseIds` stops growing, which feeds
   `RecalculateMastery` — mastery percentages will read low.
-- [ ] 11.5 `AddTopicToRoadmapAsync` gives every added subject the same three stub lessons
-  ("Introduction to X", "Core concepts of X", "Applying X in practice") with empty bodies. Honest,
-  in that the titles promise nothing specific, but a section added from Explore deserves the same
-  AI-built lessons `CreateAiRoadmapAsync` produces.
+- [x] 11.5 ~~`AddTopicToRoadmapAsync` gives every added subject three stub lessons~~ — done. It
+  now adds one named section with its curated resources and no lessons at all, and creates the
+  path when there is none so "add to my path" works on an empty path.
+- [x] 11.7 ~~The path was generated from the learner's degree before they were asked anything~~ —
+  the user's report: a Computer Science student opened Radar Learn and found four stages and
+  lessons called "What Computer Science actually involves day to day". Three separate causes:
+  `GetActiveRoadmapAsync` auto-created a template pathway on *read*, `RebuildIfStaleAsync`
+  replaced every module on every subsequent read, and `AddTopicToRoadmapAsync` emitted three stub
+  lessons per topic. Paths now start empty, learner-built paths are never rebuilt, and sections
+  come from three answers: subject, starting level, and what you want to be able to do.
+- [x] 11.8 ~~Nothing stopped a lesson title from being its subject's name in a costume~~ —
+  `LessonTitleQuality` strips the subject from a title and rejects what is left if it is all
+  filler, so "Introduction to X" and "Core concepts of X" cannot reach a learner even when the
+  model writes them. Conservative: a title that does not mention its subject is never judged.
+- [x] 11.9 ~~Unhandled exceptions were reported as 404s and logged nowhere~~ — `/api/home` was
+  returning `{"error":"Not Found"}` on staging for any onboarded user. `UseExceptionHandler` and
+  `UseStatusCodePagesWithReExecute` both re-executed into Razor pages deleted with the Blazor UI,
+  so a throwing request was indistinguishable from a missing route. Exceptions are now 500s with
+  a logged stack trace.
+- [ ] 11.10 `/api/home` throws on staging for an onboarded user and the cause is still unknown.
+  Not reproducible locally — it needs OpenRouter configured, which points at the AI path inside
+  the brief. 11.9 is what makes it diagnosable; the next staging deploy will log the actual
+  exception.
 - [ ] 11.6 Neither new page has been seen rendering. The styles are written against the existing
   variables and the logic is covered by unit tests, but no component test mounts either page.
 

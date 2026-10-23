@@ -36,6 +36,43 @@ public class RoadmapsController : ControllerBase
         [Required] public string Stage { get; set; } = "Beginner";
     }
 
+    public sealed class AddSectionRequest
+    {
+        [Required, MinLength(1)] public string Subject { get; set; } = string.Empty;
+        [Required] public string Level { get; set; } = "Beginner";
+
+        /// <summary>What they want to be able to do. Optional — asked, but skippable.</summary>
+        public string? Outcome { get; set; }
+    }
+
+    /// <summary>
+    /// Adds one section to the learner's path, from what they told us they want.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <c>generate</c> on purpose. <c>generate</c> reads the profile and returns a
+    /// whole four-stage pathway, which is how a Computer Science student ended up with
+    /// "Foundations of Computer Science" and "Core concepts and vocabulary in Computer Science"
+    /// without being asked a single question. This endpoint only ever adds what was asked for.
+    /// </remarks>
+    [HttpPost("sections")]
+    public async Task<IActionResult> AddSectionAsync([FromBody] AddSectionRequest request, CancellationToken ct = default)
+    {
+        if (!ModelState.IsValid) return ValidationProblem();
+
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        var roadmap = await _roadmaps.AddSectionAsync(
+            profile.Id,
+            profile,
+            request.Subject.Trim(),
+            request.Level.Trim(),
+            string.IsNullOrWhiteSpace(request.Outcome) ? null : request.Outcome.Trim(),
+            ct);
+
+        return Ok(roadmap);
+    }
+
     [HttpPost("active/topics")]
     public async Task<IActionResult> AddTopicToActiveAsync([FromBody] AddTopicRequest request)
     {
@@ -44,10 +81,10 @@ public class RoadmapsController : ControllerBase
         var profile = await _profiles.GetCurrentUserAsync();
         if (profile is null) return NotFound(new { error = "Profile not found" });
 
+        // No 404 for a missing path. Paths start empty now, so the first "add to my path" a
+        // learner ever clicks would otherwise be refused.
         var active = await _roadmaps.GetActiveRoadmapAsync(profile.Id);
-        if (active is null) return NotFound(new { error = "No active roadmap" });
-
-        await _roadmaps.AddTopicToRoadmapAsync(profile.Id, active.Id, request.Topic.Trim());
+        await _roadmaps.AddTopicToRoadmapAsync(profile.Id, active?.Id ?? string.Empty, request.Topic.Trim());
         return NoContent();
     }
 
