@@ -631,10 +631,26 @@ subject) and a Udemy-style journey (collapsible sections, checkable lessons, dur
   `UseStatusCodePagesWithReExecute` both re-executed into Razor pages deleted with the Blazor UI,
   so a throwing request was indistinguishable from a missing route. Exceptions are now 500s with
   a logged stack trace.
-- [ ] 11.10 `/api/home` throws on staging for an onboarded user and the cause is still unknown.
-  Not reproducible locally — it needs OpenRouter configured, which points at the AI path inside
-  the brief. 11.9 is what makes it diagnosable; the next staging deploy will log the actual
-  exception.
+- [x] 11.10 ~~`/api/home` throws on staging for an onboarded user~~ — found once 11.9 made the
+  500 legible: `FormatException: Element 'YourEdge' does not match any field or property of class
+  RadarV2.Models.ContentItem`. A field removed from the model weeks ago, still present on every
+  document written while it existed, and the driver throws on an element it cannot map — so the
+  *read* failed. Only profiles with interests hit it because those rank the older documents in.
+  Fixed with `IgnoreExtraElementsConvention` for the whole namespace, since none of the 36
+  persisted models tolerated extra elements. Verified: `/api/home` returns 200 on staging.
+- [x] 11.11 ~~"Next build" disappeared from the home page for everyone~~ — a regression from
+  11.7. `TargetRole` is a non-nullable string defaulting to `""`, so the `??` chain choosing a
+  topic always stopped at the empty string and returned null. It was masked for as long as paths
+  were auto-created, because `roadmap?.Goal` answered first and was never empty.
+- [ ] 11.12 A partial keyword match claims the whole phrase. `Coverage()` falls back to
+  `hits / keywords.Count`, so for the goal "Computer Science" an article containing only the word
+  "science" scores 0.5, and anything above 0 records a match — which `WhyShown` then renders as
+  "Matches your goal: Computer Science". Observed on staging: a Computer Science student's top
+  three signals were an article about a *Dragon Man* skull, a novel about dementia, and a
+  genetically modified military dog startup, each captioned with that line. Same family as
+  `Contains("soc")` matching "social work". The fix is a coverage floor — every keyword for a
+  two-word phrase — but it will make thin feeds thinner, so it is a product call, not a silent
+  one: confirm the empty-state behaviour is acceptable before changing the threshold.
 - [ ] 11.6 Neither new page has been seen rendering. The styles are written against the existing
   variables and the logic is covered by unit tests, but no component test mounts either page.
 

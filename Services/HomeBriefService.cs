@@ -196,18 +196,25 @@ public class HomeBriefService : IHomeBriefService
     /// Spec item 6: name the artifact. Built from the user's own capability and current topic so
     /// a SOC analyst is told to write a detection rule, not to "build something you can show".
     /// </summary>
+    /// <summary>Null for anything blank, so a coalescing chain can skip an empty string.</summary>
+    private static string? Firm(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
+
     private static HomeBuild? BuildNextBuild(UserProfile profile, GrowthRoadmap? roadmap)
     {
-        var topic = roadmap?.Goal
-            ?? profile.TargetRole
-            ?? profile.Interests.FirstOrDefault()
-            ?? profile.PrimaryGoal;
+        // Firm, not ??. TargetRole is a non-nullable string defaulting to "", so `?? ` never
+        // falls past it: the chain always stopped at the empty string and the whole section
+        // vanished. It was hidden while paths were auto-created, because roadmap?.Goal answered
+        // first; once a path legitimately starts empty, every user lost "next build".
+        var topic = Firm(roadmap?.Goal)
+            ?? Firm(profile.TargetRole)
+            ?? Firm(profile.Interests.FirstOrDefault())
+            ?? Firm(profile.PrimaryGoal);
 
-        if (string.IsNullOrWhiteSpace(topic)) return null;
+        if (topic is null) return null;
 
-        var capability = profile.Capabilities.FirstOrDefault()
-            ?? profile.TargetRole
-            ?? profile.Interests.FirstOrDefault()
+        var capability = Firm(profile.Capabilities.FirstOrDefault())
+            ?? Firm(profile.TargetRole)
+            ?? Firm(profile.Interests.FirstOrDefault())
             ?? topic;
 
         return new HomeBuild
