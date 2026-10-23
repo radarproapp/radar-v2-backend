@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using RadarV2.Helpers;
 using RadarV2.Services.Interfaces;
 
 namespace RadarV2.Controllers;
@@ -71,6 +72,64 @@ public class RoadmapsController : ControllerBase
             ct);
 
         return Ok(roadmap);
+    }
+
+    /// <summary>
+    /// Builds a section from a document the learner uploaded.
+    /// </summary>
+    /// <remarks>
+    /// "Start from a document you already have" used to send people to the chat summariser, which
+    /// read the file and then stopped — a dead end dressed as a beginning. This reads it, works
+    /// out what it teaches, and puts a section on their path.
+    /// </remarks>
+    [HttpPost("sections/from-document")]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(20_000_000)]
+    public async Task<IActionResult> AddSectionFromDocumentAsync(
+        [FromForm] IFormFile? file,
+        CancellationToken ct = default)
+    {
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        if (file is null || file.Length == 0)
+            return BadRequest(new { error = "No file uploaded." });
+
+        if (!DocumentTextExtractor.IsSupported(file.FileName, file.ContentType))
+        {
+            return StatusCode(StatusCodes.Status415UnsupportedMediaType, new
+            {
+                error = "Unsupported format. PDF, Word, Markdown, text, CSV, JSON or HTML.",
+            });
+        }
+
+        string text;
+        try
+        {
+            text = await DocumentTextExtractor.ExtractTextAsync(file, ct);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { error = $"Could not read this document: {ex.Message}" });
+        }
+
+        if (string.IsNullOrWhiteSpace(text))
+            return BadRequest(new { error = "That file contained no readable text." });
+
+        var subject = await _roadmaps.ReadSubjectFromDocumentAsync(text, ct);
+        if (subject is null)
+        {
+            // Better to ask than to guess a subject off a filename.
+            return StatusCode(StatusCodes.Status422UnprocessableEntity, new
+            {
+                error = "Radar could not tell what this document teaches. Try the three questions instead.",
+            });
+        }
+
+        var roadmap = await _roadmaps.AddSectionAsync(
+            profile.Id, profile, subject.Subject!, subject.Level ?? "Beginner", subject.Outcome, ct);
+
+        return Ok(new { roadmap, detected = subject });
     }
 
     [HttpPost("active/topics")]

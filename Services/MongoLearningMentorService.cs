@@ -47,7 +47,8 @@ public class MongoLearningMentorService : ILearningMentorService
         [EnumeratorCancellation] CancellationToken ct = default)
     {
         var profile = await GetProfileAsync(userId);
-        var roadmap = await _db.Roadmaps.Find(r => r.UserId == userId).SortByDescending(r => r.CreatedAt).FirstOrDefaultAsync();
+        var storedRoadmap = await _db.Roadmaps.Find(r => r.UserId == userId).SortByDescending(r => r.CreatedAt).FirstOrDefaultAsync();
+        var roadmap = storedRoadmap is not null && MongoRoadmapService.WasAskedFor(storedRoadmap) ? storedRoadmap : null;
         var masteries = await GetTopicMasteriesAsync(userId);
         var memory = await GetLearningMemoryAsync(userId);
 
@@ -513,7 +514,8 @@ public class MongoLearningMentorService : ILearningMentorService
     public async Task<PersonalLearningMemory> GetLearningMemoryAsync(string userId)
     {
         var profile = await GetProfileAsync(userId);
-        var roadmap = await _db.Roadmaps.Find(r => r.UserId == userId).SortByDescending(r => r.CreatedAt).FirstOrDefaultAsync();
+        var storedRoadmap = await _db.Roadmaps.Find(r => r.UserId == userId).SortByDescending(r => r.CreatedAt).FirstOrDefaultAsync();
+        var roadmap = storedRoadmap is not null && MongoRoadmapService.WasAskedFor(storedRoadmap) ? storedRoadmap : null;
         var masteries = await GetTopicMasteriesAsync(userId);
         var reviewsCount = await _db.MentorWorkReviews.CountDocumentsAsync(r => r.UserId == userId);
 
@@ -532,31 +534,59 @@ public class MongoLearningMentorService : ILearningMentorService
         return new PersonalLearningMemory
         {
             UserId = userId,
-            PrimaryGoal = profile?.PrimaryGoal ?? "Master Tech & Business Intelligence",
+            PrimaryGoal = profile?.PrimaryGoal ?? string.Empty,
             // The skill being tutored, so it must be a subject. An outcome goal ("Get Promotion")
             // would otherwise become the thing the mentor tries to teach.
             ActiveSkill = roadmap?.Interest
                 ?? (profile is not null ? LearningIntentReader.Read(profile).Domain : null)
-                ?? "Data & Systems",
+                ?? string.Empty,
             CurrentStage = roadmap?.CurrentStage ?? "Beginner",
             WeakAreas = weakList,
             StrongAreas = strongList,
             Masteries = masteries,
             CompletedProjects = roadmap?.CompletedExerciseIds ?? [],
             SubmittedReviewsCount = (int)reviewsCount,
-            RecentMistakes =
-            [
-                "Confused JOIN conditions with WHERE filtering",
-                "Assumed completion equals full operational mastery",
-                "Omitted counterfactual controls in project brief"
-            ]
+            // Nothing records mistakes yet, so the honest list is empty. These three were
+            // hardcoded and shown to every learner as their own recent errors.
+            RecentMistakes = []
         };
     }
+
+    /// <summary>
+    /// The exact records the old seeder wrote. Nothing else ever produced them.
+    /// </summary>
+    /// <remarks>
+    /// Removing the seeder stopped new ones being written and did nothing for the accounts that
+    /// already had them — which is everyone who had opened the Mentor. They kept being told which
+    /// SQL join they keep getting wrong. These are deleted rather than hidden: they are not the
+    /// learner's data in any sense, they are a fixture that was written into their account.
+    ///
+    /// Matched on the topic name *and* a subtopic only the seeder used, so a learner who genuinely
+    /// studies SQL and has answered real questions keeps their record.
+    /// </remarks>
+    private static readonly Dictionary<string, string> FabricatedMasteries = new(StringComparer.Ordinal)
+    {
+        ["SQL & Relational Databases"] = "SQL JOINs (INNER, LEFT, FULL)",
+        ["Cybersecurity & Systems Defense"] = "Zero Trust Microsegmentation",
+    };
+
+    private static bool WasFabricated(TopicMastery mastery) =>
+        FabricatedMasteries.TryGetValue(mastery.Topic, out var signature)
+        && mastery.Subtopics.Any(sub => string.Equals(sub.Name, signature, StringComparison.Ordinal));
 
     public async Task<List<TopicMastery>> GetTopicMasteriesAsync(string userId)
     {
         if (string.IsNullOrEmpty(userId)) return [];
         var existing = await _db.TopicMasteries.Find(t => t.UserId == userId).ToListAsync();
+
+        var fabricated = existing.Where(WasFabricated).ToList();
+        if (fabricated.Count > 0)
+        {
+            var ids = fabricated.Select(m => m.Id).ToList();
+            await _db.TopicMasteries.DeleteManyAsync(m => ids.Contains(m.Id));
+            existing = existing.Where(m => !WasFabricated(m)).ToList();
+        }
+
         if (existing.Count > 0) return existing;
 
         // Nothing. A learner who has answered no questions has no mastery.

@@ -281,6 +281,14 @@ public class MongoRoadmapService : IRoadmapService
         }
     }
 
+    /// <summary>What a document turned out to be about.</summary>
+    public sealed class DocumentSubject
+    {
+        public string? Subject { get; set; }
+        public string? Outcome { get; set; }
+        public string? Level { get; set; }
+    }
+
     private sealed class PathwayResult { public List<ModuleResult>? Modules { get; set; } }
 
     private sealed class ModuleResult
@@ -463,6 +471,51 @@ public class MongoRoadmapService : IRoadmapService
         else await _db.Roadmaps.ReplaceOneAsync(r => r.Id == roadmap.Id, roadmap, cancellationToken: ct);
 
         return roadmap;
+    }
+
+    /// <summary>
+    /// Reads a document the learner uploaded and names what it is about, so a path can be built
+    /// from it without asking them to summarise their own lecture notes.
+    /// </summary>
+    /// <remarks>
+    /// Returns null when the model cannot say — at which point the caller asks the learner
+    /// instead, which is a better outcome than guessing a subject from a filename.
+    /// </remarks>
+    public async Task<DocumentSubject?> ReadSubjectFromDocumentAsync(string text, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return null;
+
+        // The opening is enough to name a subject, and it keeps the call inside its budget. A
+        // whole textbook would not make the answer better, only slower and more expensive.
+        var excerpt = text.Length > 6000 ? text[..6000] : text;
+
+        var sb = new StringBuilder();
+        sb.AppendLine("Read this document and say what it teaches.");
+        sb.AppendLine();
+        sb.AppendLine("Rules:");
+        sb.AppendLine("- subject: two to four words naming the field or topic, as a learner would say it.");
+        sb.AppendLine("- outcome: one sentence on what someone could do after working through this material.");
+        sb.AppendLine("- level: one of Beginner, Intermediate, Advanced, judged from how the material is pitched.");
+        sb.AppendLine("- If the document is not teaching material, return an empty subject.");
+        sb.AppendLine();
+        sb.AppendLine("Return strict JSON: { \"subject\": \"...\", \"outcome\": \"...\", \"level\": \"...\" }");
+        sb.AppendLine();
+        sb.AppendLine("Document:");
+        sb.AppendLine(excerpt);
+
+        var result = await _ai.GenerateJsonAsync<DocumentSubject>(
+            "document-subject",
+            "You identify what a document teaches. You answer only from the document in front of you.",
+            sb.ToString(),
+            ct);
+
+        if (result is null || string.IsNullOrWhiteSpace(result.Subject)) return null;
+
+        var level = result.Level?.Trim() ?? "Beginner";
+        result.Level = level is "Beginner" or "Intermediate" or "Advanced" ? level : "Beginner";
+        result.Subject = result.Subject!.Trim();
+
+        return result;
     }
 
     /// <summary>

@@ -1,4 +1,5 @@
 using RadarV2.Models;
+using RadarV2.Services;
 
 namespace RadarV2.Services.Interfaces;
 
@@ -31,6 +32,11 @@ public interface IRoadmapService
     /// Computer Science / Core concepts and vocabulary in Computer Science" without ever being
     /// asked what they wanted to learn. A path is built a section at a time, from answers.
     /// </remarks>
+    /// <summary>
+    /// Names what an uploaded document teaches, so a section can be built from it.
+    /// </summary>
+    Task<MongoRoadmapService.DocumentSubject?> ReadSubjectFromDocumentAsync(string text, CancellationToken ct = default);
+
     Task<GrowthRoadmap> AddSectionAsync(
         string userId,
         UserProfile profile,
