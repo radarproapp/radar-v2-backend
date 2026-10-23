@@ -56,7 +56,7 @@ public sealed class OpenRouterAiEngine : IAiEngine
     /// no lessons even once the API key was valid.
     /// </remarks>
     private static bool IsGeneration(string feature) =>
-        feature is "learning-section" or "learning-pathway";
+        feature is "learning-section" or "learning-pathway" or "document-subject";
 
     /// <summary>How long a single attempt may take.</summary>
     private TimeSpan AttemptBudget(string feature) => TimeSpan.FromSeconds(

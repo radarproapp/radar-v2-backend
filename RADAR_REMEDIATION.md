@@ -682,6 +682,28 @@ subject) and a Udemy-style journey (collapsible sections, checkable lessons, dur
   resolve to real videos through `YouTubeSearchService`; catalogue ones never will. Once 12.4 is
   fixed, check whether the catalogue fallback is still reached often enough to matter.
 
+## Phase 13 — Video and podcast in Radar Intelligence (user direction, 2026-10-23)
+
+Measured on staging before starting, so the work is against what is actually broken:
+
+- Videos: 20 exist, 4 of 5 playable (`watch?v=`). `whatHappened` populated from the channel's
+  description. **`whyItMatters` empty on every one.** No transcripts at all.
+- Podcasts: 16 exist, playable with real `audioUrl` and `durationSeconds`. `whatHappened` and
+  `whyItMatters` populated on some. No transcripts.
+- **Neither type reaches the default feed** — a Software Engineering student's 20 items were all
+  Articles. They are only reachable via `?type=Video`, which no screen asks for.
+- Relevance is poor where they do appear: Xbox Game Pass, yawning, and "hangxiety" for a software
+  engineering student. Same root as 11.12.
+
+- [ ] 13.1 Media never surfaces in the feed. Ranking buries it; there is no mix guarantee.
+- [ ] 13.2 `whyItMatters` is empty on every video, so the "why it matters to you" half of the
+  card has nothing to show.
+- [ ] 13.3 No transcripts are stored for videos, so any summary is written from a channel
+  description rather than from what was said. Podcast transcripts have the same gap in practice
+  (Taddy/Groq paths exist; nothing is populated).
+- [ ] 13.4 Players exist and work (`VideoEmbed`, `AudioEmbed`, both used by `FeedDetail`), but the
+  feed list itself does not play anything inline.
+
 ## Explicitly not changing
 
 - **Ask Radar** — _"You cooked for real! It's concise and very easy to understand."_

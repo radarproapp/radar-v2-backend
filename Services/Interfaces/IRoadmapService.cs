@@ -40,6 +40,12 @@ public interface IRoadmapService
         string? fileName = null,
         CancellationToken ct = default);
 
+    /// <summary>Puts every section a document yielded onto the learner's path.</summary>
+    Task<GrowthRoadmap> AddDocumentPathAsync(
+        string userId,
+        MongoRoadmapService.DocumentSubject document,
+        CancellationToken ct = default);
+
     Task<GrowthRoadmap> AddSectionAsync(
         string userId,
         UserProfile profile,

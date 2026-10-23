@@ -126,8 +126,13 @@ public class RoadmapsController : ControllerBase
             });
         }
 
-        var roadmap = await _roadmaps.AddSectionAsync(
-            profile.Id, profile, subject.Subject!, subject.Level ?? "Beginner", subject.Outcome, ct);
+        // A document with sections becomes a path. One without — the model could name the
+        // subject but not break it up — falls back to the single-section route, which writes its
+        // own lessons for that subject.
+        var roadmap = subject.Sections is { Count: > 0 }
+            ? await _roadmaps.AddDocumentPathAsync(profile.Id, subject, ct)
+            : await _roadmaps.AddSectionAsync(
+                profile.Id, profile, subject.Subject!, subject.Level ?? "Beginner", subject.Outcome, ct);
 
         return Ok(new { roadmap, detected = subject });
     }

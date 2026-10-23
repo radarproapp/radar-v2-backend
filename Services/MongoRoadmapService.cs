@@ -291,16 +291,19 @@ public class MongoRoadmapService : IRoadmapService
     /// characters, because the cover is an image. Radar read the masthead and said, correctly,
     /// that it could not tell what the document taught.
     ///
-    /// Three slices from inside it land in actual chapters.
+    /// Five slices from inside it land in actual chapters. The first sits just past the front
+    /// matter, where a preface or contents page usually says who the book is for — which is the
+    /// best evidence of level there is, and exactly what a 15% slice skips over.
     /// </remarks>
-    private static string Sample(string text, int budget = 6000)
+    private static string Sample(string text, int budget = 9000)
     {
         if (text.Length <= budget) return text;
 
-        var sliceLength = budget / 3;
+        var points = new[] { 0.04, 0.15, 0.35, 0.55, 0.78 };
+        var sliceLength = budget / points.Length;
         var sb = new StringBuilder();
 
-        foreach (var at in new[] { 0.15, 0.40, 0.65 })
+        foreach (var at in points)
         {
             var start = (int)(text.Length * at);
             var take = Math.Min(sliceLength, text.Length - start);
@@ -319,11 +322,17 @@ public class MongoRoadmapService : IRoadmapService
         public string? Subject { get; set; }
         public string? Outcome { get; set; }
         public string? Level { get; set; }
+
+        /// <summary>
+        /// The parts of the document, in the order it teaches them. A 1,287 page textbook is a
+        /// path, not a section, and returning one section for it threw away most of the book.
+        /// </summary>
+        public List<ModuleResult>? Sections { get; set; }
     }
 
     private sealed class PathwayResult { public List<ModuleResult>? Modules { get; set; } }
 
-    private sealed class ModuleResult
+    public sealed class ModuleResult
     {
         public string? Title { get; set; }
         public string? Description { get; set; }
@@ -331,7 +340,7 @@ public class MongoRoadmapService : IRoadmapService
         public List<LessonResult>? Lessons { get; set; }
     }
 
-    private sealed class LessonResult
+    public sealed class LessonResult
     {
         public string? Title { get; set; }
         public string? Body { get; set; }
@@ -449,6 +458,79 @@ public class MongoRoadmapService : IRoadmapService
         await _db.Roadmaps.ReplaceOneAsync(r => r.Id == roadmapId, roadmap);
     }
 
+    /// <summary>
+    /// Puts every section a document yielded onto the learner's path, in the order it teaches them.
+    /// </summary>
+    /// <remarks>
+    /// A textbook is a path. Returning one section for 1,287 pages kept the first five lessons and
+    /// discarded the rest of the book, which is a worse answer than it looked — it was specific,
+    /// so it read as correct.
+    /// </remarks>
+    public async Task<GrowthRoadmap> AddDocumentPathAsync(
+        string userId,
+        DocumentSubject document,
+        CancellationToken ct = default)
+    {
+        var roadmap = await _db.Roadmaps
+            .Find(r => r.UserId == userId && r.IsActive)
+            .FirstOrDefaultAsync(ct);
+
+        var isNew = roadmap is null;
+
+        if (roadmap is not null && !WasAskedFor(roadmap))
+        {
+            roadmap.Modules.Clear();
+            roadmap.Resources.Clear();
+        }
+
+        roadmap ??= new GrowthRoadmap { UserId = userId, IsActive = true };
+
+        roadmap.TemplateKey = UserBuiltTemplateKey;
+        roadmap.Title = document.Subject!;
+        roadmap.Interest = document.Subject!;
+        roadmap.Level = document.Level ?? "Beginner";
+        roadmap.Goal = document.Outcome ?? string.Empty;
+
+        var order = roadmap.Modules.Count;
+
+        foreach (var section in document.Sections ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(section.Title)) continue;
+
+            // Same filter as the three-question path: a lesson may not be the subject's name
+            // wearing a frame, however confidently the model wrote it.
+            var named = LessonTitleQuality.RemoveGeneric(section.Lessons ?? [], document.Subject!, l => l.Title);
+            if (named.Count == 0) continue;
+
+            order++;
+            roadmap.Modules.Add(new RoadmapModule
+            {
+                Title = section.Title!,
+                Description = section.Description ?? string.Empty,
+                StageGoal = section.StageGoal ?? string.Empty,
+                Order = order,
+                Level = document.Level ?? "Beginner",
+                IsLocked = false,
+                Lessons = named
+                    .Select((l, index) => new RoadmapLesson
+                    {
+                        Title = l.Title!,
+                        Body = l.Body ?? string.Empty,
+                        Order = index + 1,
+                        EstimatedTime = l.EstimatedTime ?? string.Empty,
+                    })
+                    .ToList(),
+            });
+        }
+
+        await EnrichRoadmapWithResourcesAsync(roadmap, ct);
+
+        if (isNew) await _db.Roadmaps.InsertOneAsync(roadmap, cancellationToken: ct);
+        else await _db.Roadmaps.ReplaceOneAsync(r => r.Id == roadmap.Id, roadmap, cancellationToken: ct);
+
+        return roadmap;
+    }
+
     public async Task<GrowthRoadmap> AddSectionAsync(
         string userId,
         UserProfile profile,
@@ -522,6 +604,10 @@ public class MongoRoadmapService : IRoadmapService
 
         var excerpt = Sample(text);
 
+        // Roughly 2,000 characters to a printed page. The model uses it to scale the path: one
+        // section for a handout, several for a textbook.
+        var pages = Math.Max(1, text.Length / 2000);
+
         var sb = new StringBuilder();
         sb.AppendLine("Read these excerpts and say what the document teaches.");
         sb.AppendLine();
@@ -533,13 +619,29 @@ public class MongoRoadmapService : IRoadmapService
             sb.AppendLine("Treat that as a hint only. The excerpts are the authority.");
             sb.AppendLine();
         }
+        sb.AppendLine($"It is roughly {pages:N0} pages of text.");
+        sb.AppendLine();
         sb.AppendLine("Rules:");
         sb.AppendLine("- subject: two to four words naming the field or topic, as a learner would say it.");
         sb.AppendLine("- outcome: one sentence on what someone could do after working through this material.");
-        sb.AppendLine("- level: one of Beginner, Intermediate, Advanced, judged from how the material is pitched.");
+        sb.AppendLine("- level: who the material is written FOR, not how hard its hardest chapter is.");
+        sb.AppendLine("  Beginner if it teaches from first principles and assumes no prior knowledge —");
+        sb.AppendLine("  a long introductory textbook is still Beginner. Intermediate if it assumes the");
+        sb.AppendLine("  basics of the subject. Advanced if it assumes working familiarity.");
+        sb.AppendLine($"- sections: scale to how much ground the document covers. One for a handout or a");
+        sb.AppendLine("  chapter; three to five for a textbook. Each section is a coherent part of it,");
+        sb.AppendLine("  ordered the way the document teaches them.");
+        sb.AppendLine("- Each section has 3 to 6 lessons naming the actual concepts, techniques, syntax or");
+        sb.AppendLine("  tools that appear in the excerpts. Not chapter headings — the thing being taught.");
+        sb.AppendLine($"- No lesson may be the subject's name in a frame: \"Introduction to X\" or");
+        sb.AppendLine("  \"Core concepts of X\" is a failure.");
+        sb.AppendLine("- estimatedTime is realistic, e.g. \"25 min\", \"1 hr 30 min\".");
         sb.AppendLine("- If the document is not teaching material, return an empty subject.");
         sb.AppendLine();
-        sb.AppendLine("Return strict JSON: { \"subject\": \"...\", \"outcome\": \"...\", \"level\": \"...\" }");
+        sb.AppendLine("Return strict JSON:");
+        sb.AppendLine("{ \"subject\": \"...\", \"outcome\": \"...\", \"level\": \"...\", \"sections\": [");
+        sb.AppendLine("  { \"title\": \"...\", \"description\": \"...\", \"stageGoal\": \"...\",");
+        sb.AppendLine("    \"lessons\": [ { \"title\": \"...\", \"body\": \"...\", \"estimatedTime\": \"...\" } ] } ] }");
         sb.AppendLine();
         sb.AppendLine("Excerpts:");
         sb.AppendLine(excerpt);
