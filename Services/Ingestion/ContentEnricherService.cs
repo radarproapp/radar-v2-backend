@@ -66,6 +66,65 @@ public class ContentEnricherService
         return item;
     }
 
+    /// <summary>
+    /// Re-runs enrichment on an item already in the database, and reports whether it worked.
+    /// </summary>
+    /// <remarks>
+    /// Every item ingested while the OpenRouter key was dead was "enriched" by the deterministic
+    /// fallback: `whatHappened` ended up a truncated description and `whyItMatters` empty. On a
+    /// video that is the whole "why this matters to you" half of the card, missing.
+    ///
+    /// `IsEnriched` cannot be the filter for finding them — it was set from `result != null`, and
+    /// the fallback returns a non-null result, so those items are all marked enriched. The empty
+    /// field is the honest signal.
+    /// </remarks>
+    public async Task<bool> ReEnrichAsync(ContentItem item, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(_config["OpenRouter:ApiKey"])) return false;
+        if (!await IsWithinSpendCapAsync(ct)) return false;
+
+        // The prompt builder works from a raw item, so the stored one is presented as one rather
+        // than duplicating the prompt logic and letting the two drift.
+        var raw = new RawFeedItem
+        {
+            SourceName = item.Source,
+            Title = item.Title,
+            Url = item.Url,
+            // The transcript when there is one, because what was actually said beats a blurb.
+            Description = !string.IsNullOrWhiteSpace(item.TranscriptText)
+                ? item.TranscriptText!
+                : item.WhatHappened,
+            DefaultType = item.Type,
+            Layer = item.Layer,
+            PublishedAt = item.PublishedAt,
+            AudioUrl = item.AudioUrl,
+            TranscriptText = item.TranscriptText,
+            DurationSeconds = item.DurationSeconds,
+        };
+
+        try
+        {
+            var result = await _ai.GenerateJsonAsync<EnrichmentResult>(
+                "content-enrichment",
+                "You are Radar's content intelligence engine. Return only valid JSON matching the requested schema.",
+                BuildPrompt(raw),
+                ct);
+
+            // The fallback returns something; a real answer says why it matters. That is the
+            // field this exists to fill, so it is the field that decides success.
+            if (result is null || string.IsNullOrWhiteSpace(result.WhyItMatters)) return false;
+
+            ApplyEnrichment(item, result);
+            item.IsEnriched = true;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning("Re-enrichment failed for '{Title}': {Message}", item.Title, ex.Message);
+            return false;
+        }
+    }
+
     // ── Spend cap ─────────────────────────────────────────────────────────────
 
     private async Task<bool> IsWithinSpendCapAsync(CancellationToken ct)

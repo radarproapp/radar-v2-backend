@@ -42,6 +42,7 @@ public class ContentIngestionService : BackgroundService
 
         await BackfillTopicsAsync(ct);
         await ReconcileLayersAsync(ct);
+        await BackfillEnrichmentAsync(ct);
         await RunCycleOnceAsync(ct);
 
         using var timer = new PeriodicTimer(RssInterval);
@@ -80,6 +81,76 @@ public class ContentIngestionService : BackgroundService
     /// stamps the curated topic set of their ingestion source onto them, in one bulk update per
     /// source. It is idempotent: once an item has a Topic it is never matched again.
     /// </summary>
+    /// <summary>
+    /// Re-enriches items that carry no "why it matters", newest and most media-first.
+    /// </summary>
+    /// <remarks>
+    /// Everything ingested while the OpenRouter key was dead got the deterministic fallback: a
+    /// truncated description for `whatHappened` and nothing at all for `whyItMatters`. Measured on
+    /// staging, that was every video in the feed.
+    ///
+    /// Capped per cycle. Each item is a model call against a monthly spend cap, and a few hundred
+    /// stale items must not spend a month's budget in one pass — they will be picked up on the
+    /// next cycle instead.
+    /// </remarks>
+    private async Task BackfillEnrichmentAsync(CancellationToken ct)
+    {
+        const int perCycle = 20;
+
+        try
+        {
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<RadarDatabase>();
+            var enricher = scope.ServiceProvider.GetRequiredService<ContentEnricherService>();
+
+            var missing = Builders<ContentItem>.Filter.Or(
+                Builders<ContentItem>.Filter.Eq(c => c.WhyItMatters, string.Empty),
+                Builders<ContentItem>.Filter.Eq(c => c.WhyItMatters, null));
+
+            // Video and podcast first: they are the ones a learner is asked to spend twenty
+            // minutes on, so an unexplained one costs more than an unexplained headline.
+            var media = Builders<ContentItem>.Filter.In(c => c.Type, new[] { ContentType.Video, ContentType.Podcast });
+
+            var pending = await db.ContentItems
+                .Find(Builders<ContentItem>.Filter.And(missing, media))
+                .SortByDescending(c => c.PublishedAt)
+                .Limit(perCycle)
+                .ToListAsync(ct);
+
+            if (pending.Count < perCycle)
+            {
+                var rest = await db.ContentItems
+                    .Find(missing)
+                    .SortByDescending(c => c.PublishedAt)
+                    .Limit(perCycle - pending.Count)
+                    .ToListAsync(ct);
+
+                var seen = pending.Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
+                pending.AddRange(rest.Where(r => !seen.Contains(r.Id)));
+            }
+
+            if (pending.Count == 0) return;
+
+            var filled = 0;
+            foreach (var item in pending)
+            {
+                if (ct.IsCancellationRequested) break;
+                if (!await enricher.ReEnrichAsync(item, ct)) continue;
+
+                await db.ContentItems.ReplaceOneAsync(c => c.Id == item.Id, item, cancellationToken: ct);
+                filled++;
+            }
+
+            _log.LogInformation(
+                "Enrichment backfill: {Filled} of {Considered} items now say why they matter.",
+                filled, pending.Count);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Enrichment backfill failed; continuing.");
+        }
+    }
+
     private async Task BackfillTopicsAsync(CancellationToken ct)
     {
         try
@@ -239,6 +310,8 @@ public class ContentIngestionService : BackgroundService
 
             _lastSlowCycle = DateTime.UtcNow;
         }
+
+        await BackfillEnrichmentAsync(ct);
 
         _log.LogInformation("Ingestion cycle complete. {Total} new items added.", totalNew);
     }
