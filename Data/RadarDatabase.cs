@@ -8,6 +8,13 @@ public class RadarDatabase
 {
     private readonly IMongoDatabase _db;
 
+    static RadarDatabase()
+    {
+        // Before any collection is touched: the driver caches a class map the first time it sees
+        // a type, so a convention registered later would not apply to it.
+        BsonConventions.Register();
+    }
+
     public RadarDatabase(IConfiguration config)
     {
         var connectionString = config["MongoDB:ConnectionString"] ?? "mongodb://localhost:27017";
