@@ -523,7 +523,11 @@ Four separate faults, one root cause: nothing interpreted the goal before genera
   true of everything and therefore worth nothing. With no profile the paper carries no "why" at
   all — an unsigned-in reader is better served by silence than by a sentence about interests Radar
   does not know.
-- [ ] 8.7 Broaden the Library to 100+ areas across academic and professional interests
+- [~] 8.7 ~~Broaden the Library to 100+ areas~~ — **dropped 2026-10-23.** The Library is being
+  removed from the product: its 208 documents are general-knowledge reference (History, Gaming &
+  Esports, Art & Craft, Real Estate...), not career material for students, graduates or
+  professionals. Broadening something being hidden is work in the wrong direction. The backend
+  stays in place; see `FRONTEND_PLAN.md`.
 
 ## Phase 9 — Mentor, Capture, Summarize (spec #20, #15, #8)
 
