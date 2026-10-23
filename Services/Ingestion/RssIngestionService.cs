@@ -146,7 +146,17 @@ public class RssIngestionService
             var client = _httpFactory.CreateClient("Ingestion");
             var apiKey = _config["OpenAlex:ApiKey"];
             var suffix = string.IsNullOrWhiteSpace(apiKey) ? string.Empty : $"&api_key={apiKey}";
-            var json = await client.GetStringAsync(source.Url + suffix, ct);
+
+            // Cap the window at today, or sorting by publication_date descending returns the
+            // future. OpenAlex carries records dated 2045 and 2031 — publisher metadata, not
+            // OpenAlex's fault, but sorting newest-first puts them on top of every query. That is
+            // how a 2045 hospitality paper reached a feed labelled "just now".
+            //
+            // Substituted here rather than written into the registry, because "today" in a static
+            // string is only true on the day it is written.
+            var requestUrl = source.Url.Replace("{today}", DateTime.UtcNow.ToString("yyyy-MM-dd"), StringComparison.Ordinal);
+
+            var json = await client.GetStringAsync(requestUrl + suffix, ct);
             using var doc = JsonDocument.Parse(json);
 
             if (!doc.RootElement.TryGetProperty("results", out var results)) return items;
