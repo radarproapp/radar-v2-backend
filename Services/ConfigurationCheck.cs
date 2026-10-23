@@ -29,6 +29,8 @@ public static class ConfigurationCheck
         "OpenRouter:ApiKey",
         "YouTube:ApiKey",
         "Auth:Jwt:Key",
+        "Cors:Strict",
+        "Cors:AllowedOrigins:0",
     ];
 
     /// <summary>

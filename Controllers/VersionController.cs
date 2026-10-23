@@ -72,6 +72,22 @@ public class VersionController : ControllerBase
                 mongo = !string.IsNullOrWhiteSpace(_config["MongoDB:ConnectionString"]),
             },
 
+            // What CORS is actually doing, as opposed to what the dashboard says it was set to.
+            //
+            // Production spent a morning rejecting its own frontend because Cors:Strict resolved
+            // true while the allow-list named domains that were not yet wired up. Nothing in the
+            // API said so: every response was a valid 200 with no Access-Control-Allow-Origin
+            // header, which a browser turns into a blocked request and a server log turns into
+            // nothing at all. The only way to see it was to guess the right curl.
+            //
+            // Names no secret - an allow-list is public by construction, since it is echoed back
+            // to any origin that matches it.
+            cors = new
+            {
+                strict = _config.GetValue("Cors:Strict", false),
+                allowedOrigins = _config.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [],
+            },
+
             // When this process started. Variables are read once at startup, so a variable changed
             // on the host does nothing until the container restarts — and a redeploy of the same
             // commit looks identical by sha. Without this there is no way to tell "the rename did
