@@ -179,6 +179,23 @@ public sealed class OpenRouterAiEngine : IAiEngine
                         await RecordActivityAsync(feature, null, "LLM", true, sw.ElapsedMilliseconds, "Text generated via OpenRouter", ct);
                         return content;
                     }
+
+                    _log.LogWarning(
+                        "OpenRouter returned 200 for {Feature} with no message content; using the deterministic fallback.",
+                        feature);
+                }
+                else
+                {
+                    // Previously this fell through in silence. A rejected key, an exhausted
+                    // credit balance or a rate limit all produce a non-success status rather than
+                    // an exception, so the catch below never saw them - every call could be
+                    // failing and the only symptom was prose that read slightly generically.
+                    var error = await response.Content.ReadAsStringAsync(ct);
+                    _log.LogError(
+                        "OpenRouter rejected {Feature}: HTTP {Status}. {Body}",
+                        feature,
+                        (int)response.StatusCode,
+                        error.Length > 400 ? error[..400] : error);
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -455,7 +472,7 @@ public sealed class OpenRouterAiEngine : IAiEngine
         // 3. Mentor Quiz Generation
         if (feature.Contains("quiz") || feature.Contains("mentor-generation"))
         {
-            var topic = ExtractTopic(prompt);
+            var topic = ExtractTopic(prompt) ?? "this topic";
             return $$"""
             {
               "nextMove": "Your next move: Practice applying the concepts from this quiz in a real code or architecture scenario.",
@@ -517,7 +534,7 @@ public sealed class OpenRouterAiEngine : IAiEngine
         // 4. Dynamic Study Plan
         if (feature.Contains("study-plan"))
         {
-            var topic = ExtractTopic(prompt);
+            var topic = ExtractTopic(prompt) ?? "this topic";
             return $$"""
             {
               "weeks": [
@@ -597,21 +614,24 @@ public sealed class OpenRouterAiEngine : IAiEngine
     {
         var topic = ExtractTopic(userPrompt);
 
+        // No invented explanation. What this used to return - "X is a structured methodology
+        // designed to solve complex operational challenges by breaking them into manageable,
+        // measurable components" - was true of nothing in particular and was shown to the reader
+        // in the same register as a real answer, so there was no way to tell them apart.
         if (feature.Contains("research") || feature.Contains("explain"))
         {
-            return $"### Core Concept: {topic}\n\n" +
-                   $"**In Simple Terms:** {topic} is a structured methodology designed to solve complex operational challenges by breaking them into manageable, measurable components.\n\n" +
-                   $"**Why It Matters:** Mastering this allows you to build reliable systems and make informed strategic decisions based on verified evidence.\n\n" +
-                   $"**Your Next Move:** Review the fundamental architecture and execute a small sandbox test to observe its behavior firsthand.";
+            return topic is null
+                ? "Radar could not write a plain-English summary of this one right now. The original is linked above."
+                : $"Radar could not write a plain-English summary of {topic} right now. The original is linked above.";
         }
 
-        return $"Analysis for {topic}: The central AI engine has evaluated the parameters against your profile and roadmap. Review the structured findings to take your next concrete action.";
+        return "Radar could not generate this right now. Nothing here is a stand-in for it.";
     }
 
     private IEnumerable<string> GetDeterministicChatStream(string feature, string systemPrompt, IReadOnlyCollection<ChatMessage> messages)
     {
         var lastMsg = messages.LastOrDefault()?.Content ?? "learning topic";
-        var topic = ExtractTopic(lastMsg);
+        var topic = ExtractTopic(lastMsg) ?? "this topic";
 
         var intro = $"Let's break down **{topic}** from first principles.\n\n";
         var explanation = $"### 1. The Core Concept\n" +
@@ -626,13 +646,32 @@ public sealed class OpenRouterAiEngine : IAiEngine
         yield return explanation;
     }
 
-    private static string ExtractTopic(string text)
+    /// <summary>
+    /// The subject a prompt is about, or null when it cannot be told.
+    ///
+    /// The previous version had no word boundary on its alternatives, so the "on" in "London
+    /// WC2E 7PN" matched and the extracted topic was the postcode - which the deterministic
+    /// fallback then described to the reader as "a structured methodology designed to solve
+    /// complex operational challenges". Its other branch returned the prompt's first word, which
+    /// is how a paper came back explained as the concept "Explain".
+    ///
+    /// Returns null rather than a guess. A caller that cannot name the subject should say less,
+    /// not say something confident about a postcode.
+    /// </summary>
+    private static string? ExtractTopic(string text)
     {
-        if (string.IsNullOrWhiteSpace(text)) return "Core Topic";
-        var match = Regex.Match(text, @"(?:topic|learn|about|teach me|on)\s+['""]?([A-Za-z0-9\s#\+\-\.]{3,30})['""]?", RegexOptions.IgnoreCase);
-        if (match.Success) return match.Groups[1].Value.Trim();
-        var words = text.Split(new[] { ' ', '\n', '\r', '?' }, StringSplitOptions.RemoveEmptyEntries);
-        return words.Length > 0 ? words[0] : "Core Concept";
+        if (string.IsNullOrWhiteSpace(text)) return null;
+
+        var match = Regex.Match(
+            text,
+            @"\b(?:topic|learn about|teach me about|about)\s+['""]?([A-Za-z0-9\s#\+\-\.]{3,40}?)['""]?(?:[\.\n\r]|$)",
+            RegexOptions.IgnoreCase,
+            TimeSpan.FromMilliseconds(100));
+
+        if (!match.Success) return null;
+
+        var topic = match.Groups[1].Value.Trim();
+        return string.IsNullOrWhiteSpace(topic) ? null : topic;
     }
 
     private async Task<bool> WithinBudgetAsync(string feature, CancellationToken ct)

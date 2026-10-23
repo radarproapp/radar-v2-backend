@@ -123,8 +123,30 @@ The fastest way to simplify is to delete. Also the fastest way to restore trust.
   generation returns null and the grounded template is used instead. The prompt names the actual
   failure ("logistics and agriculture can align with your cybersecurity skills") as the thing to
   avoid. `relevance` is surfaced on the API so the feed can later drop weak items outright.
-- [ ] 4.6 **Verify against the live model.** Everything above is verified structurally, but the
-  prompt's actual output quality cannot be judged without an OpenRouter key — there is none in dev.
+- [x] 4.6 ~~Verify against the live model~~ — done on staging, which has its own key, its own
+  database and a $5 cap. **The model was not being reached at all**, and the fallback was hiding
+  it:
+  - `GenerateTextAsync` only logged on *exceptions*. A non-success HTTP status — a rejected key,
+    exhausted credit, a rate limit — fell through to the deterministic fallback in silence. Every
+    call could fail and the only symptom was prose that read slightly generically. Now logged with
+    status and body.
+  - `isCloudLlmActive` reports `true` from "has a key and is within budget", not from calls
+    succeeding, so the status endpoint said healthy while nothing worked.
+  - `ExtractTopic` had no word boundary, so the "on" in "**Lond**on WC2E 7PN" matched and the
+    topic became the postcode — which the fallback then described to the reader as "a structured
+    methodology designed to solve complex operational challenges". Its other branch returned the
+    prompt's first word, so one paper came back explained as the concept "Explain". It returns
+    null now instead of guessing.
+  - The explain fallback itself was the 4.5 problem again: a paragraph true of nothing in
+    particular, written in the register of a real answer. It now says it could not summarise and
+    points at the original.
+  **Still open:** the quiz and study-plan fallbacks invent questions and explanations the same
+  way. Filed as 4.6b rather than widened into here.
+- [ ] 4.6b The quiz and study-plan deterministic fallbacks invent content ("What is the primary
+  architectural principle governing {topic}?", "{topic} relies fundamentally on separation of
+  concerns"). Same class as 4.5; needs the same treatment.
+- [ ] 4.6c Find out *why* OpenRouter rejects the calls — the new logging will name it on the next
+  staging deploy.
 - [x] 4.5 ~~Replace the one-size deterministic fallback, or suppress the section~~ — suppressed,
   which the item offers as the second option and is the right one here. "Your Edge" was removed
   from the interface in 1.2 and dropped from the AI contract in 4.3, yet the deterministic
