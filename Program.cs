@@ -342,9 +342,36 @@ if (!app.Environment.IsDevelopment())
         context.Response.Clear();
         context.Response.StatusCode = StatusCodes.Status500InternalServerError;
         context.Response.ContentType = "application/json";
+
+        // Outside production, say what actually broke.
+        //
+        // Staging exists to be diagnosed. Without this, finding a fault there means reading the
+        // host's log dashboard, which is a slower loop than the one that caused the bug — and
+        // when the message is "Something went wrong" the only remaining tool is guessing. The
+        // type, the message and the top frames are enough to act on and are withheld in
+        // production, where an error body reaches real users.
+        var error = feature?.Error;
+        var detail = app.Environment.IsProduction() || error is null
+            ? null
+            : new
+            {
+                type = error.GetType().FullName,
+                message = error.Message,
+                at = error.StackTrace?
+                    .Split('\n')
+                    .Select(line => line.Trim())
+                    .Where(line => line.Length > 0)
+                    .Take(4)
+                    .ToArray(),
+                inner = error.InnerException is null
+                    ? null
+                    : $"{error.InnerException.GetType().Name}: {error.InnerException.Message}",
+            };
+
         await context.Response.WriteAsJsonAsync(new
         {
             error = "Something went wrong handling that request.",
+            detail,
         });
     }));
 
