@@ -144,6 +144,8 @@ public static class InterestPersonalization
             _ => 0,
         };
         if (profile.Persona == PersonaType.Researcher && opportunity.Type == OpportunityType.ResearchGrant) score += 10;
+        if (profile.Persona == PersonaType.YoungProfessional && opportunity.Type is OpportunityType.Job or OpportunityType.RemoteJob or OpportunityType.Fellowship) score += 12;
+        if (profile.Persona == PersonaType.Graduate && opportunity.Type is OpportunityType.GraduateProgramme or OpportunityType.Internship or OpportunityType.Fellowship) score += 12;
         if (profile.Persona == PersonaType.Student && opportunity.Type is OpportunityType.Internship or OpportunityType.Scholarship) score += 8;
         if (profile.Persona == PersonaType.Entrepreneur && opportunity.Type is OpportunityType.StartupAccelerator or OpportunityType.Competition) score += 8;
 

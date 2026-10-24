@@ -630,6 +630,14 @@ public class MongoOpportunityService : IOpportunityService
 
         var personaPoints = profile.Persona switch
         {
+            // Graduate appeared in no scoring at all, so a graduate fell to the default and got
+            // no persona matching whatsoever — while OpportunityType.GraduateProgramme, the
+            // single most relevant type there is for one, matched nobody. Two gaps that only
+            // existed because nothing was ever written for the persona in between studying and
+            // working.
+            PersonaType.Graduate when opp.Type is OpportunityType.GraduateProgramme
+                or OpportunityType.Internship or OpportunityType.Fellowship
+                or OpportunityType.Training or OpportunityType.Bootcamp => 10,
             PersonaType.Student when opp.Type is OpportunityType.Internship or OpportunityType.Scholarship or OpportunityType.Bootcamp => 8,
             PersonaType.YoungProfessional when opp.Type is OpportunityType.Job or OpportunityType.Fellowship or OpportunityType.RemoteJob => 8,
             PersonaType.Entrepreneur when opp.Type is OpportunityType.StartupAccelerator or OpportunityType.ResearchGrant or OpportunityType.Funding => 10,
