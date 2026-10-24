@@ -160,6 +160,63 @@ public class MeController : ControllerBase
         return Ok(profile);
     }
 
+    public sealed class CreateProfileRequest
+    {
+        public PersonaType Persona { get; set; }
+        public string? Label { get; set; }
+    }
+
+    /// <summary>
+    /// Every profile on this account, and which one is in use.
+    /// </summary>
+    /// <remarks>
+    /// A student who graduates should not have to overwrite themselves. Each profile carries its
+    /// own path, feed, saved items and history — that was already true of the data model, since
+    /// everything is keyed by profile id; there was simply no way to own a second one.
+    /// </remarks>
+    [HttpGet("profiles")]
+    public async Task<IActionResult> GetProfilesAsync()
+    {
+        var current = await _profiles.GetCurrentUserAsync();
+        var all = await _profiles.GetProfilesAsync();
+
+        return Ok(new
+        {
+            activeProfileId = current?.Id,
+            profiles = all.Select(p => new
+            {
+                id = p.Id,
+                label = string.IsNullOrWhiteSpace(p.Label) ? p.Persona.ToString() : p.Label,
+                persona = p.Persona.ToString(),
+                primaryGoal = p.PrimaryGoal,
+                interests = p.Interests,
+                onboardingComplete = p.OnboardingComplete,
+                createdAt = p.CreatedAt,
+                isActive = p.Id == current?.Id,
+            }),
+        });
+    }
+
+    [HttpPost("profiles")]
+    public async Task<IActionResult> CreateProfileAsync([FromBody] CreateProfileRequest request, CancellationToken ct = default)
+    {
+        if (!ModelState.IsValid) return ValidationProblem();
+
+        var created = await _profiles.CreateProfileAsync(request.Persona, request.Label, ct);
+        if (created is null) return NotFound(new { error = "Profile not found" });
+
+        // Returned with onboardingComplete false, so the client knows to ask the two questions
+        // for this persona rather than assuming the previous profile's answers carry over.
+        return Ok(new { id = created.Id, label = created.Label, persona = created.Persona.ToString(), onboardingComplete = false });
+    }
+
+    [HttpPost("profiles/{profileId}/activate")]
+    public async Task<IActionResult> ActivateProfileAsync(string profileId, CancellationToken ct = default)
+    {
+        var switched = await _profiles.ActivateProfileAsync(profileId, ct);
+        return switched ? NoContent() : NotFound(new { error = "No such profile on this account." });
+    }
+
     [HttpPost("onboarding-complete")]
     public async Task<IActionResult> CompleteOnboardingAsync([FromBody] UpdateProfileRequest request)
     {

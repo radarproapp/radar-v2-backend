@@ -45,7 +45,7 @@ public class AdminController : ControllerBase
     /// Sorted by how long a source has been silent, because the interesting ones are the ones
     /// that have stopped.
     /// </remarks>
-    [HttpGet("sources")]
+    [HttpGet("source-health")]
     public async Task<IActionResult> GetSourceHealthAsync(CancellationToken ct = default)
     {
         var health = await _db.SourceHealth

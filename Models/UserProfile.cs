@@ -3,6 +3,23 @@ namespace RadarV2.Models;
 public class UserProfile
 {
     public string Id { get; set; } = Guid.NewGuid().ToString();
+
+    /// <summary>
+    /// The account this profile belongs to.
+    /// </summary>
+    /// <remarks>
+    /// Added so one account can hold several profiles — a student who graduates keeps their
+    /// student path and starts a graduate one beside it, rather than overwriting themselves.
+    ///
+    /// The rest of Radar already works this way without knowing it: roadmaps, saved items,
+    /// captures, notes and behavioural signals are all keyed by the profile id, so each profile
+    /// already has its own feed, its own path and its own history. What was missing was any way
+    /// to have a second one. Backfilled on read for profiles written before this existed.
+    /// </remarks>
+    public string UserId { get; set; } = string.Empty;
+
+    /// <summary>What the learner calls this profile. Defaults to the persona.</summary>
+    public string Label { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
     public string Role { get; set; } = "User";
