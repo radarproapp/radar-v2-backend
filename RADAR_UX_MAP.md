@@ -229,5 +229,32 @@ Two things learned writing it, both recorded as tests:
   item; on a profile that has said nothing there is no honest sentence to write, only an LLM
   call spent inventing one.
 
-Still to do, in order: Opportunities into Intelligence (§3.1), Research Discovery into the Hub
-(§3.2).
+### §3.1 — Opportunities into Intelligence
+
+Done. It is a row in the Intelligence sidebar, on the same route, with the pipeline and deadline
+tracking unchanged. The switcher and the mobile tabbar now offer two products and an account.
+
+### §3.2 — Research Discovery into the Hub
+
+**Blocked on data, not on UI.** The backend is intact and the page can be built in an afternoon.
+What it would have been built on could not ship:
+
+`ResearchPaperCatalog` was 353 hand-written lines returned ahead of the live OpenAlex results,
+describing itself as peer-reviewed work with real DOIs and verified publishers. Six of its eight
+DOIs resolve to 404 at doi.org. The authors, journals, methodologies and statistics were written
+by hand, and a citation endpoint would format any of them into a reference list on request.
+
+It is deleted, along with a fabricated paper in the feed seed and sixteen seeded opportunities —
+five invented fellowships, three invented job openings, and sixteen deadlines computed from
+`DateTime.UtcNow` including those of eight real programmes. Three tests fail the build on a
+return.
+
+So Research Discovery is now a page over `GET /api/research/search`, which is OpenAlex and only
+OpenAlex: real papers, real DOIs, real open-access links, and an empty result when nothing
+matches. That is the next thing to build.
+
+### Then
+
+- The merged Learning Goal Box: one prominent box, then the two existing follow-ups.
+- "Learn This Skill" on a feed card.
+- Persona-shaped document assessment (essay / CV / report).
