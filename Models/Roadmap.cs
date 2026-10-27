@@ -1,3 +1,4 @@
+using MongoDB.Bson.Serialization.Attributes;
 namespace RadarV2.Models;
 
 public class GrowthRoadmap
@@ -96,6 +97,32 @@ public class RoadmapLesson
     /// finds nothing on YouTube; "hospital nurse management for beginners" finds the lesson.
     /// </summary>
     public string? SearchHint { get; set; }
+
+    /// <summary>
+    /// Five videos and two articles for this lesson, each summarised.
+    /// </summary>
+    /// <remarks>
+    /// Per lesson rather than per stage. Resources used to attach to the module, and when none
+    /// matched the module's level the code fell back to handing it every resource on the path —
+    /// so a lesson on ARP spoofing could show the same list as a lesson on VLAN hopping.
+    ///
+    /// Fewer than seven is normal and not padded. A lesson with three real videos and no article
+    /// shows three videos; filling the gap with a search link would be a resource in name only,
+    /// which is the same reason podcasts are absent from LearningResourceType.
+    /// </remarks>
+    public List<LessonResource> Resources { get; set; } = [];
+
+    /// <summary>
+    /// Videos for this lesson, newest search first.
+    /// </summary>
+    [BsonIgnore]
+    public IEnumerable<LessonResource> Videos =>
+        Resources.Where(r => r.Kind == LessonResourceKind.Video);
+
+    /// <summary>Articles and blog posts for this lesson.</summary>
+    [BsonIgnore]
+    public IEnumerable<LessonResource> Articles =>
+        Resources.Where(r => r.Kind == LessonResourceKind.Article);
 }
 
 public enum LearningResourceType

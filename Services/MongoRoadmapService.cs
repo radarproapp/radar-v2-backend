@@ -12,6 +12,7 @@ public class MongoRoadmapService : IRoadmapService
     private readonly IAiEngine _ai;
     private readonly IUserLearningRecordService _records;
     private readonly YouTubeSearchService _youtube;
+    private readonly LessonResourceService _lessonResources;
     private readonly ILogger<MongoRoadmapService> _log;
 
     public MongoRoadmapService(
@@ -19,12 +20,14 @@ public class MongoRoadmapService : IRoadmapService
         IAiEngine ai,
         IUserLearningRecordService records,
         YouTubeSearchService youtube,
+        LessonResourceService lessonResources,
         ILogger<MongoRoadmapService> log)
     {
         _db = db;
         _ai = ai;
         _records = records;
         _youtube = youtube;
+        _lessonResources = lessonResources;
         _log = log;
     }
 
@@ -1000,7 +1003,53 @@ public class MongoRoadmapService : IRoadmapService
             roadmap.CurrentStage = "Beginner";
         }
 
+        // Five videos and two articles per lesson, rather than one list per stage.
+        //
+        // After the stage resources, because this needs the modules in place — and inside the
+        // same method so every route that builds or reads a roadmap gets it, instead of only the
+        // one somebody remembered to call.
+        await _lessonResources.FillAsync(roadmap, ct);
+        WarmLessonVideosForEmptyLessons(roadmap);
+
         RecalculateMastery(roadmap);
+    }
+
+    /// <summary>
+    /// Queues searches for lessons that still have no videos.
+    /// </summary>
+    /// <remarks>
+    /// Capped the same way the old single-video warm was: a search costs 100 quota units against
+    /// 10,000 a day, so one page view must not be able to spend a meaningful share of it. Five
+    /// results per search instead of three costs nothing extra — the price is per request.
+    /// </remarks>
+    private void WarmLessonVideosForEmptyLessons(GrowthRoadmap roadmap)
+    {
+        if (!_youtube.IsConfigured) return;
+
+        var queries = roadmap.Modules
+            .SelectMany(m => m.Lessons ?? [])
+            .Where(l => !l.Videos.Any() && !string.IsNullOrWhiteSpace(l.Title))
+            .Select(l => !string.IsNullOrWhiteSpace(l.SearchHint) ? l.SearchHint! : l.Title)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(4)
+            .ToList();
+
+        if (queries.Count == 0) return;
+
+        _ = Task.Run(async () =>
+        {
+            foreach (var query in queries)
+            {
+                try
+                {
+                    await _youtube.SearchAndCacheAsync(query, take: 5);
+                }
+                catch (Exception ex)
+                {
+                    _log.LogWarning(ex, "Background YouTube warm failed for {Query}", query);
+                }
+            }
+        });
     }
 
 

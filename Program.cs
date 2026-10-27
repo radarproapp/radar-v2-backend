@@ -256,6 +256,7 @@ builder.Services.AddHostedService<StartupRepairService>();
 builder.Services.AddScoped<PlaybackService>();
 builder.Services.AddScoped<UserGraphService>();
 builder.Services.AddScoped<DocumentAssessmentService>();
+builder.Services.AddScoped<LessonResourceService>();
 builder.Services.AddScoped<TaddyClient>();
 builder.Services.AddScoped<GroqWhisperClient>();
 // Registered as a singleton so the scheduled-jobs endpoint can trigger a cycle on demand, and
