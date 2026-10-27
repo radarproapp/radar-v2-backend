@@ -85,34 +85,40 @@ public sealed class OpenRouterAiEngine : IAiEngine
     /// quiz is not, and reserving sixteen thousand tokens for a four-hundred-token answer is how
     /// a key with headroom stops working.
     /// </summary>
-    /// <summary>
-    /// How long to wait before trying a rejected request again, or null when trying again is
-    /// pointless.
-    ///
-    /// Most non-success statuses are terminal for the call: a rejected key or a malformed request
-    /// will be rejected identically a quarter of a second later. One is not. OpenRouter answers
-    /// 402 with reason "in_flight_budget_exhausted" when the requests already in flight have
-    /// reserved the available credit — "retry after in-flight requests settle, or add credits" —
-    /// and the enricher runs four at a time, so they exhaust it against each other.
-    ///
-    /// Measured on staging: enrichment calls failing with exactly this while other calls on the
-    /// same key succeeded. A 250 ms backoff cannot help, because what has to happen is a sibling
-    /// request finishing. Seconds can.
-    /// </summary>
-    private static TimeSpan? RetryDelayFor(string? errorBody, int attempt)
-    {
-        if (string.IsNullOrEmpty(errorBody)) return TimeSpan.FromMilliseconds(250 * attempt);
-
-        return errorBody.Contains("in_flight_budget_exhausted", StringComparison.OrdinalIgnoreCase)
-               || errorBody.Contains("in-flight requests settle", StringComparison.OrdinalIgnoreCase)
-            ? TimeSpan.FromSeconds(1.5 * attempt)
-            : TimeSpan.FromMilliseconds(250 * attempt);
-    }
-
     private int MaxOutputTokens(string feature) =>
         IsGeneration(feature)
             ? _config.GetValue("OpenRouter:GenerationMaxTokens", 8000)
             : _config.GetValue("OpenRouter:MaxTokens", 1600);
+
+    /// <summary>
+    /// How long to wait before trying a rejected request again.
+    ///
+    /// Most non-success statuses are terminal for the call: a rejected key or a malformed request
+    /// will be rejected identically a quarter of a second later, and making the reader wait for
+    /// that helps nobody. Two are not terminal, and both were being treated as though they were.
+    ///
+    /// 402 "in_flight_budget_exhausted" means the requests already in flight have reserved the
+    /// available credit — "retry after in-flight requests settle, or add credits". The enricher
+    /// runs four at a time, so they exhaust it against each other.
+    ///
+    /// 429 is the upstream provider rate-limiting us, which deepseek does under load. Measured on
+    /// staging: a research-gaps call losing to one, in the same window as calls that succeeded.
+    ///
+    /// Both need seconds, because what has to happen is somebody else's request finishing. A
+    /// 250 ms backoff only spends the retry.
+    /// </summary>
+    private static TimeSpan RetryDelayFor(int statusCode, string? errorBody, int attempt)
+    {
+        var slow = statusCode == 429
+                   || (errorBody is not null
+                       && (errorBody.Contains("in_flight_budget_exhausted", StringComparison.OrdinalIgnoreCase)
+                           || errorBody.Contains("in-flight requests settle", StringComparison.OrdinalIgnoreCase)
+                           || errorBody.Contains("rate limit", StringComparison.OrdinalIgnoreCase)));
+
+        return slow
+            ? TimeSpan.FromSeconds(1.5 * attempt)
+            : TimeSpan.FromMilliseconds(250 * attempt);
+    }
 
     public async Task<T?> GenerateJsonAsync<T>(string feature, string systemPrompt, string userPrompt, CancellationToken ct = default)
     {
@@ -182,9 +188,9 @@ public sealed class OpenRouterAiEngine : IAiEngine
                         var detail = await response.Content.ReadAsStringAsync(ct);
                         failureReason = $"HTTP {(int)response.StatusCode} {response.StatusCode}: {Trim(detail)}";
                         _log.LogWarning("OpenRouter feature {Feature} returned {Status} on attempt {Attempt}: {Detail}", feature, response.StatusCode, attempt, detail);
-                        var backoff = RetryDelayFor(detail, attempt);
-                        if (attempt == maxAttempts || backoff is null || sw.Elapsed + backoff.Value >= deadline) break;
-                        await Task.Delay(backoff.Value, ct);
+                        var backoff = RetryDelayFor((int)response.StatusCode, detail, attempt);
+                        if (attempt == maxAttempts || sw.Elapsed + backoff >= deadline) break;
+                        await Task.Delay(backoff, ct);
                         continue;
                     }
 
@@ -320,9 +326,9 @@ public sealed class OpenRouterAiEngine : IAiEngine
                         attempt,
                         error.Length > 400 ? error[..400] : error);
 
-                    var backoff = RetryDelayFor(error, attempt);
-                    if (attempt == maxAttempts || backoff is null || sw.Elapsed + backoff.Value >= deadline) break;
-                    await Task.Delay(backoff.Value, ct);
+                    var backoff = RetryDelayFor((int)response.StatusCode, error, attempt);
+                    if (attempt == maxAttempts || sw.Elapsed + backoff >= deadline) break;
+                    await Task.Delay(backoff, ct);
                 }
                 catch (Exception ex) when (attempt < maxAttempts && sw.Elapsed < deadline && ex is not OperationCanceledException)
                 {

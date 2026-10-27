@@ -93,13 +93,13 @@ public class AiFallbackHonestyTests
         Assert.Contains("could not", text, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static TimeSpan? RetryDelay(string? errorBody, int attempt)
+    private static TimeSpan RetryDelay(int statusCode, string? errorBody, int attempt)
     {
         var method = typeof(OpenRouterAiEngine).GetMethod(
             "RetryDelayFor", BindingFlags.Static | BindingFlags.NonPublic);
         Assert.NotNull(method);
 
-        return (TimeSpan?)method!.Invoke(null, [errorBody, attempt]);
+        return (TimeSpan)method!.Invoke(null, [statusCode, errorBody, attempt])!;
     }
 
     /// <summary>
@@ -119,10 +119,9 @@ public class AiFallbackHonestyTests
             + "current in-flight requests. Retry after in-flight requests settle, or add credits.\","
             + "\"code\":402,\"metadata\":{\"reason\":\"in_flight_budget_exhausted\"}}}";
 
-        var delay = RetryDelay(inFlight, 1);
+        var delay = RetryDelay(402, inFlight, 1);
 
-        Assert.NotNull(delay);
-        Assert.True(delay!.Value >= TimeSpan.FromSeconds(1), $"Backed off only {delay}.");
+        Assert.True(delay >= TimeSpan.FromSeconds(1), $"Backed off only {delay}.");
     }
 
     // Everything else keeps the short backoff: a rejected key is rejected just as fast a second
@@ -130,18 +129,33 @@ public class AiFallbackHonestyTests
     [Fact]
     public void OtherRejectionsKeepTheShortBackoff()
     {
-        var delay = RetryDelay("{\"error\":{\"message\":\"User not found.\",\"code\":401}}", 1);
+        var delay = RetryDelay(401, "{\"error\":{\"message\":\"User not found.\",\"code\":401}}", 1);
 
-        Assert.NotNull(delay);
-        Assert.True(delay!.Value < TimeSpan.FromSeconds(1), $"Backed off {delay} on a terminal error.");
+        Assert.True(delay < TimeSpan.FromSeconds(1), $"Backed off {delay} on a terminal error.");
     }
 
     [Fact]
     public void TheBackoffGrowsWithTheAttempt()
     {
-        var first = RetryDelay("in_flight_budget_exhausted", 1);
-        var second = RetryDelay("in_flight_budget_exhausted", 2);
+        var first = RetryDelay(402, "in_flight_budget_exhausted", 1);
+        var second = RetryDelay(402, "in_flight_budget_exhausted", 2);
 
         Assert.True(second > first);
+    }
+
+    /// <summary>
+    /// 429 is the upstream provider rate-limiting us, and it was getting the terminal backoff.
+    ///
+    /// Found only because the text path started reporting its reason: a research-gaps call lost
+    /// to "Provider returned error, code 429" from deepseek, in the same window as calls that
+    /// succeeded. Before that commit the activity row read "Text generated via resilient brain"
+    /// and this was invisible.
+    /// </summary>
+    [Fact]
+    public void AProviderRateLimitWaitsLongEnoughToBeWorthRetrying()
+    {
+        var delay = RetryDelay(429, "{\"error\":{\"message\":\"Provider returned error\",\"code\":429}}", 1);
+
+        Assert.True(delay >= TimeSpan.FromSeconds(1), $"Backed off only {delay} on a rate limit.");
     }
 }
