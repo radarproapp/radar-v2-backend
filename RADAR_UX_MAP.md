@@ -165,12 +165,35 @@ From the guide, and from what this codebase has already paid to learn:
 
 ---
 
-## 7. Open questions
+## 7. Decided
 
-1. **Does the product owner accept Opportunities as a destination inside Intelligence** rather
-   than a third product? The guide implies it; it does not say it outright.
-2. **What does the unpersonalised feed actually contain?** "Latest" is honest but currently means
-   sport and entertainment, because the source list skews that way. This needs the source work
-   finished before deferred personalisation is safe to ship.
-3. **Does "requirement" mean soft or hard?** This document assumes soft: a persistent invitation,
-   enforced per feature at the point of use, never a wall at the door.
+Answered by the product owner, 2026-10-27.
+
+1. **Opportunities sits inside Intelligence.** Agreed. Two products at the top level.
+2. **Personalisation is a hard requirement.** The feed does not populate until the three boxes
+   are answered. Not a card among many — the prompt *is* the screen.
+3. **The unpersonalised feed is empty**, save for one or two general items so it is not a void.
+
+That third answer removes the dependency this document was worried about. If an unpersonalised
+user sees an empty feed rather than a generic one, the source mix no longer has to be fixed
+before this ships — nobody meets sport under a heading promising relevance, because nobody meets
+a populated feed at all.
+
+It also makes all three surfaces consistent for the first time:
+
+| | before personalising |
+| --- | --- |
+| Intelligence | empty feed, with the three questions |
+| Learn | empty path, with the three questions |
+| Opportunities | nothing to match against, with the reason |
+
+### How "personalised" is decided
+
+Derived, not flagged: **at least one interest and at least one goal.**
+
+A stored flag would need a migration and would lie about anyone who completed the older
+onboarding, which never asked for goals. Deriving it means those users are correctly treated as
+not yet personalised and asked once — three boxes, not six steps — and no migration is needed.
+
+Opportunity preferences are asked for but not required. Someone who wants nothing applied for
+should still get a feed.

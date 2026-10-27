@@ -2,6 +2,7 @@ using MongoDB.Driver;
 using RadarV2.Data;
 using RadarV2.Data.Documents;
 using RadarV2.Models;
+using RadarV2.Services.Ingestion;
 using RadarV2.Services.Interfaces;
 
 namespace RadarV2.Services;
@@ -22,6 +23,15 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
     public async Task<List<ContentItem>> GetFeedAsync(UserProfile profile, ContentType? filterType = null, int page = 1, int pageSize = 20)
     {
         await EnsureSeedDataAsync();
+
+        // Nothing is theirs until they have said what theirs means.
+        //
+        // The alternative — rank the whole corpus on an empty profile — produces a feed of
+        // whatever published most recently, which on this source mix is sport and entertainment.
+        // Shown under a heading that promises relevance, that teaches a new user Radar does not
+        // know them, and the lesson is hard to undo. A handful of credible items and a plain
+        // explanation is the honest version.
+        if (!profile.IsPersonalised) return await GeneralSampleAsync();
 
         var dismissedIds = !string.IsNullOrEmpty(profile.Id)
             ? await GetDismissedItemIdsAsync(profile.Id)
@@ -91,9 +101,14 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
             HasMore = hasMore,
             // Only costs queries when there is nothing to show, which is the one moment it is
             // worth spending them: the alternative is a blank page and a guess.
-            EmptyReason = batch.Count > 0
-                ? FeedEmptyReason.NotEmpty
-                : await DiagnoseEmptyAsync(filterType, dismissedIds),
+            // Said even when the sample is non-empty. Two general items are not a feed, and the
+            // client has to know the difference — this is what tells it to show the three
+            // questions rather than a heading promising relevance.
+            EmptyReason = !profile.IsPersonalised
+                ? FeedEmptyReason.NotPersonalisedYet
+                : batch.Count > 0
+                    ? FeedEmptyReason.NotEmpty
+                    : await DiagnoseEmptyAsync(filterType, dismissedIds),
         };
     }
 
@@ -163,6 +178,47 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
     /// Orders the feed by fit. The record is built once and reused: it is derived on read, so
     /// scoring each item separately would rebuild it for every item in the list.
     /// </summary>
+    /// <summary>
+    /// A couple of items for someone who has not personalised, so the screen is not a void.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately small and deliberately not ranked. These are not a feed and must not look
+    /// like one: the personalisation prompt is the content of that screen, and these sit under
+    /// it as a sample of what Radar carries.
+    ///
+    /// Tier 1 only. If two items are all somebody sees before deciding whether this product is
+    /// for them, they should come from the most credible sources on the list.
+    /// </remarks>
+    private async Task<List<ContentItem>> GeneralSampleAsync()
+    {
+        const int sample = 2;
+
+        var tierOneSources = SourceRegistry.All
+            .Where(source => source.Tier == 1)
+            .Select(source => source.Id)
+            .ToList();
+
+        var filter = Builders<ContentItem>.Filter.In(i => i.IngestionSourceId, tierOneSources);
+
+        var items = await _db.ContentItems
+            .Find(filter)
+            .SortByDescending(i => i.PublishedAt)
+            .Limit(sample)
+            .ToListAsync();
+
+        // No tier 1 content yet — a new deployment. Anything recent beats an empty screen.
+        if (items.Count == 0)
+        {
+            items = await _db.ContentItems
+                .Find(FilterDefinition<ContentItem>.Empty)
+                .SortByDescending(i => i.PublishedAt)
+                .Limit(sample)
+                .ToListAsync();
+        }
+
+        return items;
+    }
+
     private static void RankByInterest(UserProfile profile, List<ContentItem> items, UserLearningRecord? record = null) =>
         items.Sort((a, b) => InterestPersonalization.ContentScore(b, profile, record)
             .CompareTo(InterestPersonalization.ContentScore(a, profile, record)));

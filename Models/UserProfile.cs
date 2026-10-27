@@ -1,3 +1,4 @@
+using MongoDB.Bson.Serialization.Attributes;
 namespace RadarV2.Models;
 
 public class UserProfile
@@ -36,6 +37,16 @@ public class UserProfile
     public string TargetRole { get; set; } = string.Empty;
     public string TargetIndustry { get; set; } = string.Empty;
     public List<string> Capabilities { get; set; } = [];
+    /// <summary>
+    /// What the learner wants to achieve — box 2 of personalisation.
+    /// </summary>
+    /// <remarks>
+    /// A list, because the box allows several and people have several: find a job, learn a
+    /// skill, win a scholarship. <see cref="PrimaryGoal"/> is a single string and stays for the
+    /// learning path, which is built around one goal at a time.
+    /// </remarks>
+    public List<string> Goals { get; set; } = [];
+
     public List<string> OpportunityPreferences { get; set; } = [];
     public List<string> Geography { get; set; } = [];
     public List<string> DecisionNeeds { get; set; } = [];
@@ -48,6 +59,22 @@ public class UserProfile
     public NotificationPrefs Notifications { get; set; } = new();
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public bool OnboardingComplete { get; set; }
+
+    /// <summary>
+    /// Whether the learner has told Radar enough for a feed to be theirs.
+    /// </summary>
+    /// <remarks>
+    /// Derived, not stored. A flag would need a migration and would lie about anyone who
+    /// completed the older onboarding, which never asked for goals — they would read as
+    /// personalised while box 2 was empty. Deriving it treats them correctly: not yet, ask once.
+    ///
+    /// Opportunity preferences are asked for but not required. Someone who wants nothing applied
+    /// for should still get a feed.
+    /// </remarks>
+    [BsonIgnore]
+    public bool IsPersonalised =>
+        Interests.Any(i => !string.IsNullOrWhiteSpace(i))
+        && Goals.Any(g => !string.IsNullOrWhiteSpace(g));
     public UserStats Stats { get; set; } = new();
 }
 

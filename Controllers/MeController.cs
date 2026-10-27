@@ -174,6 +174,69 @@ public class MeController : ControllerBase
     /// own path, feed, saved items and history — that was already true of the data model, since
     /// everything is keyed by profile id; there was simply no way to own a second one.
     /// </remarks>
+    public sealed class PersonaliseRequest
+    {
+        public List<string> Interests { get; set; } = [];
+        public List<string> Goals { get; set; } = [];
+        public List<string> OpportunityPreferences { get; set; } = [];
+        public PersonaType? Persona { get; set; }
+    }
+
+    /// <summary>
+    /// The three boxes: what you follow, what you want, what you are looking for.
+    /// </summary>
+    /// <remarks>
+    /// Asked at the point of use rather than at signup. Before anyone has seen Radar, a
+    /// questionnaire is answered carelessly or abandoned; once someone is looking at a feed that
+    /// is not theirs, the question answers itself.
+    ///
+    /// Interests and goals are both required, because the feed is ranked on them and without
+    /// either there is nothing to rank by. Opportunity preferences are optional: someone who
+    /// wants nothing applied for should still get a feed.
+    /// </remarks>
+    [HttpPost("personalise")]
+    public async Task<IActionResult> PersonaliseAsync([FromBody] PersonaliseRequest request, CancellationToken ct = default)
+    {
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        var interests = Clean(request.Interests);
+        var goals = Clean(request.Goals);
+
+        if (interests.Count == 0 || goals.Count == 0)
+        {
+            return BadRequest(new
+            {
+                error = "Radar needs at least one interest and one goal to build a feed that is yours.",
+            });
+        }
+
+        var previousInterests = profile.Interests.ToList();
+
+        profile.Interests = interests;
+        profile.Goals = goals;
+        profile.OpportunityPreferences = Clean(request.OpportunityPreferences);
+
+        // The goal a learning path is built around is one of them — the first, until they say
+        // otherwise. The list drives the feed; this one drives Learn.
+        if (string.IsNullOrWhiteSpace(profile.PrimaryGoal)) profile.PrimaryGoal = goals[0];
+
+        if (request.Persona.HasValue) profile.Persona = request.Persona.Value;
+        profile.OnboardingComplete = true;
+
+        await _profiles.SaveProfileAsync(profile);
+        await SyncDeclaredSignalsAsync(profile.Id, previousInterests, interests);
+
+        return Ok(new
+        {
+            isPersonalised = profile.IsPersonalised,
+            interests = profile.Interests,
+            goals = profile.Goals,
+            opportunityPreferences = profile.OpportunityPreferences,
+            persona = profile.Persona.ToString(),
+        });
+    }
+
     [HttpGet("profiles")]
     public async Task<IActionResult> GetProfilesAsync()
     {

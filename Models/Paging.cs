@@ -29,6 +29,16 @@ public enum FeedEmptyReason
 {
     NotEmpty,
 
+    /// <summary>
+    /// The learner has not personalised yet, so there is nothing that is theirs to show.
+    /// </summary>
+    /// <remarks>
+    /// Distinct from having nothing ingested or nothing new: Radar has plenty, it simply has no
+    /// basis for choosing any of it. Saying that plainly is the point — a generic feed under a
+    /// heading promising relevance teaches a new user that Radar does not know them.
+    /// </remarks>
+    NotPersonalisedYet,
+
     /// <summary>No content has been ingested at all. A new deployment, or ingestion is not running.</summary>
     NoContentAtAll,
 
