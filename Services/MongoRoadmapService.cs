@@ -822,6 +822,19 @@ public class MongoRoadmapService : IRoadmapService
     /// It also creates the path when there is none. A learner's path starts empty by design, so
     /// "add to my path" from the feed must work on the very first click rather than 404.
     /// </remarks>
+    /// <summary>
+    /// Appends a bare topic to the active roadmap. No caller in the app uses this any more.
+    /// </summary>
+    /// <remarks>
+    /// It creates a module with <c>Lessons = []</c> at a hardcoded "Intermediate" — an empty
+    /// section at a level nobody stated, which is the inference the rest of Learn exists to
+    /// avoid. The feed card, the brief and the capture page now hand the subject to the builder,
+    /// which asks the starting level and the desired outcome and generates real lessons from
+    /// them. That is why a 1,287-page textbook came back as five correctly-levelled sections.
+    ///
+    /// Left in place rather than deleted because removing an endpoint is a decision about the
+    /// API surface, not a cleanup. It is a deletion candidate.
+    /// </remarks>
     public async Task AddTopicToRoadmapAsync(string userId, string roadmapId, string topic)
     {
         var roadmap = await _db.Roadmaps

@@ -292,10 +292,40 @@ request however good the backoff is.
 
 ---
 
-## 10. Then
+## 10. Done since
 
-- The merged Learning Goal Box: one prominent box, then the two existing follow-ups.
-- "Learn This Skill" on a feed card.
+- **The Learning Goal Box is one box.** "What do you want to learn or achieve?" — the guide's
+  wording, including "or achieve" — then two short follow-ups rather than "Question 1 of 3".
+- **"Learn this"** on a feed card, on a brief, and on a capture. All three hand the subject to
+  the builder; none of them appends a lessonless module any more.
+- **Media playback is solved.** Measured: 50 of 50 videos and 8 of 8 podcasts are in-app
+  playable. The earlier "9 of 20 unplayable" note was stale.
+- **Transcripts can now reach stored items.** They never could: transcription only happened to
+  items arriving in the current cycle, so nothing already in the database was eligible. A
+  backfill takes twelve a cycle, Taddy then Groq Whisper, and clears `WhyItMatters` so the
+  summary is rewritten from the transcript.
+
+## 11. Blocked on keys, not code
+
+Measured on `/api/version`, which now reports both:
+
+| | |
+| --- | --- |
+| `groqWhisper` | **false** |
+| `taddy` | **false** |
+| OpenRouter | key has no usable headroom (402) |
+
+So there are no transcripts because there is no transcription key, and the AI summaries are
+running on the deterministic brain because the OpenRouter key is out. Both are dashboard
+settings in Railway. Until they are set, the transcript backfill logs that it skipped and the
+detail page says a summary came from the published description — which is true.
+
+## 12. Still to do
+
 - Persona-shaped document assessment (essay / CV / report).
-- Open from before: 9 of 20 `Video` items have no playable URL; no transcripts are stored;
-  practice-exercise completion is unreachable; `radarproapp.com` is unassigned.
+- Practice-exercise completion is unreachable.
+- `POST /api/roadmaps/active/topics` has no caller left; a deletion candidate.
+- Zero component tests across ~38 pages — every UI bug fixed this week would have been caught by
+  a render test.
+- `radarproapp.com` apex is unassigned; the Atlas credential is unrotated and both repos are
+  public.
