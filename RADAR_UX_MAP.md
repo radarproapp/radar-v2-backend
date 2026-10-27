@@ -320,7 +320,51 @@ running on the deterministic brain because the OpenRouter key is out. Both are d
 settings in Railway. Until they are set, the transcript backfill logs that it skipped and the
 detail page says a summary came from the published description — which is true.
 
-## 12. Still to do
+## 12. The player and the graph
+
+Asked for together, and they were one build: nothing was recorded, so nothing could be
+summarised.
+
+**The player.** What was there was a poster that swapped to a YouTube iframe, and 21 lines around
+a bare `<audio controls>`. I measured that the URLs existed and called playback solved, which was
+wrong. Now: resume, back 15 / forward 30, speed to 2x, a scrub bar with a real hit target, and
+chapters parsed from the feed's serialised TimeSpan — left unclickable rather than seeking to zero
+when that string is not a timestamp. Audio only: a YouTube iframe will not report its position
+without the IFrame API, and guessing from wall-clock time would feed the graph numbers nobody
+measured.
+
+**The graph.** `UserProfile.Stats` declared `ArticlesRead`, `PodcastsFinished`, `VideosWatched`
+and `OpportunitiesApplied`, and nothing ever wrote to any of them — so the Growth Tracker showed
+nine zeros to every user who opened it. `GET /api/me/graph` derives everything at read time
+instead. A tile with nothing behind it is omitted rather than drawn as zero.
+
+**Verified adversarially on staging**, because the headline number is only worth having if it
+cannot be inflated:
+
+| sent | recorded |
+| --- | --- |
+| 3 x 10s honest heartbeats | 30s |
+| one report claiming 8 hours | 50s |
+| scrub to 1790/1800 claiming 1750s | 70s, marked finished |
+
+30,550 seconds of claimed playback earned 40. `SecondsPlayed` means played.
+
+**A quiz performance summary** rides with every quiz response: bars by thinking skill, subtopic
+and question type, every missed question with both answers and its explanation, and weak areas
+only where more were wrong than right. Counted from stored answers, so it survives the
+OpenRouter key being out — which it is.
+
+### What this cost twice
+
+The first upsert filtered on (user, item) and set no id, so Mongo generated an ObjectId `_id`
+that the string property could not deserialize. Every heartbeat 500d. Then fixing the writer did
+not fix it, because the failed writes had **already succeeded** — the rows existed, so the next
+heartbeat matched them as an update and `SetOnInsert` never fired. The graph broke too, since it
+reads that collection.
+
+Both only findable by writing a real document. 304 unit tests passed throughout.
+
+## 13. Still to do
 
 - Persona-shaped document assessment (essay / CV / report).
 - Practice-exercise completion is unreachable.
