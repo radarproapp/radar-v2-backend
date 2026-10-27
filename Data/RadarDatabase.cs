@@ -47,6 +47,7 @@ public class RadarDatabase
     public IMongoCollection<SavedOpportunityDoc> SavedOpportunities  => _db.GetCollection<SavedOpportunityDoc>("saved_opportunities");
     public IMongoCollection<AppliedOpportunityDoc> AppliedOpportunities => _db.GetCollection<AppliedOpportunityDoc>("applied_opportunities");
     public IMongoCollection<OpportunityTrackingDoc> OpportunityTrackings => _db.GetCollection<OpportunityTrackingDoc>("opportunity_trackings");
+    public IMongoCollection<PlaybackProgressDoc> PlaybackProgress  => _db.GetCollection<PlaybackProgressDoc>("playback_progress");
     public IMongoCollection<ChatSession>   ChatSessions => _db.GetCollection<ChatSession>("chat_sessions");
     public IMongoCollection<WeeklyBrief>   WeeklyBriefs     => _db.GetCollection<WeeklyBrief>("weekly_briefs");
     public IMongoCollection<LibraryDocument>    LibraryDocuments => _db.GetCollection<LibraryDocument>("library_documents");
@@ -156,6 +157,14 @@ public class RadarDatabase
         OpportunityImpressions.Indexes.CreateOne(
             new CreateIndexModel<OpportunityImpressionDoc>(
                 Builders<OpportunityImpressionDoc>.IndexKeys.Ascending(d => d.UserId)));
+
+        // One row per user per item, upserted on every heartbeat, and read on every media page.
+        PlaybackProgress.Indexes.CreateOne(
+            new CreateIndexModel<PlaybackProgressDoc>(
+                Builders<PlaybackProgressDoc>.IndexKeys
+                    .Ascending(p => p.UserId)
+                    .Ascending(p => p.ContentItemId),
+                new CreateIndexOptions { Unique = true }));
 
         AppliedOpportunities.Indexes.CreateOne(
             new CreateIndexModel<AppliedOpportunityDoc>(

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using RadarV2.Helpers;
 using RadarV2.Models;
+using RadarV2.Services;
 using RadarV2.Services.Interfaces;
 
 namespace RadarV2.Controllers;
@@ -68,7 +69,15 @@ public class MentorController : ControllerBase
         if (profile is null) return NotFound(new { error = "Profile not found" });
 
         var quiz = await _mentor.GenerateQuizAsync(profile.Id, request.Topic, Math.Clamp(request.QuestionCount, 1, 20), request.Difficulty);
-        return Ok(quiz);
+
+        // The same envelope as an answer, so the client reads one shape throughout. Nothing is
+        // answered yet, so the summary is all zeros and nulls — which is correct, and which the
+        // client renders as nothing rather than as a score of zero.
+        return Ok(new
+        {
+            quiz,
+            performance = QuizPerformance.Build(quiz),
+        });
     }
 
     public sealed class SubmitAnswerRequest
@@ -87,7 +96,17 @@ public class MentorController : ControllerBase
         if (profile is null) return NotFound(new { error = "Profile not found" });
 
         var quiz = await _mentor.SubmitAnswerAsync(profile.Id, quizId, request.QuestionIndex, request.AnswerIndex, request.TextAnswer);
-        return quiz is null ? NotFound(new { error = "Quiz not found" }) : Ok(quiz);
+        if (quiz is null) return NotFound(new { error = "Quiz not found" });
+
+        // The performance summary rides with every answer rather than hanging off a separate
+        // endpoint the client has to remember to call. It is counted from the answers already
+        // stored on the quiz, so it needs no model call and survives the cloud brain being
+        // unavailable — a summary that disappears when a key runs out is not a summary.
+        return Ok(new
+        {
+            quiz,
+            performance = QuizPerformance.Build(quiz),
+        });
     }
 
     // ── Study Plan ──────────────────────────────────────────────────────────

@@ -13,11 +13,34 @@ public class MeController : ControllerBase
 {
     private readonly IUserProfileService _profiles;
     private readonly IBehavioralSignalService _signals;
+    private readonly UserGraphService _graph;
 
-    public MeController(IUserProfileService profiles, IBehavioralSignalService signals)
+    public MeController(
+        IUserProfileService profiles,
+        IBehavioralSignalService signals,
+        UserGraphService graph)
     {
         _profiles = profiles;
         _signals = signals;
+        _graph = graph;
+    }
+
+    /// <summary>
+    /// Everything Radar can honestly say this user has done.
+    /// </summary>
+    /// <remarks>
+    /// Derived from analytics events, playback rows, roadmaps, quizzes, applications, notes and
+    /// projects on every request. UserProfile.Stats declared most of these fields already and
+    /// nothing ever wrote to them, so the Growth Tracker showed nine tiles of zero to everybody —
+    /// which is why this computes rather than reads a counter.
+    /// </remarks>
+    [HttpGet("graph")]
+    public async Task<IActionResult> GetGraphAsync(CancellationToken ct = default)
+    {
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        return Ok(await _graph.BuildAsync(profile.Id, ct));
     }
 
     /// <summary>

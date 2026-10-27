@@ -252,6 +252,8 @@ builder.Services.AddScoped<RssIngestionService>();
 builder.Services.AddScoped<ContentEnricherService>();
 builder.Services.AddScoped<MediastackIngestionService>();
 builder.Services.AddScoped<PodcastIndexIngestionService>();
+builder.Services.AddScoped<PlaybackService>();
+builder.Services.AddScoped<UserGraphService>();
 builder.Services.AddScoped<TaddyClient>();
 builder.Services.AddScoped<GroqWhisperClient>();
 // Registered as a singleton so the scheduled-jobs endpoint can trigger a cycle on demand, and

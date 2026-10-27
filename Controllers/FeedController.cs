@@ -18,19 +18,22 @@ public class FeedController : ControllerBase
     private readonly IPersonalizedWhyService _why;
     private readonly IAnalyticsService _analytics;
     private readonly IContentReportService _reports;
+    private readonly PlaybackService _playback;
 
     public FeedController(
         IIntelligenceFeedService feed,
         IUserProfileService profiles,
         IPersonalizedWhyService why,
         IAnalyticsService analytics,
-        IContentReportService reports)
+        IContentReportService reports,
+        PlaybackService playback)
     {
         _feed = feed;
         _profiles = profiles;
         _why = why;
         _analytics = analytics;
         _reports = reports;
+        _playback = playback;
     }
 
     /// <summary>
@@ -122,12 +125,82 @@ public class FeedController : ControllerBase
     }
 
     [HttpGet("{id}")]
-    public async Task<IActionResult> GetByIdAsync(string id)
+    public async Task<IActionResult> GetByIdAsync(string id, CancellationToken ct = default)
     {
         var item = await _feed.GetByIdAsync(id);
-        return item is null
-            ? NotFound(new { error = "Item not found" })
-            : Ok(item);
+        if (item is null) return NotFound(new { error = "Item not found" });
+
+        // Returned with the item rather than from a second request, so the player can open at the
+        // resume point instead of starting at zero and jumping once a follow-up lands.
+        var profile = await _profiles.GetCurrentUserAsync();
+        var progress = profile is null ? null : await _playback.GetAsync(profile.Id, id, ct);
+
+        return Ok(new
+        {
+            item,
+            playback = progress is null ? null : new
+            {
+                positionSeconds = progress.PositionSeconds,
+                durationSeconds = progress.DurationSeconds,
+                secondsPlayed = progress.SecondsPlayed,
+                completedAt = progress.CompletedAt,
+            },
+        });
+    }
+
+    public sealed class PlaybackHeartbeatRequest
+    {
+        /// <summary>Where the player is now, in seconds.</summary>
+        public double PositionSeconds { get; set; }
+
+        /// <summary>Total runtime, when the element knows it.</summary>
+        public double DurationSeconds { get; set; }
+
+        /// <summary>
+        /// Seconds that elapsed while actually playing since the last heartbeat.
+        /// </summary>
+        /// <remarks>
+        /// A delta, not a total. The server clamps it and keeps the running sum, so a paused tab
+        /// left open overnight and a scrub to the end both add nothing — which is what lets
+        /// "4h 12m listened" mean listened.
+        /// </remarks>
+        public double PlayedDeltaSeconds { get; set; }
+    }
+
+    /// <summary>Records playback position and genuinely played time.</summary>
+    [HttpPut("{id}/progress")]
+    public async Task<IActionResult> RecordProgressAsync(
+        string id, [FromBody] PlaybackHeartbeatRequest request, CancellationToken ct = default)
+    {
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return Unauthorized();
+
+        var item = await _feed.GetByIdAsync(id);
+        if (item is null) return NotFound(new { error = "Item not found" });
+
+        var wasComplete = (await _playback.GetAsync(profile.Id, id, ct))?.CompletedAt is not null;
+
+        var progress = await _playback.RecordAsync(
+            profile.Id, id, request.PositionSeconds, request.DurationSeconds, request.PlayedDeltaSeconds, ct);
+
+        // Logged once, on the heartbeat that crossed the line. The graph counts finished items
+        // from these events, and an event per heartbeat would count one episode forever.
+        if (!wasComplete && progress.CompletedAt is not null)
+        {
+            await _analytics.LogEventAsync(new AnalyticsEvent
+            {
+                UserId = profile.Id,
+                Type = AnalyticsEventType.Complete,
+                ContentItemId = id,
+            });
+        }
+
+        return Ok(new
+        {
+            positionSeconds = progress.PositionSeconds,
+            secondsPlayed = progress.SecondsPlayed,
+            completedAt = progress.CompletedAt,
+        });
     }
 
     [HttpPost("{id}/save")]
