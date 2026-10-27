@@ -39,6 +39,23 @@ public class LearnHubController : ControllerBase
         return NoContent();
     }
 
+    /// <summary>
+    /// Marks the hands-on exercise on a resource as done, or undone.
+    /// </summary>
+    /// <remarks>
+    /// The storage, the toggle and a route for this all existed already. What did not was a flag
+    /// on the resource the client could read, so nothing ever called any of it.
+    /// </remarks>
+    [HttpPost("resources/{resourceId}/exercise/complete")]
+    public async Task<IActionResult> CompleteExerciseAsync(string resourceId)
+    {
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        await _learnHub.CompleteExerciseAsync(profile.Id, resourceId);
+        return NoContent();
+    }
+
     [HttpPost("resources/{resourceId}/save")]
     public async Task<IActionResult> ToggleSaveAsync(string resourceId)
     {

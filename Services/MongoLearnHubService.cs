@@ -85,10 +85,10 @@ public class MongoLearnHubService : ILearnHubService
                 {
                     res.IsCompleted = true;
                 }
-                if (roadmap.CompletedExerciseIds.Contains(res.Id))
-                {
-                    res.PracticeExercise = $"{res.PracticeExercise} [Completed]";
-                }
+                // A flag rather than a suffix. This used to append " [Completed]" to the
+                // exercise instructions, which made the state undetectable except by searching
+                // the text for a word, and rewrote the instructions to say it.
+                res.IsExerciseCompleted = roadmap.CompletedExerciseIds.Contains(res.Id);
             }
 
             // Reconcile knowledge graph node status based on real activity
@@ -249,6 +249,22 @@ public class MongoLearnHubService : ILearnHubService
             Stage = stage,
             SubInterest = next.Module.Title ?? string.Empty,
         };
+    }
+
+    /// <summary>
+    /// Marks the hands-on exercise on a resource as done, or undone.
+    /// </summary>
+    /// <remarks>
+    /// Resolves the active roadmap here rather than making the client supply an id, the same way
+    /// CompleteResourceAsync does. The existing route for this needed a roadmapId the Hub payload
+    /// never carried, which is part of why nothing ever called it.
+    /// </remarks>
+    public async Task CompleteExerciseAsync(string userId, string resourceId)
+    {
+        var roadmap = await _roadmaps.GetActiveRoadmapAsync(userId);
+        if (roadmap is null) return;
+
+        await _roadmaps.CompleteExerciseAsync(userId, roadmap.Id, resourceId);
     }
 
     public async Task CompleteResourceAsync(string userId, string resourceId)

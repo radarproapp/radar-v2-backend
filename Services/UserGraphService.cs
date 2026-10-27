@@ -178,6 +178,11 @@ public class UserGraphService
             graph.Learning.LessonsCompleted += lessons.Count(l => l.IsCompleted);
         }
 
+        graph.Learning.ExercisesCompleted = roadmaps
+            .SelectMany(r => r.CompletedExerciseIds ?? [])
+            .Distinct(StringComparer.Ordinal)
+            .Count();
+
         var quizzes = await _db.MentorQuizzes.Find(q => q.UserId == userId).ToListAsync(ct);
         var complete = quizzes.Where(q => q.IsComplete).ToList();
 

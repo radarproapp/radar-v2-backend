@@ -43,6 +43,7 @@ public class UserGraph
         || Reading.ItemsOpened > 0
         || Learning.LessonsCompleted > 0
         || Learning.QuizzesTaken > 0
+        || Learning.ExercisesCompleted > 0
         || Opportunities.Applied > 0;
 }
 
@@ -71,6 +72,9 @@ public class GraphLearning
     public int? AverageQuizScore { get; set; }
 
     public int ProjectsCompleted { get; set; }
+
+    /// <summary>Hands-on exercises done. Reading a tutorial and doing its lab are different acts.</summary>
+    public int ExercisesCompleted { get; set; }
 
     /// <summary>Subjects the learner has sections on, in the order they added them.</summary>
     public List<string> Subjects { get; set; } = [];

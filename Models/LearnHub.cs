@@ -109,6 +109,21 @@ public class HubResourceItem
 
     public bool IsCompleted { get; set; }
     public bool IsSaved { get; set; }
+
+    /// <summary>
+    /// Whether the hands-on exercise attached to this resource has been done.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref="IsCompleted"/>: reading a tutorial and doing its lab are
+    /// different acts, and the lab is the one that produces something to show.
+    ///
+    /// This did not exist. Completion was communicated by appending the literal text
+    /// " [Completed]" to <see cref="PracticeExercise"/>, so the only way a client could detect it
+    /// was to search the instructions for a word — and the instructions were corrupted in the
+    /// process. The whole chain behind it worked; there was no flag to render and so no button to
+    /// press, which is why the storage had been there, unreachable, since it was written.
+    /// </remarks>
+    public bool IsExerciseCompleted { get; set; }
 }
 
 public class KnowledgeGraphNode
