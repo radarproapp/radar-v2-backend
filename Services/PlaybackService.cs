@@ -100,15 +100,7 @@ public class PlaybackService
         if (completedAt is null && duration > 0 && position >= duration * CompletionThreshold)
             completedAt = DateTime.UtcNow;
 
-        var update = Builders<PlaybackProgressDoc>.Update
-            .Set(p => p.PositionSeconds, position)
-            .Set(p => p.DurationSeconds, duration)
-            .Set(p => p.SecondsPlayed, played)
-            .Set(p => p.CompletedAt, completedAt)
-            .Set(p => p.UpdatedAt, DateTime.UtcNow)
-            .SetOnInsert(p => p.UserId, userId)
-            .SetOnInsert(p => p.ContentItemId, contentItemId)
-            .SetOnInsert(p => p.StartedAt, DateTime.UtcNow);
+        var update = BuildUpdate(userId, contentItemId, position, duration, played, completedAt);
 
         return await _db.PlaybackProgress.FindOneAndUpdateAsync(
             p => p.UserId == userId && p.ContentItemId == contentItemId,
@@ -120,6 +112,39 @@ public class PlaybackService
             },
             ct);
     }
+
+    /// <summary>
+    /// The upsert, as a value so it can be inspected without a database.
+    /// </summary>
+    /// <remarks>
+    /// The Id has to be set on insert, and that is the whole reason this is a separate method.
+    /// The filter here is a compound key — user and item — rather than the id, so on an insert
+    /// Mongo has no id to derive from the filter and generates an ObjectId of its own. The Id
+    /// property is a string, and the very next thing the driver does is read the document back,
+    /// so every single heartbeat failed with "Cannot deserialize a 'String' from BsonType
+    /// 'ObjectId'". Measured against staging, which is where it was caught.
+    ///
+    /// The codebase's two other update-upserts avoid this by accident rather than by rule: one
+    /// sets the id explicitly, the other filters on it so Mongo derives it. A compound filter has
+    /// neither of those protections.
+    /// </remarks>
+    public static UpdateDefinition<PlaybackProgressDoc> BuildUpdate(
+        string userId,
+        string contentItemId,
+        double position,
+        double duration,
+        double played,
+        DateTime? completedAt) =>
+        Builders<PlaybackProgressDoc>.Update
+            .Set(p => p.PositionSeconds, position)
+            .Set(p => p.DurationSeconds, duration)
+            .Set(p => p.SecondsPlayed, played)
+            .Set(p => p.CompletedAt, completedAt)
+            .Set(p => p.UpdatedAt, DateTime.UtcNow)
+            .SetOnInsert(p => p.Id, Guid.NewGuid().ToString())
+            .SetOnInsert(p => p.UserId, userId)
+            .SetOnInsert(p => p.ContentItemId, contentItemId)
+            .SetOnInsert(p => p.StartedAt, DateTime.UtcNow);
 
     /// <summary>Guards against NaN, infinity and negatives arriving from a media element.</summary>
     private static double Sane(double value) =>

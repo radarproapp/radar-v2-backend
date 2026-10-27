@@ -84,4 +84,32 @@ public class PlaybackHonestyTests
 
         Assert.False(duration * 0.5 >= duration * CompletionThreshold);
     }
+
+    /// <summary>
+    /// The upsert has to set the id itself, because the filter cannot supply one.
+    /// </summary>
+    /// <remarks>
+    /// The filter is a compound key — user and item — not the id, so on an insert Mongo generates
+    /// an ObjectId of its own. The Id property is a string, and the driver reads the document
+    /// straight back, so every heartbeat failed with "Cannot deserialize a 'String' from BsonType
+    /// 'ObjectId'". Caught against staging, which is the only place it could have been caught: it
+    /// builds, it has no null to dereference, and it fails on the first real write.
+    ///
+    /// The update is rendered to BSON rather than executed, so the assertion needs no database.
+    /// </remarks>
+    [Fact]
+    public void TheUpsertSetsItsOwnIdOnInsert()
+    {
+        var update = PlaybackService.BuildUpdate("user-1", "item-1", 30, 1800, 30, null);
+
+        var registry = MongoDB.Bson.Serialization.BsonSerializer.SerializerRegistry;
+        var rendered = update.Render(new MongoDB.Driver.RenderArgs<Data.Documents.PlaybackProgressDoc>(
+            registry.GetSerializer<Data.Documents.PlaybackProgressDoc>(), registry));
+
+        var setOnInsert = rendered["$setOnInsert"].AsBsonDocument;
+
+        Assert.True(
+            setOnInsert.Contains("_id"),
+            $"No _id in $setOnInsert, so Mongo will generate an ObjectId: {setOnInsert}");
+    }
 }
