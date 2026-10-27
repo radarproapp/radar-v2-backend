@@ -159,6 +159,34 @@ public class RadarDatabase
             new CreateIndexModel<OpportunityImpressionDoc>(
                 Builders<OpportunityImpressionDoc>.IndexKeys.Ascending(d => d.UserId)));
 
+        // The invented opportunities, deleted.
+        //
+        // Sixteen hand-written records were removed from the source in an earlier commit — five
+        // programmes that do not exist attributed to Google, DeepMind and HackerOne, three job
+        // openings invented at Paystack, Cloudflare and Stripe, and sixteen deadlines computed
+        // from DateTime.UtcNow. Deleting the seed stopped new ones being written and did nothing
+        // about the ones already in the database. Measured on staging afterwards: six of them
+        // still being served, including the Google fellowship with its USD 2,500 monthly stipend.
+        //
+        // That is the fourth time in this codebase that fixing a writer has not fixed the rows,
+        // and the only one of the four where the stale data actively misleads somebody about a
+        // funded opportunity they might apply for.
+        //
+        // Matched on the id prefix the seed used. Ingested opportunities carry a GUID, so the
+        // prefix cannot collide with a real one, and a user's saves or applications that pointed
+        // at a fabricated row should go with it.
+        var inventedOpportunities = Builders<Models.Opportunity>.Filter.Regex(
+            o => o.Id, new BsonRegularExpression("^opp-"));
+
+        var invented = Opportunities.Find(inventedOpportunities).Project(o => o.Id).ToList();
+        if (invented.Count > 0)
+        {
+            Opportunities.DeleteMany(inventedOpportunities);
+            SavedOpportunities.DeleteMany(s => invented.Contains(s.OpportunityId));
+            AppliedOpportunities.DeleteMany(a => invented.Contains(a.OpportunityId));
+            OpportunityTrackings.DeleteMany(t => invented.Contains(t.OpportunityId));
+        }
+
         // Rows written before the upsert set its own id, and they poison every read.
         //
         // The first version of the heartbeat filtered on (user, item) and never set an id, so

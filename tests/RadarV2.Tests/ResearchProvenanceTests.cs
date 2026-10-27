@@ -88,4 +88,36 @@ public class ResearchProvenanceTests
 
         Assert.Empty(offenders);
     }
+
+    /// <summary>
+    /// Opportunities come from feeds, never from a literal in the source.
+    /// </summary>
+    /// <remarks>
+    /// Sixteen were hand-written into MongoOpportunityService: a "Google Cybersecurity
+    /// Professional Fellowship" from "Google Security Team &amp; Africa Digital Hub" paying USD
+    /// 2,500 a month, a "DeepMind Africa AI &amp; Machine Learning Scholarship", and junior
+    /// openings invented at Paystack, Cloudflare and Stripe. Radar told students in Africa to
+    /// apply for them.
+    ///
+    /// Deleting them from the source was not the end of it — six were still being served from the
+    /// database a day later, which no test can catch. What this does catch is a new one being
+    /// written, which is the only part a test can own.
+    /// </remarks>
+    [Fact]
+    public void NoOpportunityIsHardcoded()
+    {
+        var offenders = SourceFiles()
+            .Where(f => !f.FullName.Contains($"{Path.DirectorySeparatorChar}tests{Path.DirectorySeparatorChar}"))
+            // A quoted organisation name is the signature. The legitimate ingestion path assigns
+            // Organisation from InferOrganisation(title, feed.Name) — derived from the feed it
+            // came out of — so it is the literal, not the assignment, that makes a claim nobody
+            // can check. My first attempt at this test matched the assignment and flagged the
+            // ingestion path, which is the opposite of the point.
+            .Where(f => new Regex(@"Organisation\s*=\s*""", RegexOptions.Compiled)
+                .IsMatch(File.ReadAllText(f.FullName)))
+            .Select(f => f.Name)
+            .ToList();
+
+        Assert.Empty(offenders);
+    }
 }
