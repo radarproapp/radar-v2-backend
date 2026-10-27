@@ -344,17 +344,57 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
         return items;
     }
 
+    /// <summary>
+    /// Finds content by what it is about, not only by what it is called.
+    /// </summary>
+    /// <remarks>
+    /// Two things were wrong here. It searched Title and Signal alone, so looking for a podcast
+    /// about a topic found only episodes with that word in the title — and podcast titles are
+    /// frequently a show name and a number. And it passed the query straight into a
+    /// BsonRegularExpression unescaped, so a search containing a bracket or a star either threw
+    /// or matched something nobody asked for.
+    ///
+    /// Topic, tags, the summary and the transcript are searched too. The transcript is the one
+    /// that makes "find me the episode where they discuss X" work at all, and it is already
+    /// stored for anything the backfill has reached — nothing today, until a transcription key is
+    /// set, which is why that search quietly returns less than it will.
+    ///
+    /// Bounded, because it was not: an unqualified search returned the whole matching corpus.
+    /// </remarks>
     public async Task<List<ContentItem>> SearchAsync(string query, ContentType? type = null)
     {
+        var term = query.Trim();
+        if (term.Length < 2) return [];
+
+        // Escaped. A user searching for "C++" or "(beta)" is searching for those characters, not
+        // writing a pattern.
+        var pattern = new MongoDB.Bson.BsonRegularExpression(
+            System.Text.RegularExpressions.Regex.Escape(term), "i");
+
         var filter = Builders<ContentItem>.Filter.Or(
-            Builders<ContentItem>.Filter.Regex(i => i.Title, new MongoDB.Bson.BsonRegularExpression(query, "i")),
-            Builders<ContentItem>.Filter.Regex(i => i.Signal, new MongoDB.Bson.BsonRegularExpression(query, "i"))
-        );
+            Builders<ContentItem>.Filter.Regex(i => i.Title, pattern),
+            Builders<ContentItem>.Filter.Regex(i => i.Signal, pattern),
+            Builders<ContentItem>.Filter.Regex(i => i.Topic, pattern),
+            Builders<ContentItem>.Filter.Regex(i => i.AiSummary, pattern),
+            Builders<ContentItem>.Filter.Regex(i => i.WhatHappened, pattern),
+            Builders<ContentItem>.Filter.Regex(i => i.TranscriptText, pattern),
+            Builders<ContentItem>.Filter.AnyEq(i => i.Tags, term));
 
         if (type.HasValue)
             filter &= Builders<ContentItem>.Filter.Eq(i => i.Type, type.Value);
 
-        return await _db.ContentItems.Find(filter).ToListAsync();
+        var items = await _db.ContentItems
+            .Find(filter)
+            .SortByDescending(i => i.PublishedAt)
+            .Limit(60)
+            .ToListAsync();
+
+        // Title matches first: somebody searching "Lex Fridman" wants the show, not an episode
+        // that mentions him in passing. Within each group, newest first.
+        return items
+            .OrderByDescending(i => (i.Title ?? string.Empty).Contains(term, StringComparison.OrdinalIgnoreCase))
+            .ThenByDescending(i => i.PublishedAt)
+            .ToList();
     }
 
     private async Task<HashSet<string>> GetSavedItemIdsAsync(string userId)
