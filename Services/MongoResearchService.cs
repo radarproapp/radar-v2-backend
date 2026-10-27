@@ -42,16 +42,21 @@ public class MongoResearchService : IResearchService
         var seenDois = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var seenTitles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        // 1. First retrieve curated, verified papers matching the topic
-        var catalogMatches = ResearchPaperCatalog.Search(query, yearFrom, paperType);
-        foreach (var paper in catalogMatches)
-        {
-            if (!string.IsNullOrEmpty(paper.Doi)) seenDois.Add(paper.Doi);
-            seenTitles.Add(NormalizeTitle(paper.Title));
-            combined.Add(paper);
-        }
-
-        // 2. Query OpenAlex across 250M+ scientific records
+        // OpenAlex, and nothing else.
+        //
+        // A hand-written catalogue of eight papers used to be returned ahead of these. It
+        // described itself as "high-impact, peer-reviewed ... with real DOIs, verified publisher
+        // sources" and it was none of those things: six of its eight DOIs resolve to nothing at
+        // doi.org, and the authors, journals, methodologies and statistics — "β = 0.472,
+        // p < 0.001", "23.4% superior EBITDA recovery" — were written by hand. The two real DOIs
+        // belonged to arXiv preprints whose findings had been paraphrased into the same template.
+        //
+        // The file sat eight lines below a comment promising "no synthetic-paper fallback ...
+        // inventing a plausible-looking paper, DOI or statistic would violate the 'never invent
+        // academic information' rule the product is built on". It also sat behind a citation
+        // endpoint, which is what makes it worse than a bad feed row: a student could export
+        // "Rostova, E., Vance, M., Adeleke, O., & Chen, D. K. (2023)" into a reference list for
+        // a paper that does not exist.
         try
         {
             var liveResults = await _openAlex.SearchAsync(query, yearFrom, page, pageSize);
@@ -93,14 +98,6 @@ public class MongoResearchService : IResearchService
 
     public async Task<ContentItem?> GetPaperByIdAsync(string id, UserProfile? profile = null)
     {
-        // Check curated catalog first
-        var local = ResearchPaperCatalog.GetAll().FirstOrDefault(p =>
-            p.Id.Equals(id, StringComparison.OrdinalIgnoreCase) ||
-            (!string.IsNullOrEmpty(p.Doi) && p.Doi.Equals(id, StringComparison.OrdinalIgnoreCase)));
-
-        if (local != null)
-            return local;
-
         ContentItem? paper = null;
         if (id.StartsWith("W", StringComparison.OrdinalIgnoreCase))
             paper = await _openAlex.GetWorkByIdAsync(id);

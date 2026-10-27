@@ -12,8 +12,6 @@ public class MongoOpportunityService : IOpportunityService
     private readonly AiOpportunityMatchService _aiMatch;
     private readonly IUserLearningRecordService _records;
     private readonly IBehavioralSignalService _signals;
-    private static bool _seeded;
-    private static readonly SemaphoreSlim _seedLock = new(1, 1);
 
     public MongoOpportunityService(
         RadarDatabase db,
@@ -72,8 +70,6 @@ public class MongoOpportunityService : IOpportunityService
         int page = 1,
         int pageSize = 20)
     {
-        await EnsureSeedAsync();
-
         var all = await GetScoringCandidatesAsync();
 
         // Reconcile user tracking & continuous learning weights
@@ -250,8 +246,6 @@ public class MongoOpportunityService : IOpportunityService
     /// <summary>Computes a fresh batch, stores it, and records what the user was shown.</summary>
     public async Task<DailyOpportunityFeed> BuildDailyFeedAsync(UserProfile profile)
     {
-        await EnsureSeedAsync();
-
         var all = await GetScoringCandidatesAsync();
         var trackingMap = await GetTrackingMapAsync(profile.Id);
         var activeRoadmap = await _db.Roadmaps.Find(r => r.UserId == profile.Id && r.IsActive).FirstOrDefaultAsync();
@@ -394,7 +388,6 @@ public class MongoOpportunityService : IOpportunityService
 
     public async Task<Opportunity?> GetByIdAsync(string id, UserProfile? profile = null)
     {
-        await EnsureSeedAsync();
         var opp = await _db.Opportunities.Find(o => o.Id == id).FirstOrDefaultAsync();
         if (opp == null) return null;
 
@@ -421,7 +414,6 @@ public class MongoOpportunityService : IOpportunityService
 
     public async Task<List<Opportunity>> GetSavedOpportunitiesAsync(string userId)
     {
-        await EnsureSeedAsync();
         var trackings = await _db.OpportunityTrackings
             .Find(t => t.UserId == userId && (t.Status == OpportunityTrackingStatus.Saved || t.Status == OpportunityTrackingStatus.Interested))
             .ToListAsync();
@@ -562,7 +554,6 @@ public class MongoOpportunityService : IOpportunityService
 
     public async Task<List<Opportunity>> GetTrackedPipelineAsync(string userId)
     {
-        await EnsureSeedAsync();
         var trackings = await _db.OpportunityTrackings
             .Find(t => t.UserId == userId && t.Status != OpportunityTrackingStatus.None)
             .ToListAsync();
@@ -778,453 +769,22 @@ public class MongoOpportunityService : IOpportunityService
 
     // ── Extensive Curated Seed Catalog ───────────────────────────────────────
 
-    private async Task EnsureSeedAsync()
-    {
-        if (_seeded) return;
-        await _seedLock.WaitAsync();
-        try
-        {
-            if (_seeded) return;
-            var count = await _db.Opportunities.CountDocumentsAsync(Builders<Opportunity>.Filter.Empty);
-            if (count < 15)
-            {
-                // Clear old sparse seeds and insert the rich Opportunity Intelligence catalog
-                await _db.Opportunities.DeleteManyAsync(Builders<Opportunity>.Filter.Empty);
-                await _db.Opportunities.InsertManyAsync(SeedData);
-            }
-            _seeded = true;
-        }
-        finally
-        {
-            _seedLock.Release();
-        }
-    }
-
-    private static readonly List<Opportunity> SeedData =
-    [
-        // ── CYBERSECURITY & SYSTEMS ─────────────────────────────────────────
-        new()
-        {
-            Id = "opp-google-cyber-fellow",
-            Type = OpportunityType.Fellowship,
-            Title = "Google Cybersecurity Professional Fellowship",
-            Organisation = "Google Security Team & Africa Digital Hub",
-            Description = "A 6-month intensive fellowship providing hands-on training with Google's Security Operations team. Fellows receive direct mentorship from Principal Security Engineers, participate in live incident response simulations, and receive a fully funded Google Security Professional Credential.",
-            Deadline = DateTime.UtcNow.AddDays(14),
-            Location = "Lagos, Nigeria / Remote Pan-Africa",
-            RegionTag = "Nigeria",
-            GoalTag = "Career",
-            IsRemote = true,
-            Benefits = "USD 2,500/month stipend, Google Cloud & Security lab credits, direct fast-track interview for Associate Security Engineer",
-            Cost = "Free / Fully Funded",
-            Url = "https://grow.google/certificates/cybersecurity/",
-            Requirements = ["Foundational networking & Linux knowledge", "Demonstrated commitment to cybersecurity or software engineering", "Resident in an African country"],
-            WhoIsEligible = ["Final year undergraduates, recent graduates, or young professionals transitioning into cybersecurity"],
-            RadarsAdvice =
-            [
-                "Apply before the final week; candidates with verified GitHub SOC/Wireshark labs get reviewed first.",
-                "Emphasise your understanding of packet analysis and incident response workflows in your statement.",
-                "Highlight any CTF (Capture The Flag) competitions or practical exercises you have completed on your Radar roadmap.",
-                "Review Google's public Zero Trust framework before the technical screening interview."
-            ],
-            NextMoveSteps =
-            [
-                "Verify eligibility and ensure your CV highlights network security tools",
-                "Draft a 400-word statement explaining how you will apply cybersecurity in African enterprise",
-                "Ask Radar's AI Mentor to review your application responses",
-                "Submit official application via Google Career portal"
-            ],
-            SelectionProcess = "Application Review → Technical Aptitude Challenge → 30-min Technical Behavioral Interview"
-        },
-        new()
-        {
-            Id = "opp-sans-cyber-academy",
-            Type = OpportunityType.Scholarship,
-            Title = "SANS Cyber Immersion Academy Scholarship",
-            Organisation = "SANS Institute",
-            Description = "100% scholarship covering GIAC Foundational Cybersecurity (GFACT) and GIAC Security Essentials (GSEC) certifications. Includes live virtual instruction, hands-on enterprise cyber ranges, and access to SANS career matching network.",
-            Deadline = DateTime.UtcNow.AddDays(4),
-            Location = "Global / Virtual Range",
-            RegionTag = "Global",
-            GoalTag = "Skills",
-            IsRemote = true,
-            Benefits = "Over $12,000 worth of GIAC courseware and exam vouchers, private industry hiring showcase",
-            Cost = "Free / Fully Funded",
-            Url = "https://www.sans.org/scholarship-academies/",
-            Requirements = ["Must achieve passing score on SANS Cyber Aptitude Assessment", "Able to commit 15 hours/week for 4 months", "No prior commercial security certifications required"],
-            WhoIsEligible = ["Motivated individuals with high problem-solving aptitude seeking rapid entry into defensive security"],
-            RadarsAdvice =
-            [
-                "URGENT: Only 4 days remaining before the cohort closes.",
-                "Take the aptitude practice test in a quiet environment — it tests logic, pattern recognition, and basic binary thinking.",
-                "Do not spend time cramming terminology; focus on logical deduction and step-by-step troubleshooting.",
-                "Mention your progress on the Radar Cybersecurity Learning Path to show dedication."
-            ],
-            NextMoveSteps =
-            [
-                "Complete the free 45-minute Cyber Aptitude Assessment immediately",
-                "Upload your CV emphasizing analytical troubleshooting and problem solving",
-                "Submit before Sunday midnight"
-            ],
-            SelectionProcess = "Cyber Aptitude Assessment → Video Introduction → Formal Scholarship Award"
-        },
-        new()
-        {
-            Id = "opp-cloudflare-sec-intern",
-            Type = OpportunityType.Internship,
-            Title = "Systems & Security Engineering Internship",
-            Organisation = "Cloudflare",
-            Description = "Join Cloudflare's security engineering division building global DDoS mitigation, TLS termination, and firewall edge engines. Work with production Rust and Go services handling 55+ million HTTP requests per second.",
-            Deadline = DateTime.UtcNow.AddDays(25),
-            Location = "Remote — EMEA / London",
-            RegionTag = "Remote",
-            GoalTag = "Career",
-            IsRemote = true,
-            Benefits = "£4,200/month competitive internship compensation, equipment stipend, mentorship from Internet infrastructure pioneers",
-            Cost = "Free Application",
-            Url = "https://www.cloudflare.com/careers/internships/",
-            Requirements = ["Solid understanding of TCP/IP, DNS, and HTTP/HTTPS protocols", "Proficiency in Rust, Go, Python, or modern C++", "Curiosity about Internet protocols and edge architecture"],
-            WhoIsEligible = ["Students graduating within the next 18 months or self-taught developers with strong open-source systems contributions"],
-            RadarsAdvice =
-            [
-                "Cloudflare values people who read RFCs and understand how packet headers work under the hood.",
-                "Link a GitHub repository demonstrating low-level networking, packet parsing, or an HTTP proxy project.",
-                "Be prepared to explain what happens when you type 'cloudflare.com' into a browser and press Enter.",
-                "Use the AI Learning Mentor to practice Systems & Protocol interview questions."
-            ],
-            NextMoveSteps =
-            [
-                "Polish your GitHub code samples (clean README, tests, architecture diagrams)",
-                "Prepare a tailored 1-page resume focusing on systems and protocols",
-                "Submit official application online"
-            ],
-            SelectionProcess = "Resume Screening → Take-Home Networking Coding Challenge → Systems Architecture Interview"
-        },
-        new()
-        {
-            Id = "opp-nitda-cyber-fund",
-            Type = OpportunityType.ResearchGrant,
-            Title = "NITDA National Cybersecurity Innovation Grant",
-            Organisation = "National Information Technology Development Agency (NITDA)",
-            Description = "Seed grants of up to ₦15,000,000 for innovative cybersecurity startups and research projects addressing threat intelligence, fraud detection, and digital identity defense across Nigerian financial and governmental infrastructure.",
-            Deadline = DateTime.UtcNow.AddDays(18),
-            Location = "Abuja & Lagos, Nigeria",
-            RegionTag = "Nigeria",
-            GoalTag = "Funding",
-            IsRemote = true,
-            Benefits = "₦15,000,000 equity-free grant, regulatory sandbox support, access to national infrastructure datasets",
-            Cost = "Free Application",
-            Url = "https://nitda.gov.ng/",
-            Requirements = ["Nigerian citizen or locally registered startup entity", "Working prototype or technical proof-of-concept", "Clear applicability to Nigerian cyber threat landscape"],
-            WhoIsEligible = ["Security researchers, technical founders, and academic teams building defensive cybersecurity products"],
-            RadarsAdvice =
-            [
-                "Frame your proposal around addressing high-impact domestic threats: USSD banking fraud, SIM swap detection, or ransomware in healthcare.",
-                "Provide an architecture diagram showing data flow and latency impact.",
-                "Emphasise local economic benefit and job creation in your pitch deck.",
-                "Ask Radar's AI Mentor to critique your technical grant proposal."
-            ],
-            NextMoveSteps =
-            [
-                "Download the official NITDA project submission template",
-                "Draft technical abstract and cost breakdown for equipment and cloud hosting",
-                "Submit your grant proposal before the 18-day cutoff"
-            ],
-            SelectionProcess = "Technical Feasibility Screening → Pitch Session with National Innovation Panel → Grant Disbursement"
-        },
-        new()
-        {
-            Id = "opp-hackerone-bounty",
-            Type = OpportunityType.Competition,
-            Title = "HackerOne Africa Cyber Defense CTF & Bug Bounty Challenge",
-            Organisation = "HackerOne & Cyber Africa Alliance",
-            Description = "A virtual Capture The Flag (CTF) tournament followed by a private live bug bounty event on African fintech targets. Discover valid vulnerabilities in real-world API endpoints, earn verified CVE credits and cash bounties.",
-            Deadline = DateTime.UtcNow.AddDays(7),
-            Location = "Virtual / Lagos Hub",
-            RegionTag = "Africa",
-            GoalTag = "Skills",
-            IsRemote = true,
-            Benefits = "USD 25,000 total bounty pool, private invites to top tier enterprise bug bounty programs, HackerOne leaderboard ranking",
-            Cost = "Free to participate",
-            Url = "https://www.hackerone.com/events",
-            Requirements = ["Strict adherence to HackerOne Code of Conduct and Scope of Engagement", "Basic understanding of OWASP Top 10 web vulnerabilities", "Burp Suite or ZAP proxy familiarity"],
-            WhoIsEligible = ["Ethical hackers, security students, and software developers across Africa"],
-            RadarsAdvice =
-            [
-                "Focus on IDOR (Insecure Direct Object Reference) and authorization logic flaws; these are the most common high-payout bugs.",
-                "Write clear, reproducible Proof-of-Concept (PoC) reports with step-by-step remediation suggestions.",
-                "Review the PortSwigger Web Security Academy topics on your Radar Learn Hub before the kickoff.",
-                "Team up with another researcher to divide testing between front-end logic and backend APIs."
-            ],
-            NextMoveSteps =
-            [
-                "Register your HackerOne profile and link your 2FA authentication",
-                "Spend 2 hours reviewing Burp Suite HTTP history and Repeater workflows",
-                "Join the official Discord channel before kickoff"
-            ],
-            SelectionProcess = "Open Virtual Qualifier → Live Bounty Window → Vulnerability Triage and Payout"
-        },
-
-        // ── NIGERIA & AFRICA TECH & STRATEGY ────────────────────────────────
-        new()
-        {
-            Id = "opp-paystack-sec-engineer",
-            Type = OpportunityType.Job,
-            Title = "Junior Security Operations & Infrastructure Engineer",
-            Organisation = "Paystack (Stripe Company)",
-            Description = "Help protect billions of dollars in transaction flows across Africa. You will monitor AWS infrastructure, manage Wazuh/SIEM detection pipelines, conduct vulnerability scans, and assist with PCI-DSS compliance audits.",
-            Deadline = DateTime.UtcNow.AddDays(12),
-            Location = "Lagos, Nigeria (Hybrid / Remote)",
-            RegionTag = "Nigeria",
-            GoalTag = "Career",
-            IsRemote = true,
-            Benefits = "Competitive USD-benchmarked salary, comprehensive health insurance, $2,000 annual learning stipend, Stripe equity stock options",
-            Cost = "Free Application",
-            Url = "https://paystack.com/careers",
-            Requirements = ["Experience with AWS or Linux server administration", "Understanding of SIEM logs and network protocols", "Familiarity with Python or Bash scripting", "High integrity and attention to detail"],
-            WhoIsEligible = ["Engineers with 0–2 years of experience or strong practical cybersecurity lab portfolios"],
-            RadarsAdvice =
-            [
-                "Paystack cares deeply about practical demonstration: showcase your hands-on pfSense/Wazuh home lab from your Radar Learn Hub.",
-                "Read the Stripe Engineering blog articles on cross-border payments security.",
-                "Demonstrate clear written communication — write a concise cover note explaining your security journey.",
-                "Use the AI Learning Mentor to practice PCI-DSS and Cloud Security interview scenarios."
-            ],
-            NextMoveSteps =
-            [
-                "Review the Paystack career spec and update your LinkedIn profile",
-                "Write a 1-page technical writeup of a security lab you built",
-                "Submit your direct application via Paystack's Greenhouse portal"
-            ],
-            SelectionProcess = "Resume Screen → Take-home Security Scenario Assessment → Engineering Team Interview"
-        },
-        new()
-        {
-            Id = "opp-tony-elumelu",
-            Type = OpportunityType.Funding,
-            Title = "Tony Elumelu Foundation Entrepreneurship Program",
-            Organisation = "Tony Elumelu Foundation",
-            Description = "Africa's leading entrepreneurship initiative providing $5,000 non-refundable seed capital, a 12-week intensive business management training curriculum, and world-class mentorship for 1,000 African entrepreneurs every year.",
-            Deadline = DateTime.UtcNow.AddDays(28),
-            Location = "Pan-African (Online Training + National Hubs)",
-            RegionTag = "Africa",
-            GoalTag = "Funding",
-            IsRemote = true,
-            Benefits = "USD 5,000 non-refundable seed capital, TEFConnect business alumni network, access to commercial bank loan syndicates",
-            Cost = "Free Application",
-            Url = "https://www.tonyelumelufoundation.org/tef-entrepreneurship-programme",
-            Requirements = ["Must be a citizen and resident of an African country", "Business idea or existing company between 0 and 3 years old", "Scalable business model with measurable community impact"],
-            WhoIsEligible = ["Early-stage African founders in tech, agribusiness, commerce, manufacturing, and healthcare"],
-            RadarsAdvice =
-            [
-                "Emphasise your path to revenue and clear unit economics rather than theoretical market size.",
-                "Clearly describe the exact problem in your local community that your solution solves.",
-                "Record a crisp, professional 90-second elevator pitch video answering: Problem, Solution, Team, and Use of $5,000.",
-                "Complete the application early to avoid last-minute portal slowdowns."
-            ],
-            NextMoveSteps =
-            [
-                "Create your profile on the TEFConnect portal",
-                "Complete the business diagnostic questionnaire",
-                "Submit business plan summary and verification documents"
-            ],
-            SelectionProcess = "Aptitude Assessment → 12-Week Business Training → Pitch Presentation → Seed Capital Award"
-        },
-        new()
-        {
-            Id = "opp-mastercard-scholars",
-            Type = OpportunityType.Scholarship,
-            Title = "MasterCard Foundation Scholars Program",
-            Organisation = "MasterCard Foundation",
-            Description = "Full comprehensive scholarship for academically gifted young Africans facing financial barriers to pursue undergraduate and postgraduate degrees at leading universities worldwide (UCT, Oxford, Edinburgh, CMU Africa). Covers 100% tuition, campus accommodation, books, living stipend, and return international travel.",
-            Deadline = DateTime.UtcNow.AddMonths(2),
-            Location = "Pan-Africa & Global Partner Universities",
-            RegionTag = "Africa",
-            GoalTag = "Education",
-            IsRemote = false,
-            Benefits = "Full tuition, living stipend, laptop, health insurance, global leadership development program",
-            Cost = "Free / Fully Funded",
-            Url = "https://mastercardfdn.org/all/scholars/",
-            Requirements = ["Citizen of an African country", "Demonstrated commitment to returning and serving community", "Strong academic record (top 15% of class)", "Demonstrated financial need"],
-            WhoIsEligible = ["Prospective undergraduate and master's students with proven leadership and civic engagement"],
-            RadarsAdvice =
-            [
-                "Focus on your leadership ethos: MasterCard evaluates 'transformative leadership' — how have you used limited resources to help others?",
-                "Secure two strong academic recommendation letters that speak to your character and resilience.",
-                "Link your study program directly to an economic challenge in your home country.",
-                "Apply to the partner university first or simultaneously as specified by each institution."
-            ],
-            NextMoveSteps =
-            [
-                "Select 2 partner universities aligned with your degree goal",
-                "Prepare personal statement reflecting leadership and financial background",
-                "Gather certified academic transcripts and recommendation letters"
-            ],
-            SelectionProcess = "University Admission → MasterCard Foundation Committee Review → Final Scholar Selection"
-        },
-        new()
-        {
-            Id = "opp-lagos-tech-fest",
-            Type = OpportunityType.Conference,
-            Title = "Lagos Tech Fest & Venture Showcase 2026",
-            Organisation = "Techpoint Africa & Lagos State Ministry of Innovation",
-            Description = "West Africa's largest gathering of tech founders, corporate innovators, venture capitalists, and engineers. Features high-impact panel discussions on African sovereign AI, fintech regulation, and cybersecurity defense, alongside a dedicated career exhibition.",
-            Deadline = DateTime.UtcNow.AddDays(10),
-            Location = "Landmark Centre, Victoria Island, Lagos",
-            RegionTag = "Nigeria",
-            GoalTag = "Networking",
-            IsRemote = false,
-            Benefits = "Direct access to 200+ tech hiring managers, fast-pitch venture competitions, complimentary 1-year developer tool perks",
-            Cost = "Free Student & Developer Passes (Limited)",
-            Url = "https://techpoint.africa/events",
-            Requirements = ["Registration via official portal", "Demonstrated involvement in technology, product, or startup ecosystem"],
-            WhoIsEligible = ["Software developers, analysts, founders, university STEM students, and career switchers"],
-            RadarsAdvice =
-            [
-                "Free student/developer passes run out quickly — claim yours today.",
-                "Prepare a concise 30-second introduction: your name, your primary skill (e.g. Cybersecurity/Data), and what you are building.",
-                "Download the attendee app early to book 1-on-1 networking slots with startup engineering leads.",
-                "Have your GitHub and LinkedIn QR codes ready on your phone for frictionless connection."
-            ],
-            NextMoveSteps =
-            [
-                "Claim your verified developer ticket online",
-                "Review the session schedule and mark key cybersecurity and career workshops",
-                "Connect with speakers on LinkedIn ahead of time"
-            ],
-            SelectionProcess = "Direct Registration → Badge Confirmation Email"
-        },
-
-        // ── DATA ANALYTICS & ARTIFICIAL INTELLIGENCE ────────────────────────
-        new()
-        {
-            Id = "opp-deepmind-africa-scholar",
-            Type = OpportunityType.Scholarship,
-            Title = "DeepMind Africa AI & Machine Learning Scholarship",
-            Organisation = "Google DeepMind",
-            Description = "Fully funded postgraduate scholarship supporting exceptional African scholars pursuing master's degrees in Artificial Intelligence, Machine Learning, and Computer Science at partner African institutions (including AIMS and Wits).",
-            Deadline = DateTime.UtcNow.AddDays(40),
-            Location = "AIMS Rwanda / South Africa / Virtual",
-            RegionTag = "Africa",
-            GoalTag = "Education",
-            IsRemote = false,
-            Benefits = "Full university tuition fees, living stipend, travel expenses, attendance at DeepMind international conference, dedicated DeepMind researcher mentor",
-            Cost = "Free / Fully Funded",
-            Url = "https://www.deepmind.com/scholarships",
-            Requirements = ["African nationality and residency", "Strong mathematics and programming background (Python/PyTorch)", "Offer of admission to an approved partner institution for master's degree"],
-            WhoIsEligible = ["Outstanding students from underrepresented backgrounds in machine learning"],
-            RadarsAdvice =
-            [
-                "DeepMind looks for solid mathematical intuition: linear algebra, calculus, and probability.",
-                "Highlight any projects involving neural network training or fine-tuning on open-source datasets.",
-                "Articulate your research ambition clearly: what problem in healthcare, climate, or language modeling do you want to tackle?",
-                "Work with Radar's AI Mentor to draft and polish your research statement."
-            ],
-            NextMoveSteps =
-            [
-                "Apply to an approved partner master's program (e.g. AIMS or Wits)",
-                "Prepare personal statement describing your research interests in AI",
-                "Submit DeepMind scholarship application form"
-            ],
-            SelectionProcess = "Academic Assessment → Research Proposal Review → Interview with DeepMind Panel"
-        },
-        new()
-        {
-            Id = "opp-stripe-emea-analyst",
-            Type = OpportunityType.RemoteJob,
-            Title = "Junior Data & Risk Analyst — EMEA Remote",
-            Organisation = "Stripe",
-            Description = "Analyze payment anomalies, fraud vectors, and transaction reconciliation flows across Stripe's EMEA payment rails. Build real-time SQL queries, develop dashboards in Looker/dbt, and collaborate with engineering on automated fraud mitigation rules.",
-            Deadline = DateTime.UtcNow.AddDays(19),
-            Location = "Remote — EMEA (Flexible African Timezones)",
-            RegionTag = "Remote",
-            GoalTag = "Career",
-            IsRemote = true,
-            Benefits = "USD 65,000–80,000 annual salary, Stripe equity grants, home office budget, flexible wellness benefits",
-            Cost = "Free Application",
-            Url = "https://stripe.com/jobs",
-            Requirements = ["Proficiency in SQL (window functions, CTEs) and Python (Pandas)", "Experience analyzing large datasets and translating numbers into business impact", "Strong problem-solving orientation and curiosity about financial systems"],
-            WhoIsEligible = ["Data analysts with 1–3 years experience or strong demonstrated analytics portfolios"],
-            RadarsAdvice =
-            [
-                "Stripe tests SQL rigorously: expect live coding with window functions, joins, and reconciliation logic.",
-                "Review the Stripe Engineering blog post 'What actually breaks when you scale payments across borders' on your Radar Feed.",
-                "Be ready to discuss trade-offs between precision and recall in automated fraud detection.",
-                "Use the AI Learning Mentor to practice live SQL interview questions."
-            ],
-            NextMoveSteps =
-            [
-                "Complete a sample SQL cohort analysis in your portfolio",
-                "Tailor your CV to highlight measurable quantitative impact",
-                "Apply through Stripe's verified career portal"
-            ],
-            SelectionProcess = "Recruiter Screen → Technical SQL Assessment → Take-Home Case Study → Executive Interview"
-        },
-
-        // ── GLOBAL PRESTIGE & LEADERSHIP ────────────────────────────────────
-        new()
-        {
-            Id = "opp-chevening-uk",
-            Type = OpportunityType.Scholarship,
-            Title = "Chevening UK Government Postgraduate Scholarship",
-            Organisation = "UK Foreign, Commonwealth & Development Office",
-            Description = "The UK government's global scholarship programme, funded by the FCDO. Offers full financial support to undertake any eligible 1-year master's degree at any UK university, giving future leaders the opportunity to develop professionally and academically while networking extensively in the UK.",
-            Deadline = DateTime.UtcNow.AddDays(35),
-            Location = "United Kingdom (All Universities)",
-            RegionTag = "Global",
-            GoalTag = "Education",
-            IsRemote = false,
-            Benefits = "Full university tuition fees, monthly living allowance, return economy flights, arrival allowance, visa grant",
-            Cost = "Free / Fully Funded",
-            Url = "https://www.chevening.org/apply/",
-            Requirements = ["Citizen of a Chevening-eligible country (Nigeria, Ghana, Kenya, etc.)", "At least two years of work experience (equivalent to 2,800 hours)", "Undergraduate degree of at least upper second-class (2:1)", "Commitment to return to home country for minimum 2 years post-graduation"],
-            WhoIsEligible = ["Emerging leaders with strong career trajectory and clear strategic vision for their country"],
-            RadarsAdvice =
-            [
-                "Chevening is won on the four essays: Leadership, Networking, Studying in the UK, and Career Plan.",
-                "Use the STAR technique (Situation, Task, Action, Result) in every essay — quantify your concrete individual contribution.",
-                "Choose three university courses that are logically interconnected with your 5-year career roadmap.",
-                "Have two mentors review your essays for clarity and persuasive conviction."
-            ],
-            NextMoveSteps =
-            [
-                "Draft your 4 Chevening essays in Radar's Notebook",
-                "Select three UK master's programs and initiate university applications",
-                "Contact 2 professional referees for letters of support"
-            ],
-            SelectionProcess = "Online Application → Independent Reading Committee Review → Embassy Interview in Lagos/Abuja"
-        },
-        new()
-        {
-            Id = "opp-ycombinator-batch",
-            Type = OpportunityType.StartupAccelerator,
-            Title = "Y Combinator Startup Accelerator Batch",
-            Organisation = "Y Combinator",
-            Description = "The world's premier startup accelerator. YC invests $500,000 into early-stage companies across two cohorts per year. Founders spend 3 months in San Francisco working intensively on product-market fit, followed by global Demo Day.",
-            Deadline = DateTime.UtcNow.AddDays(50),
-            Location = "San Francisco, CA / Global",
-            RegionTag = "Global",
-            GoalTag = "Business",
-            IsRemote = false,
-            Benefits = "$500,000 standard investment deal, unparalleled network of 10,000+ alumni founders, weekly private partner office hours",
-            Cost = "Equity investment",
-            Url = "https://www.ycombinator.com/apply",
-            Requirements = ["Technical co-founder or high technical execution velocity", "Demonstrated prototype or measurable customer engagement", "Clear understanding of the market and target user"],
-            WhoIsEligible = ["Early-stage software and hardware founders globally at idea, prototype, or seed stage"],
-            RadarsAdvice =
-            [
-                "Be concise: YC partners read applications in 2 minutes. State clearly what you make, who needs it, and why now.",
-                "Quantify traction: users, waitlist count, revenue, or weekly growth percentage.",
-                "Make a 1-minute unedited founder video introducing the team and why you are suited to solve this problem.",
-                "Ask Radar's AI Mentor to evaluate your YC application answers."
-            ],
-            NextMoveSteps =
-            [
-                "Fill out the YC application questions clearly and without buzzwords",
-                "Record a 1-minute informal founder video on your smartphone",
-                "Submit your application early for rolling review"
-            ],
-            SelectionProcess = "Written Application Review → 10-Minute Video Interview with YC Partners → Same-day Decision"
-        }
-    ];
+    // Sixteen hand-written opportunities used to be inserted here, and they are gone.
+    //
+    // Five were programmes that do not exist, attributed to organisations that do: a "Google
+    // Cybersecurity Professional Fellowship" from "Google Security Team & Africa Digital Hub"
+    // paying a USD 2,500 monthly stipend, a "DeepMind Africa AI & Machine Learning Scholarship",
+    // a HackerOne challenge run with the "Cyber Africa Alliance". Three were job openings
+    // invented at Paystack, Cloudflare and Stripe. The remaining eight were real — Chevening,
+    // Mastercard Foundation Scholars, Tony Elumelu, Y Combinator — carrying invented eligibility
+    // notes, selection processes and, in every single case, a deadline of
+    // DateTime.UtcNow.AddDays(n): always a fortnight away, whenever you looked.
+    //
+    // Radar tells students in Africa to apply for these. A learner could build a plan around a
+    // funded fellowship that was never offered, or miss Chevening's real deadline because the
+    // one on screen was generated when the page loaded.
+    //
+    // The seeding was also destructive. It ran whenever the collection held fewer than fifteen
+    // rows and began by deleting every opportunity in it — so a thin but real harvest from
+    // OpportunityIngestionService was wiped to reinstate the invented set.
 }
