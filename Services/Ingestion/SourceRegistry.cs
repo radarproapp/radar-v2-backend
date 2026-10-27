@@ -172,7 +172,6 @@ public static class SourceRegistry
         new() { Id = "intelligent-transport", Name = "Intelligent Transport",   Url = "https://www.intelligenttransport.com/feed/",                      Layer = ContentLayer.Transportation, DefaultContentType = ContentType.Article, Tier = 2, Topics = ["Transport", "Mobility", "Smart Cities", "Infrastructure"] },
         new() { Id = "smart-cities-transport", Name = "Smart Cities Dive",      Url = "https://www.smartcitiesdive.com/feeds/news/",                     Layer = ContentLayer.Transportation, DefaultContentType = ContentType.Article, Tier = 2, Topics = ["Smart Cities", "Urban Mobility", "Transport", "Logistics"] },
         new() { Id = "ttnews",               Name = "Transport Topics",         Url = "https://www.ttnews.com/rss",                                      Layer = ContentLayer.Transportation, DefaultContentType = ContentType.Article, Tier = 2, Topics = ["Trucking", "Freight", "Logistics", "Supply Chain"] },
-        new() { Id = "businessday-transport", Name = "BusinessDay Transport",   Url = "https://businessday.ng/feed/",                                    Layer = ContentLayer.Transportation, DefaultContentType = ContentType.Article, Tier = 2, Topics = ["Africa", "Nigeria", "Transport", "Infrastructure"] },
         new() { Id = "freightwaves",         Name = "FreightWaves",             Url = "https://www.freightwaves.com/feed",                               Layer = ContentLayer.Transportation, DefaultContentType = ContentType.Article, Tier = 2, Topics = ["Freight", "Logistics", "Supply Chain", "Transport"] },
     ];
 
@@ -537,15 +536,9 @@ public static class SourceRegistry
 
     private static readonly FeedSource[] AdditionalSources =
     [
-        new() { Id = "climate-home-news",     Name = "Climate Home News",       Url = "https://www.climatechangenews.com/feed/",        Layer = ContentLayer.Environment, DefaultContentType = ContentType.Article, Tier = 2, Topics = ["Climate", "Policy", "Finance"] },
-        new() { Id = "inside-climate-news",   Name = "Inside Climate News",     Url = "https://insideclimatenews.org/feed/",            Layer = ContentLayer.Environment, DefaultContentType = ContentType.Article, Tier = 2, Topics = ["Climate", "Environment", "Policy"] },
-        new() { Id = "techcentral",           Name = "TechCentral",             Url = "https://techcentral.co.za/feed/",                Layer = ContentLayer.Ideas,       DefaultContentType = ContentType.Article, Tier = 2, Topics = ["Africa", "Technology", "Business"] },
         new() { Id = "techcrunch",            Name = "TechCrunch",              Url = "https://techcrunch.com/feed/",                   Layer = ContentLayer.Ideas,       DefaultContentType = ContentType.Article, Tier = 1, Topics = ["Technology", "Startups", "Venture Capital"] },
-        new() { Id = "africa-report",         Name = "The Africa Report",       Url = "https://www.theafricareport.com/feed/",          Layer = ContentLayer.Finance,     DefaultContentType = ContentType.Article, Tier = 2, Topics = ["Africa", "Business", "Politics"] },
-        new() { Id = "how-we-made-it",        Name = "How We Made It In Africa", Url = "https://www.howwemadeitinafrica.com/feed/",     Layer = ContentLayer.Finance,     DefaultContentType = ContentType.Article, Tier = 2, Topics = ["Africa", "Entrepreneurship", "Business"] },
         new() { Id = "espn",                  Name = "ESPN",                    Url = "https://www.espn.com/espn/rss/news",             Layer = ContentLayer.Sports,      DefaultContentType = ContentType.Article, Tier = 2, Topics = ["Sports", "Football", "Analysis"] },
         new() { Id = "muslim-news-ng",        Name = "Muslim News Nigeria",     Url = "https://muslimnews.com.ng/feed/",                Layer = ContentLayer.Faith,       DefaultContentType = ContentType.Article, Tier = 2, Topics = ["Nigeria", "Religion", "Society"] },
-        new() { Id = "fmafs",                 Name = "Federal Ministry of Agriculture (Nigeria)", Url = "https://agriculture.gov.ng/feed/", Layer = ContentLayer.Agriculture, DefaultContentType = ContentType.PolicyPaper, Tier = 1, Topics = ["Nigeria", "Agriculture", "Food Security"] },
         new() { Id = "ign",                   Name = "IGN",                     Url = "https://feeds.ign.com/ign/all",                  Layer = ContentLayer.Gaming,      DefaultContentType = ContentType.Article, Tier = 1, Topics = ["Gaming", "Reviews", "Industry"] },
     ];
 }

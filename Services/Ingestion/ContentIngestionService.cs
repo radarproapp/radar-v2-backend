@@ -325,8 +325,61 @@ public class ContentIngestionService : BackgroundService
         }
 
         await BackfillEnrichmentAsync(ct);
+        var purged = await PurgeDuplicateUrlsAsync(db, ct);
 
-        _log.LogInformation("Ingestion cycle complete. {Total} new items added.", totalNew);
+        _log.LogInformation(
+            "Ingestion cycle complete. {Total} new items added, {Purged} duplicates removed.",
+            totalNew, purged);
+    }
+
+    /// <summary>
+    /// Deletes items that are another item's url, stored twice.
+    ///
+    /// Seven feeds were registered under two ids each, so every article they published was
+    /// fetched twice and inserted twice. The registry is fixed and a test now fails the build on
+    /// a repeated feed url — but fixing the thing that writes the data has never fixed the data
+    /// already written, which is the mistake this codebase has made more than once. This removes
+    /// the rows.
+    ///
+    /// Idempotent and bounded: once the collection is clean it costs one aggregation per cycle
+    /// and deletes nothing. It stays in the cycle rather than becoming a one-off script because
+    /// syndication will keep producing the same article under two sources, and because a
+    /// migration nobody remembers to run is not a fix.
+    /// </summary>
+    private async Task<int> PurgeDuplicateUrlsAsync(RadarDatabase db, CancellationToken ct)
+    {
+        const int groupsPerCycle = 500;
+
+        try
+        {
+            var groups = await db.ContentItems.Aggregate()
+                .Group(c => c.UrlHash, g => new { Hash = g.Key, Ids = g.Select(c => c.Id).ToList() })
+                .Match(g => g.Ids.Count > 1)
+                .Limit(groupsPerCycle)
+                .ToListAsync(ct);
+
+            // Either copy will do — they are the same article, from the same url — so the first
+            // is kept and the rest go. Saves, dismissals and events reference the kept id in the
+            // overwhelming majority of cases simply because it was inserted first and has been
+            // on the feed longer.
+            var doomed = groups.SelectMany(g => g.Ids.Skip(1)).ToList();
+            if (doomed.Count == 0) return 0;
+
+            var result = await db.ContentItems.DeleteManyAsync(
+                Builders<ContentItem>.Filter.In(c => c.Id, doomed), ct);
+
+            _log.LogInformation(
+                "Removed {Count} duplicate items across {Groups} urls.", result.DeletedCount, groups.Count);
+
+            return (int)result.DeletedCount;
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            // A failed cleanup must not end a cycle that otherwise fetched content.
+            _log.LogWarning("Duplicate purge failed: {Message}", ex.Message);
+            return 0;
+        }
     }
 
     // ── RSS batch ─────────────────────────────────────────────────────────────
@@ -592,7 +645,13 @@ public class ContentIngestionService : BackgroundService
             .Project(c => c.UrlHash)
             .ToListAsync(ct);
 
-        var existingSet = existing.ToHashSet();
-        return items.Where(i => !existingSet.Contains(i.UrlHash)).ToList();
+        // Compared against what is stored *and* against the rest of this batch.
+        //
+        // The stored check alone let a url through twice in one cycle, which is what happens when
+        // two sources carry the same article — either because a feed was registered twice, or
+        // because the piece was syndicated. Both copies passed, both were enriched at a model
+        // call each, and both were inserted.
+        var seen = existing.ToHashSet();
+        return items.Where(i => seen.Add(i.UrlHash)).ToList();
     }
 }

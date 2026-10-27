@@ -20,4 +20,25 @@ public class SourceRegistryRegistrationTests
         var dupes = SourceRegistry.All.GroupBy(s => s.Id).Where(g => g.Count() > 1).Select(g => g.Key).ToList();
         Assert.Empty(dupes);
     }
+
+    /// <summary>
+    /// Two ids pointing at one feed is not two sources — it is the same articles, twice.
+    ///
+    /// Seven feeds were registered twice under slightly different names, and nothing complained:
+    /// the registry saw distinct sources, the fetcher pulled both, and url-hash dedupe did not
+    /// help because the two copies arrived in the same batch and were compared only against what
+    /// was already stored. Measured on staging, four of the top fifty feed items were a duplicate
+    /// of another item on the same page.
+    /// </summary>
+    [Fact]
+    public void EveryFeedUrlIsRegisteredOnce()
+    {
+        var dupes = SourceRegistry.All
+            .GroupBy(s => s.Url, StringComparer.OrdinalIgnoreCase)
+            .Where(g => g.Count() > 1)
+            .Select(g => $"{g.Key} → {string.Join(", ", g.Select(s => s.Id))}")
+            .ToList();
+
+        Assert.Empty(dupes);
+    }
 }
