@@ -92,4 +92,56 @@ public class AiFallbackHonestyTests
 
         Assert.Contains("could not", text, StringComparison.OrdinalIgnoreCase);
     }
+
+    private static TimeSpan? RetryDelay(string? errorBody, int attempt)
+    {
+        var method = typeof(OpenRouterAiEngine).GetMethod(
+            "RetryDelayFor", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+
+        return (TimeSpan?)method!.Invoke(null, [errorBody, attempt]);
+    }
+
+    /// <summary>
+    /// An in-flight budget refusal resolves on its own; a quarter of a second does not help.
+    ///
+    /// OpenRouter answers 402 with reason "in_flight_budget_exhausted" when the requests already
+    /// in flight have reserved the available credit. The enricher runs four at a time, so they
+    /// exhaust it against each other, and the remedy OpenRouter itself gives is to retry once a
+    /// sibling request settles. Measured on staging: these refusals arriving alongside successful
+    /// calls on the same key.
+    /// </summary>
+    [Fact]
+    public void AnInFlightRefusalWaitsLongEnoughToBeWorthRetrying()
+    {
+        const string inFlight =
+            "{\"error\":{\"message\":\"This request would exceed your available credits given your "
+            + "current in-flight requests. Retry after in-flight requests settle, or add credits.\","
+            + "\"code\":402,\"metadata\":{\"reason\":\"in_flight_budget_exhausted\"}}}";
+
+        var delay = RetryDelay(inFlight, 1);
+
+        Assert.NotNull(delay);
+        Assert.True(delay!.Value >= TimeSpan.FromSeconds(1), $"Backed off only {delay}.");
+    }
+
+    // Everything else keeps the short backoff: a rejected key is rejected just as fast a second
+    // later, and making the reader wait for it helps nobody.
+    [Fact]
+    public void OtherRejectionsKeepTheShortBackoff()
+    {
+        var delay = RetryDelay("{\"error\":{\"message\":\"User not found.\",\"code\":401}}", 1);
+
+        Assert.NotNull(delay);
+        Assert.True(delay!.Value < TimeSpan.FromSeconds(1), $"Backed off {delay} on a terminal error.");
+    }
+
+    [Fact]
+    public void TheBackoffGrowsWithTheAttempt()
+    {
+        var first = RetryDelay("in_flight_budget_exhausted", 1);
+        var second = RetryDelay("in_flight_budget_exhausted", 2);
+
+        Assert.True(second > first);
+    }
 }

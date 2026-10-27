@@ -85,6 +85,30 @@ public sealed class OpenRouterAiEngine : IAiEngine
     /// quiz is not, and reserving sixteen thousand tokens for a four-hundred-token answer is how
     /// a key with headroom stops working.
     /// </summary>
+    /// <summary>
+    /// How long to wait before trying a rejected request again, or null when trying again is
+    /// pointless.
+    ///
+    /// Most non-success statuses are terminal for the call: a rejected key or a malformed request
+    /// will be rejected identically a quarter of a second later. One is not. OpenRouter answers
+    /// 402 with reason "in_flight_budget_exhausted" when the requests already in flight have
+    /// reserved the available credit — "retry after in-flight requests settle, or add credits" —
+    /// and the enricher runs four at a time, so they exhaust it against each other.
+    ///
+    /// Measured on staging: enrichment calls failing with exactly this while other calls on the
+    /// same key succeeded. A 250 ms backoff cannot help, because what has to happen is a sibling
+    /// request finishing. Seconds can.
+    /// </summary>
+    private static TimeSpan? RetryDelayFor(string? errorBody, int attempt)
+    {
+        if (string.IsNullOrEmpty(errorBody)) return TimeSpan.FromMilliseconds(250 * attempt);
+
+        return errorBody.Contains("in_flight_budget_exhausted", StringComparison.OrdinalIgnoreCase)
+               || errorBody.Contains("in-flight requests settle", StringComparison.OrdinalIgnoreCase)
+            ? TimeSpan.FromSeconds(1.5 * attempt)
+            : TimeSpan.FromMilliseconds(250 * attempt);
+    }
+
     private int MaxOutputTokens(string feature) =>
         IsGeneration(feature)
             ? _config.GetValue("OpenRouter:GenerationMaxTokens", 8000)
@@ -158,8 +182,9 @@ public sealed class OpenRouterAiEngine : IAiEngine
                         var detail = await response.Content.ReadAsStringAsync(ct);
                         failureReason = $"HTTP {(int)response.StatusCode} {response.StatusCode}: {Trim(detail)}";
                         _log.LogWarning("OpenRouter feature {Feature} returned {Status} on attempt {Attempt}: {Detail}", feature, response.StatusCode, attempt, detail);
-                        if (attempt == maxAttempts || sw.Elapsed >= deadline) break;
-                        await Task.Delay(TimeSpan.FromMilliseconds(250 * attempt), ct);
+                        var backoff = RetryDelayFor(detail, attempt);
+                        if (attempt == maxAttempts || backoff is null || sw.Elapsed + backoff.Value >= deadline) break;
+                        await Task.Delay(backoff.Value, ct);
                         continue;
                     }
 
@@ -225,6 +250,10 @@ public sealed class OpenRouterAiEngine : IAiEngine
         var hasApiKey = !string.IsNullOrWhiteSpace(apiKey);
         var withinBudget = await WithinBudgetAsync(feature, ct);
 
+        var failureReason = !hasApiKey ? "No OpenRouter:ApiKey configured."
+            : !withinBudget ? "Monthly spend cap reached."
+            : null;
+
         if (hasApiKey && withinBudget)
         {
             var body = JsonSerializer.Serialize(new
@@ -239,51 +268,87 @@ public sealed class OpenRouterAiEngine : IAiEngine
                 max_tokens = MaxOutputTokens(feature),
             });
 
-            try
+            // The same loop shape as the json path, and for the same reason.
+            //
+            // This had none: one attempt, and a non-success status logged and swallowed. So an
+            // in-flight budget refusal — which resolves on its own once a sibling request
+            // finishes — ended the call outright.
+            var deadline = TimeSpan.FromSeconds(
+                IsGeneration(feature)
+                    ? _config.GetValue("OpenRouter:GenerationDeadlineSeconds", 60)
+                    : _config.GetValue("OpenRouter:DeadlineSeconds", 25));
+
+            var maxAttempts = MaxAttempts(feature);
+            for (var attempt = 1; attempt <= maxAttempts; attempt++)
             {
-                using var request = new HttpRequestMessage(HttpMethod.Post, "chat/completions")
+                try
                 {
-                    Content = new StringContent(body, Encoding.UTF8, "application/json")
-                };
-                using var response = await _httpFactory.CreateClient("OpenRouter").SendAsync(request, ct);
-                if (response.IsSuccessStatusCode)
-                {
-                    var json = await response.Content.ReadAsStringAsync(ct);
-                    using var envelope = JsonDocument.Parse(json);
-                    var content = envelope.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString();
-                    if (!string.IsNullOrWhiteSpace(content))
+                    using var request = new HttpRequestMessage(HttpMethod.Post, "chat/completions")
                     {
-                        await RecordUsageAsync(feature, envelope.RootElement, ct);
-                        await RecordActivityAsync(feature, null, "LLM", true, sw.ElapsedMilliseconds, "Text generated via OpenRouter", ct);
-                        return content;
+                        Content = new StringContent(body, Encoding.UTF8, "application/json")
+                    };
+                    using var response = await _httpFactory.CreateClient("OpenRouter").SendAsync(request, ct);
+                    if (response.IsSuccessStatusCode)
+                    {
+                        var json = await response.Content.ReadAsStringAsync(ct);
+                        using var envelope = JsonDocument.Parse(json);
+                        var content = envelope.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString();
+                        if (!string.IsNullOrWhiteSpace(content))
+                        {
+                            await RecordUsageAsync(feature, envelope.RootElement, ct);
+                            await RecordActivityAsync(feature, null, "LLM", true, sw.ElapsedMilliseconds, "Text generated via OpenRouter", ct);
+                            return content;
+                        }
+
+                        failureReason = "HTTP 200 with no message content.";
+                        _log.LogWarning(
+                            "OpenRouter returned 200 for {Feature} with no message content; using the deterministic fallback.",
+                            feature);
+                        break;
                     }
 
-                    _log.LogWarning(
-                        "OpenRouter returned 200 for {Feature} with no message content; using the deterministic fallback.",
-                        feature);
-                }
-                else
-                {
-                    // Previously this fell through in silence. A rejected key, an exhausted
-                    // credit balance or a rate limit all produce a non-success status rather than
-                    // an exception, so the catch below never saw them - every call could be
-                    // failing and the only symptom was prose that read slightly generically.
+                    // Kept rather than only logged. A rejected key, an exhausted balance and a
+                    // rate limit all arrive as a status rather than an exception, so the catch
+                    // below never saw them — every call could be failing and the only symptom was
+                    // prose that read slightly generically.
                     var error = await response.Content.ReadAsStringAsync(ct);
+                    failureReason = $"HTTP {(int)response.StatusCode} {response.StatusCode}: {Trim(error)}";
                     _log.LogError(
-                        "OpenRouter rejected {Feature}: HTTP {Status}. {Body}",
+                        "OpenRouter rejected {Feature}: HTTP {Status} on attempt {Attempt}. {Body}",
                         feature,
                         (int)response.StatusCode,
+                        attempt,
                         error.Length > 400 ? error[..400] : error);
+
+                    var backoff = RetryDelayFor(error, attempt);
+                    if (attempt == maxAttempts || backoff is null || sw.Elapsed + backoff.Value >= deadline) break;
+                    await Task.Delay(backoff.Value, ct);
                 }
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                _log.LogWarning(ex, "OpenRouter text feature {Feature} failed; engaging resilient brain", feature);
+                catch (Exception ex) when (attempt < maxAttempts && sw.Elapsed < deadline && ex is not OperationCanceledException)
+                {
+                    failureReason = $"{ex.GetType().Name}: {ex.Message}";
+                    _log.LogWarning(ex, "OpenRouter text feature {Feature} failed on attempt {Attempt}; retrying", feature, attempt);
+                    await Task.Delay(250, ct);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    failureReason = $"{ex.GetType().Name}: {ex.Message}";
+                    _log.LogWarning(ex, "OpenRouter text feature {Feature} failed; engaging resilient brain", feature);
+                    break;
+                }
             }
         }
 
         var fallback = GetDeterministicTextFallback(feature, systemPrompt, userPrompt);
-        await RecordActivityAsync(feature, null, "DeterministicBrain", !string.IsNullOrEmpty(fallback), sw.ElapsedMilliseconds, "Text generated via resilient brain", ct);
+
+        // The reason travels with the record, as it does on the json path. Without it a text
+        // failure was invisible on /api/ai/status: the summary read "Text generated via resilient
+        // brain" whether the key was revoked, the balance was out, or nothing had gone wrong.
+        var summary = failureReason is null
+            ? "Text generated via resilient brain"
+            : $"Fell back to the deterministic brain. Cloud call failed: {failureReason}";
+
+        await RecordActivityAsync(feature, null, "DeterministicBrain", false, sw.ElapsedMilliseconds, summary, ct);
         return fallback;
     }
 
@@ -309,7 +374,11 @@ public sealed class OpenRouterAiEngine : IAiEngine
             {
                 model = _config["OpenRouter:Model"] ?? "deepseek/deepseek-chat",
                 messages = promptMessages,
-                stream = true
+                stream = true,
+                // The third call site, and it was missed when the other two were capped. A chat
+                // turn reserving the model's full allowance is refused on a key near its limit
+                // for the same reason the other two were.
+                max_tokens = MaxOutputTokens(feature),
             });
 
             using var request = new HttpRequestMessage(HttpMethod.Post, "chat/completions")
