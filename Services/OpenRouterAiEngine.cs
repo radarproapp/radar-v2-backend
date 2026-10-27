@@ -70,6 +70,26 @@ public sealed class OpenRouterAiEngine : IAiEngine
     /// </summary>
     private static int MaxAttempts(string feature) => IsGeneration(feature) ? 1 : 2;
 
+    /// <summary>
+    /// How many tokens one answer may use.
+    ///
+    /// Not an economy measure — a correctness one. OpenRouter prices the *reservation*, not the
+    /// answer: with no max_tokens it reserves the model's full 16,384-token allowance and refuses
+    /// the request outright when the key cannot cover that much, even though the reply would have
+    /// cost a fraction of it. Measured on staging: HTTP 402, "you requested up to 16384 tokens,
+    /// but can only afford 15174", on a key with credit left and USD 2.45 still unspent against
+    /// its own monthly cap. Every feature in the product was falling back to the deterministic
+    /// brain, and the engine reported the reason to nobody but /api/ai/status.
+    ///
+    /// A section of a learning path is long. An explanation of a paper, a why-paragraph or a
+    /// quiz is not, and reserving sixteen thousand tokens for a four-hundred-token answer is how
+    /// a key with headroom stops working.
+    /// </summary>
+    private int MaxOutputTokens(string feature) =>
+        IsGeneration(feature)
+            ? _config.GetValue("OpenRouter:GenerationMaxTokens", 8000)
+            : _config.GetValue("OpenRouter:MaxTokens", 1600);
+
     public async Task<T?> GenerateJsonAsync<T>(string feature, string systemPrompt, string userPrompt, CancellationToken ct = default)
     {
         // Applied at the boundary rather than at each call site: every feature funnels through
@@ -105,6 +125,7 @@ public sealed class OpenRouterAiEngine : IAiEngine
                 },
                 response_format = new { type = "json_object" },
                 temperature = 0.25,
+                max_tokens = MaxOutputTokens(feature),
             });
 
             // Overall deadline across attempts. The per-request HttpClient timeout bounds one call;
@@ -215,6 +236,7 @@ public sealed class OpenRouterAiEngine : IAiEngine
                     new { role = "user", content = userPrompt }
                 },
                 temperature = 0.25,
+                max_tokens = MaxOutputTokens(feature),
             });
 
             try
@@ -675,22 +697,18 @@ public sealed class OpenRouterAiEngine : IAiEngine
         //
         // Falling through to "{}" lets the caller detect that no review happened and say so.
 
-        // 6. Academic Paper Breakdown (500-word 7-part breakdown)
-        if (feature.Contains("academic") || feature.Contains("breakdown") || feature.Contains("research"))
-        {
-            return $$"""
-            {
-              "introduction": "This academic investigation examines foundational theoretical models, empirical paradigms, and contemporary applications within the domain. Published in peer-reviewed literature between 2020-2026, the work investigates systemic challenges and outlines quantitative frameworks to assess operational validity.",
-              "problem": "Traditional approaches in this area suffer from conflicting methodologies, high sample variability, and insufficient longitudinal validation across modern environments, leading to theoretical contradictions and suboptimal practical outcomes.",
-              "aimAndObjectives": "The central aim of the study is to establish a rigorous, reproducible framework addressing systemic bottlenecks. Specific objectives include: (1) formalizing foundational metrics, (2) empirically testing model robustness across multi-wave cohorts, and (3) establishing reproducible industry benchmarks.",
-              "methodology": "The researchers employed a mixed-method empirical design combining multi-wave longitudinal modeling, structural equation analysis, and controlled benchmarks across diverse testing cohorts, adhering strictly to verifiable data standards.",
-              "keyArguments": "The authors argue that conceptual fragmentation can be resolved through standardized interfaces and transparent parameter validation, demonstrating that integrated frameworks consistently outperform isolated heuristic models.",
-              "findings": "Empirical results demonstrate a statistically significant 31.4% improvement in operational efficacy, robust error attenuation across stress scenarios, and strong predictive validity across all tested benchmark parameters.",
-              "contribution": "Provides a definitive, verified scientific contribution that bridges theoretical literature with commercial practice, serving as an authoritative reference for researchers, engineers, and decision-makers.",
-              "whyItMatters": "Published in verified peer-reviewed press with verifiable DOI. Directly applicable to your research synthesis and roadmap mastery."
-            }
-            """;
-        }
+        // The academic paper breakdown is deliberately absent, for the same reason as the work
+        // review above.
+        //
+        // What this used to return was a complete seven-part breakdown of a paper nobody had
+        // read: "a statistically significant 31.4% improvement in operational efficacy", "robust
+        // error attenuation across stress scenarios", "published in verified peer-reviewed press
+        // with verifiable DOI". It was attached to whichever paper the reader had opened — so a
+        // real title and a real, resolving DOI carried invented findings, which is worse than an
+        // invented paper, because everything checkable about it checks out.
+        //
+        // Falling through to "{}" leaves the breakdown empty, and the card omits the sections it
+        // has nothing for.
 
         // Default generic JSON
         return "{}";
@@ -704,6 +722,14 @@ public sealed class OpenRouterAiEngine : IAiEngine
         // designed to solve complex operational challenges by breaking them into manageable,
         // measurable components" - was true of nothing in particular and was shown to the reader
         // in the same register as a real answer, so there was no way to tell them apart.
+        // Gaps asks a different question from explain, and saying "could not write a
+        // plain-English summary" to someone who asked what a paper leaves open reads as a
+        // different request having been answered.
+        if (feature.Contains("gap"))
+        {
+            return "Radar could not work out what this paper leaves open right now. Nothing here is a stand-in for it.";
+        }
+
         if (feature.Contains("research") || feature.Contains("explain"))
         {
             return topic is null

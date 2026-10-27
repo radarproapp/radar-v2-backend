@@ -138,7 +138,7 @@ public class MongoResearchService : IResearchService
             Explain what the paper is about, why it matters, and what the key findings are — without using jargon.
             """;
 
-        return await CallLlmAsync(prompt);
+        return await CallLlmAsync("research-explain", prompt);
     }
 
     public async Task<string> FindResearchGapsAsync(string paperId)
@@ -160,7 +160,7 @@ public class MongoResearchService : IResearchService
             List 3-5 specific research gaps.
             """;
 
-        return await CallLlmAsync(prompt);
+        return await CallLlmAsync("research-gaps", prompt);
     }
 
     public async Task<string> GetCitationAsync(string paperId, string style = "APA")
@@ -172,9 +172,17 @@ public class MongoResearchService : IResearchService
         return OpenAlexClient.FormatCitation(paper, style);
     }
 
-    private async Task<string> CallLlmAsync(string prompt)
+    /// <summary>
+    /// Both research features ask different questions, so they are named differently.
+    ///
+    /// They shared the feature name "research-analysis", which meant the engine could not tell
+    /// them apart when a call failed: somebody who asked what a paper leaves open was told Radar
+    /// "could not write a plain-English summary of this one", which is an answer to the other
+    /// button.
+    /// </summary>
+    private async Task<string> CallLlmAsync(string feature, string prompt)
     {
-        return await _ai.GenerateTextAsync("research-analysis", "You are Radar's research assistant. Be clear, concise, evidence-aware and helpful. Use markdown for structure.", prompt)
+        return await _ai.GenerateTextAsync(feature, "You are Radar's research assistant. Be clear, concise, evidence-aware and helpful. Use markdown for structure.", prompt)
             ?? "Unable to generate analysis right now. Please try again later.";
     }
 
