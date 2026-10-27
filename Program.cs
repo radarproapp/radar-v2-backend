@@ -252,6 +252,7 @@ builder.Services.AddScoped<RssIngestionService>();
 builder.Services.AddScoped<ContentEnricherService>();
 builder.Services.AddScoped<MediastackIngestionService>();
 builder.Services.AddScoped<PodcastIndexIngestionService>();
+builder.Services.AddHostedService<StartupRepairService>();
 builder.Services.AddScoped<PlaybackService>();
 builder.Services.AddScoped<UserGraphService>();
 builder.Services.AddScoped<TaddyClient>();

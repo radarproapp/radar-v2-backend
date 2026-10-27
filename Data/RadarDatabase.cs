@@ -159,51 +159,15 @@ public class RadarDatabase
             new CreateIndexModel<OpportunityImpressionDoc>(
                 Builders<OpportunityImpressionDoc>.IndexKeys.Ascending(d => d.UserId)));
 
-        // The invented opportunities, deleted.
+        // Data repairs used to sit here, and that was the bug.
         //
-        // Sixteen hand-written records were removed from the source in an earlier commit — five
-        // programmes that do not exist attributed to Google, DeepMind and HackerOne, three job
-        // openings invented at Paystack, Cloudflare and Stripe, and sixteen deadlines computed
-        // from DateTime.UtcNow. Deleting the seed stopped new ones being written and did nothing
-        // about the ones already in the database. Measured on staging afterwards: six of them
-        // still being served, including the Google fellowship with its USD 2,500 monthly stipend.
+        // This method runs on a fire-and-forget Task.Run inside a bare catch, so a failure
+        // anywhere in it silently abandons everything after — and there is no way to learn
+        // whether a given step ran. Two repairs were lost that way, one of them the deletion of
+        // six invented opportunities that stayed on the page for a day afterwards.
         //
-        // That is the fourth time in this codebase that fixing a writer has not fixed the rows,
-        // and the only one of the four where the stale data actively misleads somebody about a
-        // funded opportunity they might apply for.
-        //
-        // Matched on the id prefix the seed used. Ingested opportunities carry a GUID, so the
-        // prefix cannot collide with a real one, and a user's saves or applications that pointed
-        // at a fabricated row should go with it.
-        var inventedOpportunities = Builders<Models.Opportunity>.Filter.Regex(
-            o => o.Id, new BsonRegularExpression("^opp-"));
-
-        var invented = Opportunities.Find(inventedOpportunities).Project(o => o.Id).ToList();
-        if (invented.Count > 0)
-        {
-            Opportunities.DeleteMany(inventedOpportunities);
-            SavedOpportunities.DeleteMany(s => invented.Contains(s.OpportunityId));
-            AppliedOpportunities.DeleteMany(a => invented.Contains(a.OpportunityId));
-            OpportunityTrackings.DeleteMany(t => invented.Contains(t.OpportunityId));
-        }
-
-        // Rows written before the upsert set its own id, and they poison every read.
-        //
-        // The first version of the heartbeat filtered on (user, item) and never set an id, so
-        // Mongo generated an ObjectId _id on insert — and the string Id property cannot
-        // deserialize one. The write itself succeeded. So four failed heartbeats left four rows
-        // that are unreadable, that the next heartbeat matches as an *update* rather than an
-        // insert, and that break the whole graph because it reads the collection.
-        //
-        // Fixing the writer was not enough, for the third time in this codebase. Deleting is
-        // right rather than migrating: the rows hold a playback position measured in seconds, and
-        // the _id cannot be changed in place anyway. Filtered on the BSON type with a raw
-        // document, because a delete does not deserialize what it removes — which is the only
-        // reason this is possible at all.
-        //
-        // A no-op once the collection is clean, and it runs at startup so the next deploy repairs
-        // it rather than waiting for a cycle.
-        PlaybackProgress.DeleteMany(new BsonDocument("_id", new BsonDocument("$type", "objectId")));
+        // They live in StartupRepairService now, which logs each one and reports the outcome on
+        // /api/version.
 
         // One row per user per item, upserted on every heartbeat, and read on every media page.
         PlaybackProgress.Indexes.CreateOne(

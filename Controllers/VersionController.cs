@@ -1,6 +1,7 @@
 using System.Reflection;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using RadarV2.Services;
 using RadarV2.Services.Ingestion;
 
 namespace RadarV2.Controllers;
@@ -91,6 +92,13 @@ public class VersionController : ControllerBase
                 groqWhisper = _groq.IsConfigured,
                 taddy = _taddy.IsConfigured,
             },
+
+            // Whether the one-off data repairs ran, and what they removed.
+            //
+            // Added because "did the cleanup run?" had no answer from outside the box: the
+            // repairs were buried in a method whose exceptions are discarded, and six invented
+            // opportunities stayed on the page for a day after the deploy meant to delete them.
+            repairs = StartupRepairService.LastRun,
 
             // What CORS is actually doing, as opposed to what the dashboard says it was set to.
             //
