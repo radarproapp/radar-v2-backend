@@ -31,7 +31,7 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
         // Shown under a heading that promises relevance, that teaches a new user Radar does not
         // know them, and the lesson is hard to undo. A handful of credible items and a plain
         // explanation is the honest version.
-        if (!profile.IsPersonalised) return await GeneralSampleAsync();
+        if (!profile.IsPersonalised) return await GeneralSampleAsync(filterType);
 
         var dismissedIds = !string.IsNullOrEmpty(profile.Id)
             ? await GetDismissedItemIdsAsync(profile.Id)
@@ -56,6 +56,25 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
     {
         await EnsureSeedDataAsync();
         limit = Math.Clamp(limit, 1, 50);
+
+        // The same rule as GetFeedAsync, and it has to be stated twice because this is the method
+        // the feed actually calls. Naming the reason was not enough on its own: the keyset query
+        // below would still run against an empty profile and hand back a full page of unranked
+        // content underneath a prompt saying the feed is not yet theirs.
+        //
+        // Undecorated, like the other sample path. DecorateAsync writes a "why this matters to
+        // you" per item, and on a profile that has said nothing there is no honest sentence to
+        // write — only an LLM call spent inventing one.
+        if (!profile.IsPersonalised)
+        {
+            return new PagedResult<ContentItem>
+            {
+                Items = await GeneralSampleAsync(filterType),
+                NextCursor = null,
+                HasMore = false,
+                EmptyReason = FeedEmptyReason.NotPersonalisedYet,
+            };
+        }
 
         var dismissedIds = !string.IsNullOrEmpty(profile.Id)
             ? await GetDismissedItemIdsAsync(profile.Id)
@@ -101,14 +120,9 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
             HasMore = hasMore,
             // Only costs queries when there is nothing to show, which is the one moment it is
             // worth spending them: the alternative is a blank page and a guess.
-            // Said even when the sample is non-empty. Two general items are not a feed, and the
-            // client has to know the difference — this is what tells it to show the three
-            // questions rather than a heading promising relevance.
-            EmptyReason = !profile.IsPersonalised
-                ? FeedEmptyReason.NotPersonalisedYet
-                : batch.Count > 0
-                    ? FeedEmptyReason.NotEmpty
-                    : await DiagnoseEmptyAsync(filterType, dismissedIds),
+            EmptyReason = batch.Count > 0
+                ? FeedEmptyReason.NotEmpty
+                : await DiagnoseEmptyAsync(filterType, dismissedIds),
         };
     }
 
@@ -189,7 +203,7 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
     /// Tier 1 only. If two items are all somebody sees before deciding whether this product is
     /// for them, they should come from the most credible sources on the list.
     /// </remarks>
-    private async Task<List<ContentItem>> GeneralSampleAsync()
+    private async Task<List<ContentItem>> GeneralSampleAsync(ContentType? filterType)
     {
         const int sample = 2;
 
@@ -198,19 +212,25 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
             .Select(source => source.Id)
             .ToList();
 
-        var filter = Builders<ContentItem>.Filter.In(i => i.IngestionSourceId, tierOneSources);
+        // The one thing the sample does honour. Picking Podcasts in the sidebar and being handed
+        // two blog posts is a small lie, and it is the kind that reads as a broken filter rather
+        // than as a sample.
+        var ofType = filterType.HasValue
+            ? Builders<ContentItem>.Filter.Eq(i => i.Type, filterType.Value)
+            : FilterDefinition<ContentItem>.Empty;
 
         var items = await _db.ContentItems
-            .Find(filter)
+            .Find(Builders<ContentItem>.Filter.In(i => i.IngestionSourceId, tierOneSources) & ofType)
             .SortByDescending(i => i.PublishedAt)
             .Limit(sample)
             .ToListAsync();
 
-        // No tier 1 content yet — a new deployment. Anything recent beats an empty screen.
+        // Nothing tier 1 of that type — or nothing tier 1 at all, on a new deployment. Anything
+        // recent beats an empty screen under a heading that says Latest.
         if (items.Count == 0)
         {
             items = await _db.ContentItems
-                .Find(FilterDefinition<ContentItem>.Empty)
+                .Find(ofType)
                 .SortByDescending(i => i.PublishedAt)
                 .Limit(sample)
                 .ToListAsync();

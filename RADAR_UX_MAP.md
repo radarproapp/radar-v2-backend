@@ -96,9 +96,13 @@ ask** — it just serves a generic feed. This makes it consistent rather than in
 
 ### Three states, honestly labelled
 
+> Written before the product owner answered. Where this section and §7 disagree, §7 is the
+> decision: the unpersonalised feed is not a full unranked one, and the prompt is the screen
+> rather than a card in a stream. The reasoning for asking later rather than at signup stands.
+
 | State | What the feed is | What it says |
 | --- | --- | --- |
-| Nothing asked | Latest, unranked | **Latest** — and a standing invitation to personalise |
+| Nothing asked | Two general tier-1 items, unranked | **Latest**, under the three questions |
 | Personalised | Ranked on interests, goals, opportunities | **For you** |
 | Personalised + used | Ranked, plus what they actually read | **For you** |
 
@@ -109,15 +113,16 @@ does not know them — and that lesson is hard to undo.
 
 ### The invitation
 
-Not a modal and not a wall. A card at the top of the feed, in the stream, with the reason
+Not a modal. The screen itself, on Today and above the sample on the feed, with the reason
 visible:
 
 > **For Radar to serve you better**
 > Three short questions and your feed becomes yours.
 > *Personalise my Radar*
 
-It persists until answered, because it is a requirement for the product to do its job — but it
-never blocks the door. Someone who wants to look around first can.
+It persists until answered, because it is a requirement for the product to do its job. It does
+not block the door either: every other destination — Learn, Opportunities, the Hub, settings —
+stays reachable, and the two sample items are real content from real sources.
 
 ### Where the three boxes go
 
@@ -197,3 +202,32 @@ not yet personalised and asked once — three boxes, not six steps — and no mi
 
 Opportunity preferences are asked for but not required. Someone who wants nothing applied for
 should still get a feed.
+
+---
+
+## 8. Built
+
+2026-10-27. What exists, against what §7 decided.
+
+| Decision | Where it lives |
+| --- | --- |
+| Three boxes, one button | `Personalise.tsx` + `TagInput.tsx`, route `/personalise` |
+| Suggestions that never constrain | `lib/personalisation.ts` — 235 subjects, 12 goals, 12 opportunity types, and anything typed |
+| Asked on the first screen after signing in | `Today.tsx` withholds the brief until personalised |
+| The feed is a sample, labelled as one | `MongoIntelligenceFeedService.GeneralSampleAsync` — two tier-1 items, honouring the chosen type |
+| Derived, not flagged | `UserProfile.IsPersonalised` |
+| Named on the wire | `FeedEmptyReason.NotPersonalisedYet` |
+
+Two things learned writing it, both recorded as tests:
+
+- **The rule has to go in every entry point.** `GetFeedAsync` had it; `GetFeedPageAsync` — the
+  method the feed page actually calls — only named the reason and otherwise ran the full query
+  against an empty profile, so the client drew the three questions above a complete page of
+  unranked content. `PersonalisationTests` now fails the build if either method queries before
+  it checks.
+- **The sample must not be decorated.** `DecorateAsync` writes a "why this matters to you" per
+  item; on a profile that has said nothing there is no honest sentence to write, only an LLM
+  call spent inventing one.
+
+Still to do, in order: Opportunities into Intelligence (§3.1), Research Discovery into the Hub
+(§3.2).
