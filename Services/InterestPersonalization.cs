@@ -177,13 +177,30 @@ public static class InterestPersonalization
             : (!string.IsNullOrWhiteSpace(profile.TargetIndustry) ? $"{profile.TargetIndustry} roles" : "technology-focused roles");
         var topic = !string.IsNullOrWhiteSpace(item.Topic) ? item.Topic : item.Title;
 
+        // What the scorer actually fired on, as opposed to what the profile happens to contain.
+        // The distinction is the whole point: both slots used to fall back to a profile value, so
+        // every item got "it sits where computer science meets your goal", including a podcast
+        // about Esperanto that matched on nothing. A claim of relevance has to be true, and the
+        // fallbacks made it unfalsifiable.
+        var goalFired = matches.Any(m => m.Dimension == "Goal");
+        var interestFired = matches.Any(m => m.Dimension == "Interest");
+
+        // Nothing connected. There is no honest completion of "this matters to you because", so
+        // none is written — the card falls back to WhyShown, which says what is true: that the
+        // item is recent in its topic.
+        if (!goalFired && !interestFired) return string.Empty;
+
         var sb = new StringBuilder();
         // Interest and goal are frequently the same word, which produced "where cybersecurity meets
         // your goal: Cybersecurity". Say it once when they match.
         var goalPhrase = SubjectPhrase.Clean(goal);
-        sb.Append(goalPhrase.Equals(interest, StringComparison.OrdinalIgnoreCase)
+        sb.Append(!interestFired
             ? $"This matters to you because it speaks directly to your goal: {goalPhrase}. "
-            : $"This matters to you because it sits where {Lower(interest)} meets your goal: {goalPhrase}. ");
+            : !goalFired
+                ? $"This matters to you because it is in {Lower(interest)}, which you follow. "
+                : goalPhrase.Equals(interest, StringComparison.OrdinalIgnoreCase)
+                    ? $"This matters to you because it speaks directly to your goal: {goalPhrase}. "
+                    : $"This matters to you because it sits where {Lower(interest)} meets your goal: {goalPhrase}. ");
         sb.Append($"In {location}, movement in {Lower(topic)} is creating demand for people who can do the technical work and explain the business case, especially for a {Lower(target)}. ");
 
         if (!string.IsNullOrWhiteSpace(problem))
@@ -369,16 +386,22 @@ public static class InterestPersonalization
     /// — and the user saw content that had nothing to do with them. What such a person actually
     /// wants to read about is their field.
     /// </summary>
-    private static IEnumerable<string> GoalPhrases(UserProfile profile)
-    {
-        var phrases = new List<string> { profile.PrimaryGoal };
-
-        var intent = LearningIntentReader.Read(profile);
-        if (intent.IsOutcomeDriven && !string.IsNullOrWhiteSpace(intent.Domain))
-            phrases.Add(intent.Domain);
-
-        return phrases.Concat(Contexts(profile).Select(c => c.Goal));
-    }
+    /// <summary>
+    /// What the user said they are trying to achieve — and nothing else.
+    ///
+    /// The intent domain used to be added here. The domain is derived from the interest list, so
+    /// a profile reading "goal: find a job, interest: Computer Science" matched the Goal
+    /// dimension on "Computer Science" and the card said "speaks directly to your goal: Computer
+    /// Science" — naming an interest as a goal, at goal weight, on top of the Interest dimension
+    /// already matching the same word. Topical relevance is what the Interest dimension is for.
+    ///
+    /// Box 2's goal list is deliberately not text-matched either. "Learn a new skill" would fire
+    /// on any item containing "learn" and "new" and carry goal weight while doing it. Goals that
+    /// name an outcome reach the ranking through LearningIntentReader, which is read by
+    /// opportunity scoring, where an outcome is a real discriminator rather than a word to find.
+    /// </summary>
+    private static IEnumerable<string> GoalPhrases(UserProfile profile) =>
+        new List<string> { profile.PrimaryGoal }.Concat(Contexts(profile).Select(c => c.Goal));
 
     private static IEnumerable<string> IntentPhrases(UserProfile profile) =>
         new[] { profile.CurrentIntent }.Concat(Contexts(profile).Select(c => c.Lens));

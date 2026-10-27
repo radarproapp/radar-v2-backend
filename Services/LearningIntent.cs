@@ -61,8 +61,39 @@ public static partial class LearningIntentReader
     /// comes from role, industry and interests, because someone chasing a promotion still needs to
     /// get better at their actual field, not at "promotion".
     /// </summary>
-    public static LearningIntent Read(UserProfile profile) =>
-        Read(profile.PrimaryGoal, profile.TargetRole, profile.TargetIndustry, profile.Interests);
+    /// <summary>
+    /// Reads the whole of box 2, not only the first answer.
+    ///
+    /// Personalisation collects a list of goals — "find a job" and "learn a new skill" together is
+    /// a normal answer — while PrimaryGoal is the single string the older onboarding wrote and the
+    /// roadmap is still built around. Reading only PrimaryGoal meant a stated goal changed nothing
+    /// unless it happened to be listed first: a learner who said "learn a new skill, get a
+    /// promotion" scored as LearnSubject, and promotion-shaped opportunities never lifted.
+    ///
+    /// The outcome is taken from whichever goal names one, rather than from a concatenation. The
+    /// subject and domain are built from a single goal string, and joining them produces a subject
+    /// line reading "Find a job. Learn a new skill" — which then appears in the roadmap.
+    /// </summary>
+    public static LearningIntent Read(UserProfile profile)
+    {
+        var goals = profile.Goals.Where(g => !string.IsNullOrWhiteSpace(g)).ToList();
+        var primary = !string.IsNullOrWhiteSpace(profile.PrimaryGoal)
+            ? profile.PrimaryGoal
+            : goals.FirstOrDefault() ?? string.Empty;
+
+        var intent = Read(primary, profile.TargetRole, profile.TargetIndustry, profile.Interests);
+        if (intent.Outcome != LearningOutcome.LearnSubject) return intent;
+
+        // LearnSubject is also what an unreadable goal falls back to, so it is the one outcome
+        // worth looking past. The first goal that names something more specific wins.
+        foreach (var goal in goals)
+        {
+            if (ReadOutcome(goal) == LearningOutcome.LearnSubject) continue;
+            return Read(goal, profile.TargetRole, profile.TargetIndustry, profile.Interests);
+        }
+
+        return intent;
+    }
 
     public static LearningIntent Read(string? goal, string? role, string? industry, IEnumerable<string>? interests)
     {

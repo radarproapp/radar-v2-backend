@@ -264,7 +264,14 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
             // AI relevance (when a key is configured) fills these first; the deterministic engine
             // then fills whatever is still empty so the UI always has a grounded reason and action.
             var explanation = InterestPersonalization.Explain(profile, item);
-            item.PersonalizedWhy ??= explanation.Why;
+
+            // Assigned only when there is something to say. Explain returns an empty Why when
+            // nothing in the profile fired on the item, and ??= would happily write that empty
+            // string into the slot — leaving the card with a blank reason block instead of
+            // falling through to the honest one-liner below.
+            if (string.IsNullOrWhiteSpace(item.PersonalizedWhy) && !string.IsNullOrWhiteSpace(explanation.Why))
+                item.PersonalizedWhy = explanation.Why;
+
             item.NextMove ??= explanation.NextMove;
             if (item.MatchedSignals.Count == 0)
                 item.MatchedSignals = explanation.MatchedSignals.ToList();

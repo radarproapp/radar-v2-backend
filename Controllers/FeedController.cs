@@ -191,6 +191,10 @@ public class FeedController : ControllerBase
     /// the item's generic WhyItMatters (isPersonalized=false) when generation isn't possible
     /// right now — see IPersonalizedWhyService for why that's not a hard failure.
     /// </summary>
+    /// <summary>The first of these that is actually populated.</summary>
+    private static string FirstNonEmpty(params string?[] candidates) =>
+        candidates.FirstOrDefault(c => !string.IsNullOrWhiteSpace(c)) ?? string.Empty;
+
     [HttpGet("{id}/why")]
     public async Task<IActionResult> GetWhyAsync(string id)
     {
@@ -203,7 +207,15 @@ public class FeedController : ControllerBase
         var deterministic = InterestPersonalization.Explain(profile, item);
         var personalized = await _why.GetOrGenerateAsync(profile, item);
 
-        var whyText = !string.IsNullOrWhiteSpace(personalized?.WhyText) ? personalized.WhyText : deterministic.Why;
+        // Three sources, in order of how much they know: the generated explanation, the
+        // deterministic one, and — when neither has anything true to say because nothing in the
+        // profile matched — the same honest line the card carries. An empty answer to "why am I
+        // seeing this" is the one response the page cannot render.
+        var whyText = FirstNonEmpty(
+            personalized?.WhyText,
+            deterministic.Why,
+            item.WhyYoureSeeingThis,
+            WhyShown.Build(item, deterministic.MatchedSignals));
         var nextMove = !string.IsNullOrWhiteSpace(personalized?.NextMove) ? personalized.NextMove : deterministic.NextMove;
 
         return Ok(new
@@ -232,7 +244,11 @@ public class FeedController : ControllerBase
 
         var deterministic = InterestPersonalization.Explain(profile, item);
         var personalized = await _why.GetOrGenerateAsync(profile, item);
-        var whyText = !string.IsNullOrWhiteSpace(personalized?.WhyText) ? personalized.WhyText : deterministic.Why;
+        var whyText = FirstNonEmpty(
+            personalized?.WhyText,
+            deterministic.Why,
+            item.WhyYoureSeeingThis,
+            WhyShown.Build(item, deterministic.MatchedSignals));
 
         await _why.RateAsync(profile.Id, id, whyText, request.Helpful);
         await _analytics.LogEventAsync(new AnalyticsEvent

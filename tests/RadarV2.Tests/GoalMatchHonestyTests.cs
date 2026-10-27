@@ -103,4 +103,77 @@ public class GoalMatchHonestyTests
             explanation.MatchedSignals,
             signal => signal.StartsWith("Goal:", StringComparison.OrdinalIgnoreCase));
     }
+
+    /// <summary>
+    /// The sentence had two fallbacks and so could never be wrong: with no Goal match it printed
+    /// PrimaryGoal, and with no Interest match it printed the first interest. Every item on a
+    /// personalised feed therefore read "it sits where computer science meets your goal" —
+    /// including, measured on staging, a podcast about Esperanto and a music-industry hire.
+    /// </summary>
+    [Theory]
+    [InlineData("Doktoro Esperanto", "Languages")]
+    [InlineData("Believe hires Amazon Music's Mel Curley as Global Head", "Music")]
+    [InlineData("Jane Eyre's Watercolors and the Victorian Novel", "Literature")]
+    public void SaysNothingWhenNothingMatched(string title, string topic)
+    {
+        var why = InterestPersonalization.Explain(Student(), Item(title, topic)).Why;
+
+        Assert.True(string.IsNullOrEmpty(why), $"Claimed a reason for an unmatched item: {why}");
+    }
+
+    // The interest fired and the goal did not. Naming the goal anyway is the same fabrication in
+    // the other slot.
+    [Fact]
+    public void NamesOnlyTheInterestWhenTheGoalDidNotFire()
+    {
+        var profile = new UserProfile
+        {
+            Id = "u1",
+            Persona = PersonaType.Student,
+            PrimaryGoal = "Find a job",
+            Goals = ["Find a job"],
+            Interests = ["Computer Science"],
+        };
+
+        var why = InterestPersonalization.Explain(profile, Item("Computer Science curriculum rewritten", "Education")).Why;
+
+        Assert.Contains("computer science", why, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("your goal", why, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // And the matched case still reads as it did.
+    [Fact]
+    public void StillExplainsWhenSomethingDidMatch()
+    {
+        var why = InterestPersonalization.Explain(Student(), Item("Computer Science enrolment climbs", "Computer Science")).Why;
+
+        Assert.Contains("Computer Science", why, StringComparison.OrdinalIgnoreCase);
+        Assert.StartsWith("This matters to you because", why);
+    }
+
+    /// <summary>
+    /// An interest is not a goal, even when the ranking finds it useful to treat it as one.
+    ///
+    /// The goal dimension used to be seeded with the intent domain, which is derived from the
+    /// interest list. A learner whose goal was "find a job" and whose interest was Computer
+    /// Science was told the item spoke directly to their goal of Computer Science — a sentence
+    /// they could read and know to be wrong about something they had typed themselves.
+    /// </summary>
+    [Fact]
+    public void DoesNotNameAnInterestAsAGoal()
+    {
+        var profile = new UserProfile
+        {
+            Id = "u1",
+            Persona = PersonaType.Student,
+            PrimaryGoal = "Find a job",
+            Goals = ["Find a job", "Learn a new skill"],
+            Interests = ["Computer Science"],
+        };
+
+        var explanation = InterestPersonalization.Explain(profile, Item("Computer Science enrolment climbs", "Computer Science"));
+
+        Assert.DoesNotContain("goal: Computer Science", explanation.Why, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Goal: Computer Science", string.Join(" ", explanation.MatchedSignals), StringComparison.OrdinalIgnoreCase);
+    }
 }
