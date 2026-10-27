@@ -253,8 +253,49 @@ So Research Discovery is now a page over `GET /api/research/search`, which is Op
 OpenAlex: real papers, real DOIs, real open-access links, and an empty result when nothing
 matches. That is the next thing to build.
 
-### Then
+Built. A search box and a list of papers, reached from the Hub's Research stream, on `/research`
+with the Hub claiming the route. Citation in five styles, a plain-language explanation and a gap
+analysis, each fetched on request.
+
+---
+
+## 9. The AI engine was answering nothing
+
+Found while checking the research actions worked before building UI over them. Worth recording
+because it was invisible from the product and because it changes what "a feature works" means
+here.
+
+`GET /api/ai/status` reported `isCloudLlmActive: false`, `isBudgetExhausted: false`, and USD 2.55
+of a 5.00 monthly cap spent. Every model call in the product was failing and falling back to the
+deterministic brain. Three distinct causes, each only visible after fixing the one before it:
+
+1. **No `max_tokens` was ever sent.** OpenRouter prices the reservation, not the answer, so each
+   request asked for the model's full 16,384-token allowance and was refused outright. Now capped
+   per feature — 8,000 for generation, 1,600 otherwise.
+2. **402 `in_flight_budget_exhausted`.** Enrichment runs four at a time and they exhausted the
+   in-flight credit against each other. The json path retried after 250 ms, which cannot help; the
+   text path did not retry at all.
+3. **429 from the provider.** Visible only once the text path started reporting its reason, and it
+   was in the give-up bucket.
+
+Two things the same investigation exposed that were not about credit:
+
+- The streamed chat — Ask Radar and Mentor — builds its own request body and was missed when the
+  other two call sites were capped.
+- A text failure was invisible on `/api/ai/status`: the activity row read "Text generated via
+  resilient brain", recorded `success: true`, whether the key was revoked, the balance was out, or
+  nothing had gone wrong. The json path had been fixed for this; the text path had not.
+
+**Still outstanding and not a code problem:** the OpenRouter key needs credit. The in-flight
+budget scales with available balance, so a key near its limit sustains roughly one concurrent
+request however good the backoff is.
+
+---
+
+## 10. Then
 
 - The merged Learning Goal Box: one prominent box, then the two existing follow-ups.
 - "Learn This Skill" on a feed card.
 - Persona-shaped document assessment (essay / CV / report).
+- Open from before: 9 of 20 `Video` items have no playable URL; no transcripts are stored;
+  practice-exercise completion is unreachable; `radarproapp.com` is unassigned.
