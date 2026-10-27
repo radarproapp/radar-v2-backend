@@ -1,6 +1,7 @@
 using System.Reflection;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using RadarV2.Services.Ingestion;
 
 namespace RadarV2.Controllers;
 
@@ -25,11 +26,19 @@ public class VersionController : ControllerBase
 
     private readonly IWebHostEnvironment _environment;
     private readonly IConfiguration _config;
+    private readonly GroqWhisperClient _groq;
+    private readonly TaddyClient _taddy;
 
-    public VersionController(IWebHostEnvironment environment, IConfiguration config)
+    public VersionController(
+        IWebHostEnvironment environment,
+        IConfiguration config,
+        GroqWhisperClient groq,
+        TaddyClient taddy)
     {
         _environment = environment;
         _config = config;
+        _groq = groq;
+        _taddy = taddy;
     }
 
     [HttpGet]
@@ -70,6 +79,17 @@ public class VersionController : ControllerBase
                 openRouter = !string.IsNullOrWhiteSpace(_config["OpenRouter:ApiKey"]),
                 youTube = !string.IsNullOrWhiteSpace(_config["YouTube:ApiKey"]),
                 mongo = !string.IsNullOrWhiteSpace(_config["MongoDB:ConnectionString"]),
+                // The two transcript sources. Added because "is transcription even switched on?"
+                // was a question with no answer from outside the box, and the honest reading of
+                // zero stored transcripts depends entirely on it: an unconfigured key and a
+                // broken pipeline look identical from the feed.
+                //
+                // Asked of the clients rather than re-derived from config. Taddy needs a user id
+                // as well as a key, so a flag checking only the key would have reported it live
+                // while the client refused every call — which is the mistake isCloudLlmActive
+                // made with the OpenRouter key.
+                groqWhisper = _groq.IsConfigured,
+                taddy = _taddy.IsConfigured,
             },
 
             // What CORS is actually doing, as opposed to what the dashboard says it was set to.

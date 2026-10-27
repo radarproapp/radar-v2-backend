@@ -325,11 +325,12 @@ public class ContentIngestionService : BackgroundService
         }
 
         await BackfillEnrichmentAsync(ct);
+        var transcribed = await BackfillTranscriptsAsync(ct);
         var purged = await PurgeDuplicateUrlsAsync(db, ct);
 
         _log.LogInformation(
-            "Ingestion cycle complete. {Total} new items added, {Purged} duplicates removed.",
-            totalNew, purged);
+            "Ingestion cycle complete. {Total} new items added, {Transcribed} transcribed, {Purged} duplicates removed.",
+            totalNew, transcribed, purged);
     }
 
     /// <summary>
@@ -378,6 +379,111 @@ public class ContentIngestionService : BackgroundService
         {
             // A failed cleanup must not end a cycle that otherwise fetched content.
             _log.LogWarning("Duplicate purge failed: {Message}", ex.Message);
+            return 0;
+        }
+    }
+
+    /// <summary>
+    /// Fetches transcripts for episodes already in the database.
+    /// </summary>
+    /// <remarks>
+    /// Transcription only ever happened to items arriving in the current cycle, inside the
+    /// once-per-24h slow branch. So nothing already stored could ever get one, and measured on
+    /// staging that was all of it: 50 videos and 8 podcasts on the feed, 0 transcripts between
+    /// them. The same shape as the generator fixes that did not fix the data already written.
+    ///
+    /// Why it is worth the calls: the enricher already puts a transcript into the summary prompt
+    /// as "Full Transcript:", so a transcript is the difference between a summary of an episode
+    /// and a summary of its description. That is the "detailed summary of what, why and why it
+    /// matters to you" the product owner asked for, and without one it cannot be written.
+    ///
+    /// Taddy first because it is a lookup against a transcript database and costs nothing per
+    /// minute of audio; Groq Whisper only for what Taddy does not have, capped per cycle because
+    /// it transcribes in real resources. Items without an audio url are skipped rather than
+    /// attempted — which is every video, since there is no approved way to get audio out of
+    /// YouTube.
+    /// </remarks>
+    private async Task<int> BackfillTranscriptsAsync(CancellationToken ct)
+    {
+        try
+        {
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            var sp = scope.ServiceProvider;
+            var db = sp.GetRequiredService<RadarDatabase>();
+            var taddy = sp.GetRequiredService<TaddyClient>();
+            var groq = sp.GetRequiredService<GroqWhisperClient>();
+
+            if (!taddy.IsConfigured && !groq.IsConfigured)
+            {
+                // Said out loud. A silent return here is why zero transcripts read as a broken
+                // pipeline for weeks instead of as a missing key.
+                _log.LogInformation(
+                    "Transcript backfill skipped: neither Taddy nor Groq Whisper is configured.");
+                return 0;
+            }
+
+            var perCycle = sp.GetRequiredService<IConfiguration>()
+                .GetValue("Ingestion:TranscriptBackfillPerCycle", 12);
+
+            // Only what can actually be transcribed: an audio url, and nothing stored yet.
+            var pending = await db.ContentItems
+                .Find(Builders<ContentItem>.Filter.And(
+                    Builders<ContentItem>.Filter.Ne(c => c.AudioUrl, null),
+                    Builders<ContentItem>.Filter.Ne(c => c.AudioUrl, string.Empty),
+                    Builders<ContentItem>.Filter.Or(
+                        Builders<ContentItem>.Filter.Eq(c => c.TranscriptText, null),
+                        Builders<ContentItem>.Filter.Eq(c => c.TranscriptText, string.Empty))))
+                .SortByDescending(c => c.PublishedAt)
+                .Limit(perCycle)
+                .ToListAsync(ct);
+
+            if (pending.Count == 0) return 0;
+
+            var filled = 0;
+            var groqUsed = 0;
+
+            foreach (var item in pending)
+            {
+                if (ct.IsCancellationRequested) break;
+
+                string? transcript = null;
+
+                if (taddy.IsConfigured && !string.IsNullOrWhiteSpace(item.Url))
+                    transcript = await taddy.GetEpisodeTranscriptAsync(item.Url, isUrl: true, ct);
+
+                if (string.IsNullOrWhiteSpace(transcript)
+                    && groq.IsConfigured
+                    && groqUsed < GroqWhisperClient.MaxTranscriptionsPerCycle)
+                {
+                    transcript = await groq.TranscribeUrlAsync(item.AudioUrl!, ct: ct);
+                    if (!string.IsNullOrWhiteSpace(transcript)) groqUsed++;
+                }
+
+                if (string.IsNullOrWhiteSpace(transcript)) continue;
+
+                // The transcript alone is not the point: WhyItMatters and the key insights are
+                // regenerated from it, so the summary stops describing the description. Cleared
+                // rather than rewritten here, because BackfillEnrichmentAsync already owns that
+                // and will pick the item up on the next cycle with the transcript in place.
+                await db.ContentItems.UpdateOneAsync(
+                    Builders<ContentItem>.Filter.Eq(c => c.Id, item.Id),
+                    Builders<ContentItem>.Update
+                        .Set(c => c.TranscriptText, transcript)
+                        .Set(c => c.WhyItMatters, string.Empty),
+                    cancellationToken: ct);
+
+                filled++;
+            }
+
+            if (filled > 0)
+                _log.LogInformation("Transcribed {Filled} of {Pending} pending episodes.", filled, pending.Count);
+
+            return filled;
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            _log.LogWarning("Transcript backfill failed: {Message}", ex.Message);
             return 0;
         }
     }
