@@ -47,7 +47,13 @@ public class DocumentsController : ControllerBase
     [HttpPost("assess")]
     [Consumes("multipart/form-data")]
     [RequestSizeLimit(20_000_000)]
-    public async Task<IActionResult> AssessAsync([FromForm] IFormFile? file, CancellationToken ct = default)
+    /// <param name="kind">
+    /// Optional. What the reader says the document is, which skips detection entirely.
+    /// </param>
+    public async Task<IActionResult> AssessAsync(
+        [FromForm] IFormFile? file,
+        [FromForm] DocumentKind? kind = null,
+        CancellationToken ct = default)
     {
         var profile = await _profiles.GetCurrentUserAsync();
         if (profile is null) return NotFound(new { error = "Profile not found" });
@@ -87,7 +93,7 @@ public class DocumentsController : ControllerBase
             });
         }
 
-        return Ok(await _assessments.AssessAsync(profile, file.FileName, text, ct));
+        return Ok(await _assessments.AssessAsync(profile, file.FileName, text, kind, ct));
     }
 
     /// <summary>Past assessments, newest first, so a revision can be compared with what it fixed.</summary>

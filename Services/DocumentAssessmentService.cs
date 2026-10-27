@@ -63,8 +63,17 @@ public class DocumentAssessmentService
         public string? Fix { get; set; }
     }
 
+    /// <param name="declaredKind">
+    /// What the reader says the document is. When supplied, detection is skipped entirely — they
+    /// know better than the model does, and being told Radar cannot tell what your own CV is
+    /// serves nobody.
+    /// </param>
     public async Task<DocumentAssessment> AssessAsync(
-        UserProfile profile, string fileName, string text, CancellationToken ct = default)
+        UserProfile profile,
+        string fileName,
+        string text,
+        DocumentKind? declaredKind = null,
+        CancellationToken ct = default)
     {
         var assessment = new DocumentAssessment
         {
@@ -76,23 +85,32 @@ public class DocumentAssessmentService
         var truncated = text.Length > MaxCharacters;
         var body = truncated ? text[..MaxCharacters] : text;
 
-        var kind = await DetectKindAsync(body, truncated, ct);
-        assessment.Kind = kind.Kind;
-        assessment.KindEvidence = kind.Evidence;
+        if (declaredKind is not null and not DocumentKind.Unknown)
+        {
+            assessment.Kind = declaredKind.Value;
+            assessment.KindWasDeclared = true;
+            assessment.KindEvidence = "You told Radar what this is.";
+        }
+        else
+        {
+            var kind = await DetectKindAsync(body, truncated, ct);
+            assessment.Kind = kind.Kind;
+            assessment.KindEvidence = kind.Evidence;
+        }
 
-        if (kind.Kind == DocumentKind.Unknown)
+        if (assessment.Kind == DocumentKind.Unknown)
         {
             // Nothing is judged against a guessed rubric. Picking a default here is how a CV gets
             // marked as an essay, which is useless and reads as not having been looked at.
             assessment.WasAssessed = false;
             assessment.NotAssessedReason =
-                "Radar could not tell what kind of document this is, so it has not been assessed. "
-                + "An essay, report, CV, cover letter, personal statement, research proposal or business plan can be.";
+                "Radar could not work out what kind of document this is, so it has not guessed. "
+                + "Tell it what this is and it will assess it against the right criteria.";
             return await StoreAsync(assessment, ct);
         }
 
-        var rubric = AssessmentRubric.For(kind.Kind, profile.Persona);
-        var judged = await JudgeAsync(body, truncated, kind.Kind, profile, rubric, ct);
+        var rubric = AssessmentRubric.For(assessment.Kind, profile.Persona);
+        var judged = await JudgeAsync(body, truncated, assessment.Kind, profile, rubric, ct);
 
         if (judged is null)
         {
@@ -136,9 +154,13 @@ public class DocumentAssessmentService
             Allowed kinds: Essay, Report, Cv, CoverLetter, ResearchProposal, PersonalStatement,
             BusinessPlan, Unknown.
 
-            Answer Unknown unless the text clearly is one of them. A fragment, a set of notes, a
-            syllabus, a textbook chapter or someone else's published work is Unknown — this is for
-            assessing work the reader wrote.
+            Choose the closest match when the text is somebody's own work product. Unknown is for
+            text that is not: a fragment, a set of notes, a syllabus, a textbook chapter, a
+            published article, a transcript, or someone else's work.
+
+            Do not answer Unknown merely because you are unsure between two kinds — pick the
+            closer one. A CV with no objective line is still a CV; an essay with no title is still
+            an essay.
 
             {{(truncated ? "You are seeing only the opening of a longer document." : "")}}
 

@@ -74,6 +74,21 @@ public class DocumentAssessment
     public string KindEvidence { get; set; } = string.Empty;
 
     /// <summary>
+    /// True when the reader told Radar what the document is, rather than Radar working it out.
+    /// </summary>
+    /// <remarks>
+    /// Detection is not reliable enough to be the only route. Measured on staging: the same CV
+    /// came back as Cv in full and as Unknown when shortened by a third. Being told "Radar could
+    /// not tell what kind of document this is" about your own CV is honest and useless, so the
+    /// reader can say what it is — which is the same rule the rest of the product runs on, asking
+    /// rather than inferring.
+    ///
+    /// Recorded because it changes how much the result is worth: a declared kind means the
+    /// criteria are certainly the right ones, and a detected kind means Radar thought so.
+    /// </remarks>
+    public bool KindWasDeclared { get; set; }
+
+    /// <summary>
     /// The persona the criteria were shaped for. A graduate's CV and a professional's CV are
     /// judged against different things, and the reader should know which was applied.
     /// </summary>
