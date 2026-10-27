@@ -1,3 +1,4 @@
+using MongoDB.Bson;
 using MongoDB.Driver;
 using RadarV2.Data.Documents;
 using RadarV2.Models;
@@ -157,6 +158,24 @@ public class RadarDatabase
         OpportunityImpressions.Indexes.CreateOne(
             new CreateIndexModel<OpportunityImpressionDoc>(
                 Builders<OpportunityImpressionDoc>.IndexKeys.Ascending(d => d.UserId)));
+
+        // Rows written before the upsert set its own id, and they poison every read.
+        //
+        // The first version of the heartbeat filtered on (user, item) and never set an id, so
+        // Mongo generated an ObjectId _id on insert — and the string Id property cannot
+        // deserialize one. The write itself succeeded. So four failed heartbeats left four rows
+        // that are unreadable, that the next heartbeat matches as an *update* rather than an
+        // insert, and that break the whole graph because it reads the collection.
+        //
+        // Fixing the writer was not enough, for the third time in this codebase. Deleting is
+        // right rather than migrating: the rows hold a playback position measured in seconds, and
+        // the _id cannot be changed in place anyway. Filtered on the BSON type with a raw
+        // document, because a delete does not deserialize what it removes — which is the only
+        // reason this is possible at all.
+        //
+        // A no-op once the collection is clean, and it runs at startup so the next deploy repairs
+        // it rather than waiting for a cycle.
+        PlaybackProgress.DeleteMany(new BsonDocument("_id", new BsonDocument("$type", "objectId")));
 
         // One row per user per item, upserted on every heartbeat, and read on every media page.
         PlaybackProgress.Indexes.CreateOne(
