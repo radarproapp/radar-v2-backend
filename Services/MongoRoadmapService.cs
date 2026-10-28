@@ -191,8 +191,13 @@ public class MongoRoadmapService : IRoadmapService
             roadmap = await RebuildIfStaleAsync(roadmap, userId);
 
             // Re-enrich with latest catalog structure (4 stages, ordered resources, practical exercises)
-            await EnrichRoadmapWithResourcesAsync(roadmap);
+            // Personalise first. It inserts lessons of its own, and a lesson created after the
+            // fill is a lesson nothing has checked — it reached the learner with no resources and
+            // no note, so the page fell back to the stage-wide list and showed it material chosen
+            // for the whole stage. That is the mismatch this gate exists to end, landing on the
+            // one lesson deliberately pushed to the front of their work.
             await PersonalizeAsync(roadmap, userId);
+            await EnrichRoadmapWithResourcesAsync(roadmap);
             await _db.Roadmaps.ReplaceOneAsync(r => r.Id == roadmap.Id, roadmap);
             return roadmap;
         }
@@ -221,8 +226,9 @@ public class MongoRoadmapService : IRoadmapService
         await _db.Roadmaps.UpdateManyAsync(r => r.UserId == userId && r.IsActive, deactivate);
 
         var roadmap = BuildFromTemplate(userId, goal, displayGoal, intent);
-        await EnrichRoadmapWithResourcesAsync(roadmap);
+        // Personalise first: a lesson it inserts after the fill is one nothing has checked.
         await PersonalizeAsync(roadmap, userId);
+        await EnrichRoadmapWithResourcesAsync(roadmap);
         await _db.Roadmaps.InsertOneAsync(roadmap);
         return roadmap;
     }
@@ -252,8 +258,9 @@ public class MongoRoadmapService : IRoadmapService
 
         roadmap.Interest = interest;
         roadmap.Level    = level;
-        await EnrichRoadmapWithResourcesAsync(roadmap);
+        // Personalise first: a lesson it inserts after the fill is one nothing has checked.
         await PersonalizeAsync(roadmap, userId, ct);
+        await EnrichRoadmapWithResourcesAsync(roadmap, ct);
 
         var deactivate = Builders<GrowthRoadmap>.Update.Set(r => r.IsActive, false);
         await _db.Roadmaps.UpdateManyAsync(r => r.UserId == userId && r.IsActive, deactivate, cancellationToken: ct);

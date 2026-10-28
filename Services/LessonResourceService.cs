@@ -182,15 +182,33 @@ public class LessonResourceService
     /// </remarks>
     private const int MaxVideoWaits = 3;
 
-    /// <summary>Still collecting. Said plainly, because the lesson is not finished.</summary>
-    public const string StillGathering =
+    /// <summary>Still collecting, and nothing has arrived yet.</summary>
+    public const string StillGatheringNothingYet =
+        "Radar is still looking for material for this lesson. Open it again shortly.";
+
+    /// <summary>
+    /// Still collecting, with some of it already on screen.
+    /// </summary>
+    /// <remarks>
+    /// Two sentences for one state, because one of them was a lie on production: a lesson with no
+    /// resources at all displayed "what it has found so far is below" above an empty space. A note
+    /// about what is on the screen has to agree with what is on the screen.
+    /// </remarks>
+    public const string StillGatheringSomeFound =
         "Radar is still looking for videos for this lesson. What it has found so far is below; "
         + "open this again shortly for the rest.";
 
-    /// <summary>Radar could not look. A fault, and it has to read like one.</summary>
+    /// <summary>
+    /// Radar could not look. A fault, and it has to read like one.
+    /// </summary>
+    /// <remarks>
+    /// It does not claim nothing is shown. A failed check leaves whatever the lesson already had
+    /// in place rather than wiping it on the strength of a call that did not complete, so the
+    /// earlier wording contradicted the behaviour directly beneath it.
+    /// </remarks>
     public const string CouldNotCheck =
-        "Radar could not check these against the lesson just now, so none are shown. "
-        + "They will appear the next time this path is opened.";
+        "Radar could not check this lesson's material just now. Anything below is from an earlier "
+        + "check; the rest will follow the next time this path is opened.";
 
     private async Task AdmitAsync(Pending pending, string goal, CancellationToken ct)
     {
@@ -210,7 +228,7 @@ public class LessonResourceService
             // is still being filled.
             var waiting = _youtube.IsConfigured && lesson.ResourceAttempts < MaxVideoWaits;
 
-            lesson.ResourceNote = waiting ? StillGathering : NothingRelevant;
+            lesson.ResourceNote = waiting ? StillGatheringNothingYet : NothingRelevant;
             if (!waiting) lesson.ResourcesJudgedAt = DateTime.UtcNow;
             return;
         }
@@ -244,9 +262,11 @@ public class LessonResourceService
             && pending.Videos.Count == 0
             && lesson.ResourceAttempts < MaxVideoWaits;
 
-        lesson.ResourceNote = waitingForVideos ? StillGathering
-            : lesson.Resources.Count == 0 ? NothingRelevant
-            : string.Empty;
+        lesson.ResourceNote =
+            waitingForVideos
+                ? lesson.Resources.Count > 0 ? StillGatheringSomeFound : StillGatheringNothingYet
+                : lesson.Resources.Count == 0 ? NothingRelevant
+                : string.Empty;
 
         // Settled only when there was nothing further to wait for. Whatever the old matcher left
         // on this lesson has now been replaced by what the judge admitted, which may be nothing.
