@@ -55,8 +55,22 @@ public class ContentEnricherService
                 "You are Radar's content intelligence engine. Return only valid JSON matching the requested schema. Choose a precise primary topic and up to four secondary topics from Finance, Law, Climate, Technology, Business, Policy, Education, Science, Health, Agriculture, Energy, Career, Arts, Sports, or Society. Tags must describe the actual subject, not merely a keyword in the source.",
                 BuildPrompt(raw),
                 ct);
-            if (result != null) ApplyEnrichment(item, result);
-            item.IsEnriched = result != null;
+            if (result is null)
+            {
+                item.IsEnriched = false;
+            }
+            else if (Describes(result))
+            {
+                ApplyEnrichment(item, result);
+                item.IsEnriched = true;
+            }
+            else
+            {
+                Undescribed(item);
+                _log.LogInformation(
+                    "The body under '{Title}' from {Source} is not about that headline; "
+                    + "ingested without a summary.", raw.Title, raw.SourceName);
+            }
         }
         catch (Exception ex)
         {
@@ -113,6 +127,14 @@ public class ContentEnricherService
             // The fallback returns something; a real answer says why it matters. That is the
             // field this exists to fill, so it is the field that decides success.
             if (result is null || string.IsNullOrWhiteSpace(result.WhyItMatters)) return false;
+
+            if (!Describes(result))
+            {
+                // Re-enriching cannot repair this: the body Radar holds is about something else,
+                // so a second reading of it produces the same wrong brief.
+                Undescribed(item);
+                return false;
+            }
 
             ApplyEnrichment(item, result);
             item.IsEnriched = true;
@@ -276,6 +298,43 @@ public class ContentEnricherService
         }
         """;
 
+    /// <summary>
+    /// Whether the body Radar was given is actually about the headline it arrived under.
+    /// </summary>
+    /// <remarks>
+    /// A lesson on arithmetic offered "Anthropic IPO numbers surprise on the upside", and the
+    /// summary under it was about South African food security and debt stress. Nothing had been
+    /// mixed up inside Radar: the item came from a whole-site feed carrying a daily podcast, where
+    /// the title names one segment and the description is a rundown of the whole episode. Radar
+    /// summarised the description faithfully and printed it under the headline.
+    ///
+    /// The result asserts something about an article the article does not say, which section 5
+    /// forbids regardless of whose data was wrong to begin with. The model is already reading both
+    /// halves, so it is asked, and a brief that fails is not written rather than written wrong.
+    /// </remarks>
+    private static bool Describes(EnrichmentResult result) => result.ContentIsAboutTitle;
+
+    /// <summary>
+    /// Strips what Radar cannot honestly say, keeping what is real.
+    /// </summary>
+    /// <remarks>
+    /// The raw description goes too. <c>BuildBaseItem</c> seeds the summary fields from it, and it
+    /// is the thing that did not match the headline in the first place — leaving it in place would
+    /// keep exactly the text this exists to remove, just unprocessed.
+    ///
+    /// The title, source, link and date stay. They came from the feed and they are correct; it is
+    /// only the account of what the item says that Radar does not have.
+    /// </remarks>
+    private static void Undescribed(ContentItem item)
+    {
+        item.BodyMatchesTitle = false;
+        item.IsEnriched = false;
+        item.WhatHappened = string.Empty;
+        item.AiSummary = string.Empty;
+        item.WhyItMatters = string.Empty;
+        item.Signal = string.Empty;
+    }
+
     private static string PodcastTemplate(RawFeedItem raw)
     {
         var content = !string.IsNullOrWhiteSpace(raw.TranscriptText)
@@ -297,6 +356,7 @@ public class ContentEnricherService
             Respond ONLY with valid JSON matching this exact structure:
             {
               "signal": "One-line thesis — the single biggest idea or argument in this episode. Max 20 words.",
+              "contentIsAboutTitle": true,
               "whatHappened": "3-minute listen summary in 150-200 words. Accessible to a newcomer. Cover main arguments, guests, and evidence.",
               "whyItMatters": "2-3 sentences on practical relevance for young African professionals, students, or founders.",
               "keyInsights": ["Core argument or lesson 1", "Lesson 2", "Lesson 3", "Lesson 4"],
@@ -322,8 +382,14 @@ public class ContentEnricherService
         Title: {{raw.Title}}
         Content: {{Truncate(raw.Description, 1200)}}
 
+        First decide whether the content is actually about the title. Some feeds carry a rundown
+        of several unrelated segments under the headline of one of them, and summarising the
+        content then describes something the headline does not. If they do not match, set
+        contentIsAboutTitle to false and leave the other fields empty.
+
         Respond ONLY with valid JSON:
         {
+          "contentIsAboutTitle": true,
           "signal": "One-line signal or thesis. Max 20 words.",
           "whatHappened": "Clear 100-150 word summary.",
           "whyItMatters": "2-3 sentences on relevance and importance.",
@@ -365,6 +431,12 @@ public class ContentEnricherService
 
     private class EnrichmentResult
     {
+        /// <summary>
+        /// Defaults to true so a model that omits it is taken at its word rather than having
+        /// every brief it writes thrown away. See <see cref="Describes"/>.
+        /// </summary>
+        public bool ContentIsAboutTitle { get; set; } = true;
+
         public string Signal { get; set; } = string.Empty;
         public string WhatHappened { get; set; } = string.Empty;
         public string WhyItMatters { get; set; } = string.Empty;

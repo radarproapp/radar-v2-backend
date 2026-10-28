@@ -58,6 +58,24 @@ public class ContentItem
     public string? IngestionSourceId { get; set; }
     public string? UrlHash { get; set; }
     public bool IsEnriched { get; set; }
+
+    /// <summary>
+    /// Whether the body Radar was given is actually about this headline.
+    /// </summary>
+    /// <remarks>
+    /// False for an item that arrived through a whole-site feed carrying a daily podcast, where
+    /// the title names one segment and the description is a rundown of the whole episode. Radar
+    /// used to summarise the description and print it under the headline, which asserts something
+    /// about an article the article does not say.
+    ///
+    /// Such an item keeps its title, source and link — all of which are real — and carries no
+    /// summary, because Radar has not been given anything it can honestly say about it.
+    ///
+    /// True by default, including on every item ingested before this existed. Those were never
+    /// checked, so this is not evidence that they are sound; it only means nothing has found them
+    /// to be otherwise.
+    /// </remarks>
+    public bool BodyMatchesTitle { get; set; } = true;
     public Dictionary<string, string> PersonaImpact { get; set; } = [];
     public List<string> Opportunities { get; set; } = [];
     public List<string> RecommendedActions { get; set; } = [];
