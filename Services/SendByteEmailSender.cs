@@ -85,7 +85,8 @@ public class SendByteEmailSender : IEmailSender
         LastSendAt = DateTime.UtcNow;
     }
 
-    public async Task<bool> SendAsync(string to, string subject, string body, CancellationToken ct = default)
+    public async Task<bool> SendAsync(
+        string to, string subject, string text, string? html = null, CancellationToken ct = default)
     {
         if (!IsConfigured)
         {
@@ -94,16 +95,20 @@ public class SendByteEmailSender : IEmailSender
             return false;
         }
 
-        // Plain text only. Everything Radar sends today is a short transactional message, and an
-        // HTML body would need escaping that nothing currently does — a reset link inside unescaped
-        // HTML is a way to break the link, not a way to make it prettier.
-        var payload = JsonSerializer.Serialize(new Dictionary<string, object>
+        // Both parts when there is an html one. SendByte takes them together and the reader's
+        // client decides; sending html alone would drop the readers who prefer text and cost
+        // deliverability with filters that expect a multipart message.
+        var fields = new Dictionary<string, object>
         {
             ["from"] = From!,
             ["to"] = new[] { to },
             ["subject"] = subject,
-            ["text"] = body,
-        });
+            ["text"] = text,
+        };
+
+        if (!string.IsNullOrWhiteSpace(html)) fields["html"] = html;
+
+        var payload = JsonSerializer.Serialize(fields);
 
         try
         {

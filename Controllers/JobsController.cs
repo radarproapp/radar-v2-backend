@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MongoDB.Driver;
 using RadarV2.Data;
+using RadarV2.Services;
 using RadarV2.Services.Ingestion;
 using RadarV2.Services.Interfaces;
 
@@ -18,6 +19,7 @@ namespace RadarV2.Controllers;
 public class JobsController : ControllerBase
 {
     private const string CronKeyHeader = "X-Cron-Key";
+    private readonly DailyDigestSender _digests;
 
     private readonly IConfiguration _config;
     private readonly ContentIngestionService _ingestion;
@@ -31,6 +33,7 @@ public class JobsController : ControllerBase
         ContentIngestionService ingestion,
         IOpportunityService opportunities,
         OpportunityIngestionService opportunityIngestion,
+        DailyDigestSender digests,
         RadarDatabase db,
         ILogger<JobsController> log)
     {
@@ -38,6 +41,7 @@ public class JobsController : ControllerBase
         _ingestion = ingestion;
         _opportunities = opportunities;
         _opportunityIngestion = opportunityIngestion;
+        _digests = digests;
         _db = db;
         _log = log;
     }
@@ -121,6 +125,37 @@ public class JobsController : ControllerBase
 
         failure = null;
         return true;
+    }
+
+    /// <summary>
+    /// Sends the daily digest to everybody who asked for it.
+    /// </summary>
+    /// <remarks>
+    /// Opted in only — the preference defaults to off — and nobody with nothing worth saying gets
+    /// a message. The response reports how many of those there were, which is the number worth
+    /// watching: a digest that always finds something to say about everybody has its threshold
+    /// set too low, and the cost of that lands on the whole sending domain.
+    /// </remarks>
+    [AllowAnonymous]
+    [HttpPost("daily-digest")]
+    public async Task<IActionResult> RunDailyDigestAsync(CancellationToken ct)
+    {
+        var expected = _config["Jobs:CronKey"];
+        if (string.IsNullOrWhiteSpace(expected))
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new { error = "Scheduled jobs are not enabled. Set Jobs__CronKey." });
+
+        var provided = Request.Headers[CronKeyHeader].FirstOrDefault() ?? string.Empty;
+        if (!FixedTimeEquals(provided, expected)) return Unauthorized();
+
+        var result = await _digests.RunAsync(ct);
+
+        return Ok(new
+        {
+            optedIn = result.Considered,
+            sent = result.Sent,
+            nothingToSay = result.NothingToSay,
+            failed = result.Failed,
+        });
     }
 
     /// <summary>

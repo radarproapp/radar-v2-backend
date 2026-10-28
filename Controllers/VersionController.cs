@@ -109,6 +109,14 @@ public class VersionController : ControllerBase
                 emailSandbox = (_email as SendByteEmailSender)?.IsSandbox ?? false,
             },
 
+            // Where emailed links point, and where the logo in them is loaded from.
+            //
+            // Not a secret — it is a public URL — and worth reporting because getting it wrong is
+            // silent and total: the default is radarproapp.com, which currently 404s, so a reset
+            // link would arrive pointing at a dead domain and the only symptom would be a user
+            // saying the link does not work.
+            publicUrl = _config["App:PublicUrl"] ?? "https://radarproapp.com (default)",
+
             // What happened the last time Radar tried to send. No recipient, no key — a status
             // and an error code, which is the difference between "the key is wrong" and "the
             // domain is not verified yet". Both otherwise look identical: silence.

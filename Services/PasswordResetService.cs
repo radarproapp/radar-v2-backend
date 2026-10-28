@@ -76,21 +76,25 @@ public class PasswordResetService
             ExpiresAt = DateTime.UtcNow.Add(Lifetime),
         }, cancellationToken: ct);
 
-        var link = $"{resetUrlBase.TrimEnd('/')}/reset-password?token={token}";
+        var site = resetUrlBase.TrimEnd('/');
+        var link = $"{site}/reset-password?token={token}";
 
-        await _email.SendAsync(
-            user.Email,
-            "Reset your Radar password",
-            $"""
-             Someone asked to reset the password for this Radar account.
+        // The copy says what happened, what the link does, how long it lasts and what to do if it
+        // was not them. No greeting, no sign-off, no exclamation mark: somebody who cannot get
+        // into their account wants the link and the facts about it.
+        var (html, text) = EmailTemplate.Build(
+            heading: "Choose a new password",
+            preheader: "The link works once and expires in an hour.",
+            paragraphs:
+            [
+                "Someone asked to reset the password for this Radar account.",
+                "The link below works once and expires in an hour.",
+            ],
+            action: new EmailTemplate.Action_("Set a new password", link),
+            footnote: "If this was not you, ignore this message. Nothing has changed, and the link expires on its own.",
+            publicUrl: site);
 
-             Open this link to choose a new one. It works once and expires in an hour:
-
-             {link}
-
-             If this was not you, nothing has changed and you can ignore this message.
-             """,
-            ct);
+        await _email.SendAsync(user.Email, "Reset your Radar password", text, html, ct);
     }
 
     /// <summary>

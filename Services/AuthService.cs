@@ -10,11 +10,19 @@ public class AuthService : IAuthService
 {
     private readonly RadarDatabase _db;
     private readonly IConfiguration _config;
+    private readonly IEmailSender _email;
+    private readonly ILogger<AuthService> _log;
 
-    public AuthService(RadarDatabase db, IConfiguration config)
+    public AuthService(
+        RadarDatabase db,
+        IConfiguration config,
+        IEmailSender email,
+        ILogger<AuthService> log)
     {
         _db = db;
         _config = config;
+        _email = email;
+        _log = log;
     }
 
     public async Task<AuthResult> RegisterAsync(string name, string email, string password)
@@ -52,7 +60,51 @@ public class AuthService : IAuthService
         await _db.Users.InsertOneAsync(user);
         await _db.Profiles.InsertOneAsync(profile);
 
+        await SendWelcomeAsync(name, user.Email);
+
         return new AuthResult { Success = true, UserId = userId, UserName = name, Role = role };
+    }
+
+    /// <summary>
+    /// The one message a new account genuinely needs.
+    /// </summary>
+    /// <remarks>
+    /// Not a tour and not a feature list. It does two things worth an email: it proves the
+    /// address was typed correctly, which is how somebody finds out before they are locked out of
+    /// an account they cannot reset — and it tells them the one thing the product will not do for
+    /// them, which is guess what they want to follow.
+    ///
+    /// Awaited rather than fired and forgotten, but never allowed to fail a registration: an
+    /// account that exists is worth more than a greeting, and a sender that is down must not stop
+    /// somebody signing up.
+    /// </remarks>
+    private async Task SendWelcomeAsync(string name, string email)
+    {
+        try
+        {
+            var site = (_config["App:PublicUrl"] ?? "https://radarproapp.com").TrimEnd('/');
+            var firstName = name.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? name;
+
+            var (html, text) = EmailTemplate.Build(
+                heading: $"Your Radar account is ready, {firstName}",
+                preheader: "Radar stays empty until you say what you are following.",
+                paragraphs:
+                [
+                    "Radar starts empty on purpose. It does not read your degree and decide what you should care about — it asks, and until it has an answer there is nothing it can honestly rank.",
+                    "Three questions set it up: what you follow, what you are working towards, and what you want it to watch for. After that the feed is yours, and you can change any of it later.",
+                    "Keep this message. If you ever need to get back in, a reset link goes to this address.",
+                ],
+                action: new EmailTemplate.Action_("Set up your feed", $"{site}/personalise"),
+                footnote: "You are getting this because an account was created with this address. If that was not you, reply and tell us.",
+                publicUrl: site);
+
+            await _email.SendAsync(email, "Your Radar account is ready", text, html);
+        }
+        catch (Exception ex)
+        {
+            // A greeting is not worth failing a registration for.
+            _log.LogWarning(ex, "Could not send a welcome email.");
+        }
     }
 
     public async Task<AuthResult> LoginAsync(string email, string password)

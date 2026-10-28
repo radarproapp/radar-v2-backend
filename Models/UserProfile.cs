@@ -105,6 +105,19 @@ public class NotificationPrefs
     public bool WeeklyBrief { get; set; } = true;
     public bool OpportunityDeadlines { get; set; } = true;
     public bool RoadmapReminders { get; set; }
+
+    /// <summary>
+    /// A short message each day covering what is new in the topics they follow.
+    /// </summary>
+    /// <remarks>
+    /// Off by default, unlike the weekly one, and the difference is deliberate. Daily is the most
+    /// aggressive cadence a product can choose; opting somebody into it on their behalf is how an
+    /// entire sending domain ends up in spam folders, which costs the password reset too.
+    ///
+    /// Nothing is sent on a day with nothing to say, so turning it on is not a commitment to a
+    /// message every morning.
+    /// </remarks>
+    public bool DailyDigest { get; set; }
 }
 
 public class UserStats

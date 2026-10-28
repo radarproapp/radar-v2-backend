@@ -18,8 +18,16 @@ public interface IEmailSender
 {
     bool IsConfigured { get; }
 
-    /// <summary>Returns false when it could not send, rather than throwing into a request.</summary>
-    Task<bool> SendAsync(string to, string subject, string body, CancellationToken ct = default);
+    /// <summary>
+    /// Returns false when it could not send, rather than throwing into a request.
+    /// </summary>
+    /// <param name="text">
+    /// The plain-text part. Required, not optional: it is what a screen reader in text mode, a
+    /// watch and most spam filters actually read, and a message without one is scored worse for
+    /// delivery than one with both.
+    /// </param>
+    /// <param name="html">The rendered part, when there is one.</param>
+    Task<bool> SendAsync(string to, string subject, string text, string? html = null, CancellationToken ct = default);
 }
 
 public class SmtpEmailSender : IEmailSender
@@ -59,7 +67,8 @@ public class SmtpEmailSender : IEmailSender
     public bool IsConfigured =>
         !string.IsNullOrWhiteSpace(Host) && !string.IsNullOrWhiteSpace(From);
 
-    public async Task<bool> SendAsync(string to, string subject, string body, CancellationToken ct = default)
+    public async Task<bool> SendAsync(
+        string to, string subject, string text, string? html = null, CancellationToken ct = default)
     {
         if (!IsConfigured)
         {
@@ -77,7 +86,16 @@ public class SmtpEmailSender : IEmailSender
             if (!string.IsNullOrWhiteSpace(Username))
                 client.Credentials = new NetworkCredential(Username, Password);
 
-            using var message = new MailMessage(From!, to, subject, body);
+            using var message = new MailMessage(From!, to, subject, text);
+
+            // Both parts, with text as the body and html as an alternate view. A client picks
+            // whichever it prefers; neither is a fallback for the other.
+            if (!string.IsNullOrWhiteSpace(html))
+            {
+                message.AlternateViews.Add(
+                    AlternateView.CreateAlternateViewFromString(html, null, "text/html"));
+            }
+
             await client.SendMailAsync(message, ct);
 
             return true;

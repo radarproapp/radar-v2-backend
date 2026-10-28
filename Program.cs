@@ -280,6 +280,8 @@ builder.Services.AddHttpClient("SendByte", client =>
 
 builder.Services.AddScoped<IEmailSender, SendByteEmailSender>();
 builder.Services.AddScoped<PasswordResetService>();
+builder.Services.AddScoped<DailyDigestService>();
+builder.Services.AddScoped<DailyDigestSender>();
 builder.Services.AddScoped<TaddyClient>();
 builder.Services.AddScoped<GroqWhisperClient>();
 // Registered as a singleton so the scheduled-jobs endpoint can trigger a cycle on demand, and
