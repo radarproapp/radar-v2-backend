@@ -20,6 +20,54 @@ namespace RadarV2.Services;
 /// </remarks>
 public static class AssessmentRubric
 {
+    /// <summary>
+    /// A post, caption, thread or content calendar written to be published.
+    /// </summary>
+    /// <remarks>
+    /// Judged as writing with a job to do, not as an essay that happens to be short. The usual
+    /// failure in content writing is not grammar — it is a post that reads well and asks nobody to
+    /// do anything, or one written for the brand rather than the person scrolling past it.
+    ///
+    /// Engagement numbers are deliberately absent. Radar cannot see how a post performed, and a
+    /// criterion it cannot assess from the document in front of it would be a guess wearing a
+    /// rubric's clothes.
+    /// </remarks>
+    private static List<AssessmentCriterion> SocialMediaContent(PersonaType persona) =>
+    [
+        C("Hook",
+            "Does the opening line earn the second one? A reader decides in about a second, and a "
+            + "post that starts by introducing itself has already lost them."),
+
+        C("One idea",
+            "Is there a single thing this post is about? Content that makes three points makes "
+            + "none, because a reader scrolling takes away at most one."),
+
+        C("Written for a reader",
+            "Is this addressed to a person with a problem, or to the organisation that published "
+            + "it? Announcements about a brand are written from the inside out."),
+
+        C("Voice and platform fit",
+            "Does the length, tone and shape suit where it is going? The same words that work in "
+            + "a LinkedIn post do not work as a caption, and nothing about the document should "
+            + "have to be explained by the platform it is for."),
+
+        C("Call to action",
+            "Is the reader asked to do one specific thing, and is it the thing this post actually "
+            + "set up? A post that ends with 'thoughts?' is asking for engagement, not an action."),
+
+        C("Claims it can stand behind",
+            "Are statistics, outcomes and quotes attributable? Content is where unsourced numbers "
+            + "travel furthest, and the person who posts one owns it."),
+
+        persona == PersonaType.Student
+            ? C("Evidence of your own thinking",
+                "Does this show what you understand, rather than restating what the source said? "
+                + "Content built only from other people's posts demonstrates reading, not judgement.")
+            : C("Business outcome",
+                "Is it clear what this post is for — demand, hiring, credibility, launch? Content "
+                + "without a purpose behind it cannot be judged as having worked."),
+    ];
+
     private static AssessmentCriterion C(string name, string asks) =>
         new() { Name = name, Asks = asks };
 
@@ -40,6 +88,7 @@ public static class AssessmentRubric
         DocumentKind.ResearchProposal => ResearchProposal(),
         DocumentKind.PersonalStatement => PersonalStatement(),
         DocumentKind.BusinessPlan => BusinessPlan(),
+        DocumentKind.SocialMediaContent => SocialMediaContent(persona),
         _ => [],
     };
 

@@ -18,6 +18,18 @@ public enum DocumentKind
     ResearchProposal,
     PersonalStatement,
     BusinessPlan,
+
+    /// <summary>
+    /// A post, caption, thread or content calendar written to be published on a social platform.
+    /// </summary>
+    /// <remarks>
+    /// Added because somebody uploaded one and Radar said it could not work out what the document
+    /// was. It was right that it could not — nothing in the list was close — but the list was the
+    /// problem. Content writing is ordinary paid work for the students, graduates and
+    /// professionals Radar is for, and a tool that assesses a cover letter but not a caption is
+    /// making a judgement about which of their work counts.
+    /// </remarks>
+    SocialMediaContent,
 }
 
 /// <summary>

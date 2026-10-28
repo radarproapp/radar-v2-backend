@@ -152,6 +152,7 @@ public class DocumentAssessmentService
             Identify what kind of document this is. Do not assess it.
 
             Allowed kinds: Essay, Report, Cv, CoverLetter, ResearchProposal, PersonalStatement,
+            SocialMediaContent,
             BusinessPlan, Unknown.
 
             Choose the closest match when the text is somebody's own work product. Unknown is for
