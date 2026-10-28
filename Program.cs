@@ -262,6 +262,10 @@ builder.Services.AddScoped<LessonResourceService>();
 // Signed by hand rather than via the AWS SDK, which is a large dependency for four operations.
 builder.Services.AddHttpClient("R2", client => client.Timeout = TimeSpan.FromSeconds(60));
 builder.Services.AddScoped<IObjectStore, R2ObjectStore>();
+
+// Email, and the password reset that could not exist without it.
+builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
+builder.Services.AddScoped<PasswordResetService>();
 builder.Services.AddScoped<TaddyClient>();
 builder.Services.AddScoped<GroqWhisperClient>();
 // Registered as a singleton so the scheduled-jobs endpoint can trigger a cycle on demand, and

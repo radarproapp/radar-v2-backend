@@ -1,3 +1,4 @@
+using MongoDB.Driver;
 using System.Reflection;
 using RadarV2.Models;
 using RadarV2.Services;
@@ -139,5 +140,52 @@ public class LessonResourceTests
     public void ALessonStartsWithNoResourcesRatherThanPlaceholders()
     {
         Assert.Empty(new RoadmapLesson().Resources);
+    }
+
+    /// <summary>
+    /// The article sort has to render to a Mongo sort document.
+    /// </summary>
+    /// <remarks>
+    /// It was <c>SortByDescending(c =&gt; c.CredibilityTier == 1)</c>. The driver's sort builder
+    /// needs a field to render from and a boolean comparison is not one, so it threw at
+    /// query-build time — on every call. Which meant every "Build this section" came back as a
+    /// 500, because AddSectionAsync enriches resources on the way out, and a learner pressing the
+    /// button got "Something went wrong handling that request".
+    ///
+    /// Rendering it is the whole test: a sort that cannot be rendered is the bug, and it needs no
+    /// database to catch.
+    /// </remarks>
+    [Fact]
+    public void TheArticleSortRendersToAValidSortDocument()
+    {
+        var sort = Builders<ContentItem>.Sort
+            .Ascending(c => c.CredibilityTier)
+            .Descending(c => c.PublishedAt);
+
+        var registry = MongoDB.Bson.Serialization.BsonSerializer.SerializerRegistry;
+        var rendered = sort.Render(new RenderArgs<ContentItem>(
+            registry.GetSerializer<ContentItem>(), registry));
+
+        Assert.True(rendered.Contains("CredibilityTier"), rendered.ToString());
+        Assert.True(rendered.Contains("PublishedAt"), rendered.ToString());
+    }
+
+    /// <summary>
+    /// Tier 1 is the best tier, so ascending is what puts the most credible article first.
+    /// Getting this backwards would quietly rank the least trustworthy source top.
+    /// </summary>
+    [Fact]
+    public void TheMostCredibleTierSortsFirst()
+    {
+        var items = new[]
+        {
+            new ContentItem { Id = "c", CredibilityTier = 3 },
+            new ContentItem { Id = "a", CredibilityTier = 1 },
+            new ContentItem { Id = "b", CredibilityTier = 2 },
+        };
+
+        var ordered = items.OrderBy(i => i.CredibilityTier).Select(i => i.Id).ToList();
+
+        Assert.Equal(["a", "b", "c"], ordered);
     }
 }

@@ -50,6 +50,7 @@ public class RadarDatabase
     public IMongoCollection<OpportunityTrackingDoc> OpportunityTrackings => _db.GetCollection<OpportunityTrackingDoc>("opportunity_trackings");
     public IMongoCollection<PlaybackProgressDoc> PlaybackProgress  => _db.GetCollection<PlaybackProgressDoc>("playback_progress");
     public IMongoCollection<DocumentAssessment> DocumentAssessments => _db.GetCollection<DocumentAssessment>("document_assessments");
+    public IMongoCollection<PasswordResetDoc> PasswordResets => _db.GetCollection<PasswordResetDoc>("password_resets");
     public IMongoCollection<ChatSession>   ChatSessions => _db.GetCollection<ChatSession>("chat_sessions");
     public IMongoCollection<WeeklyBrief>   WeeklyBriefs     => _db.GetCollection<WeeklyBrief>("weekly_briefs");
     public IMongoCollection<LibraryDocument>    LibraryDocuments => _db.GetCollection<LibraryDocument>("library_documents");
@@ -169,6 +170,16 @@ public class RadarDatabase
         //
         // They live in StartupRepairService now, which logs each one and reports the outcome on
         // /api/version.
+
+        // Looked up by hash on redemption, and swept by expiry so spent tokens do not accumulate.
+        PasswordResets.Indexes.CreateOne(
+            new CreateIndexModel<PasswordResetDoc>(
+                Builders<PasswordResetDoc>.IndexKeys.Ascending(r => r.TokenHash)));
+
+        PasswordResets.Indexes.CreateOne(
+            new CreateIndexModel<PasswordResetDoc>(
+                Builders<PasswordResetDoc>.IndexKeys.Ascending(r => r.ExpiresAt),
+                new CreateIndexOptions { ExpireAfter = TimeSpan.Zero }));
 
         // One row per user per item, upserted on every heartbeat, and read on every media page.
         PlaybackProgress.Indexes.CreateOne(

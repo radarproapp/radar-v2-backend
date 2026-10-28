@@ -87,6 +87,7 @@ public class LessonResourceService
 
         var subject = !string.IsNullOrWhiteSpace(roadmap.Interest) ? roadmap.Interest : roadmap.Goal;
         var summarised = 0;
+        var pending = new List<(RoadmapLesson Lesson, List<LessonResource> Videos)>();
 
         foreach (var lesson in lessons)
         {
@@ -97,14 +98,46 @@ public class LessonResourceService
 
             lesson.Resources = [.. videos, .. articles];
 
-            // Summaries are the expensive half, so they are rationed while the lists are not. A
-            // lesson showing five videos with no summaries yet is still a lesson with five
-            // videos; the next visit fills them.
             if (videos.Count > 0 && summarised < MaxLessonsSummarisedPerPass)
             {
-                await SummariseVideosAsync(lesson, videos, subject, ct);
+                pending.Add((lesson, videos));
                 summarised++;
             }
+        }
+
+        await SummariseAllAsync(pending, subject, ct);
+    }
+
+    /// <summary>
+    /// Summarises every lesson's videos at once, with a deadline.
+    /// </summary>
+    /// <remarks>
+    /// These were written one lesson at a time, inside the request that built the section — six
+    /// model calls in sequence, each allowed up to its own budget, on the request a learner is
+    /// waiting on after pressing "Build this section". Run together and bounded, so a slow
+    /// provider costs the page a few seconds rather than a minute, and the lessons keep their
+    /// videos either way.
+    /// </remarks>
+    private async Task SummariseAllAsync(
+        List<(RoadmapLesson Lesson, List<LessonResource> Videos)> pending,
+        string subject,
+        CancellationToken ct)
+    {
+        if (pending.Count == 0) return;
+
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        deadline.CancelAfter(TimeSpan.FromSeconds(25));
+
+        try
+        {
+            await Task.WhenAll(pending.Select(p =>
+                SummariseVideosAsync(p.Lesson, p.Videos, subject, deadline.Token)));
+        }
+        catch (Exception ex)
+        {
+            // Every lesson keeps its videos. A summary that did not arrive is a blank line, and
+            // the next visit fills it.
+            _log.LogWarning(ex, "Some lesson video summaries did not complete.");
         }
     }
 
@@ -164,9 +197,17 @@ public class LessonResourceService
                 terms.Select(term => Builders<ContentItem>.Filter.Regex(
                     c => c.Title, new MongoDB.Bson.BsonRegularExpression(System.Text.RegularExpressions.Regex.Escape(term), "i"))));
 
+            // Sorted on the field, not on a comparison of it.
+            //
+            // This was SortByDescending(c => c.CredibilityTier == 1). The driver's sort builder
+            // needs a field to render a sort document from, and a boolean expression is not one,
+            // so it threw at query-build time — on every call. Which meant every "Build this
+            // section" returned a 500, because AddSectionAsync enriches resources on the way out.
+            //
+            // Tier 1 is the best tier, so ascending puts the most credible first.
             items = await _db.ContentItems
                 .Find(readable & matchesLesson)
-                .SortByDescending(c => c.CredibilityTier == 1)
+                .SortBy(c => c.CredibilityTier)
                 .ThenByDescending(c => c.PublishedAt)
                 .Limit(ArticlesPerLesson)
                 .ToListAsync(ct);

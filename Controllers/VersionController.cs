@@ -30,19 +30,22 @@ public class VersionController : ControllerBase
     private readonly GroqWhisperClient _groq;
     private readonly TaddyClient _taddy;
     private readonly IObjectStore _objectStore;
+    private readonly IEmailSender _email;
 
     public VersionController(
         IWebHostEnvironment environment,
         IConfiguration config,
         GroqWhisperClient groq,
         TaddyClient taddy,
-        IObjectStore objectStore)
+        IObjectStore objectStore,
+        IEmailSender email)
     {
         _environment = environment;
         _config = config;
         _groq = groq;
         _taddy = taddy;
         _objectStore = objectStore;
+        _email = email;
     }
 
     [HttpGet]
@@ -97,6 +100,9 @@ public class VersionController : ControllerBase
                 // All four R2 settings, not one of them. A store missing its bucket name is not
                 // configured, and reporting otherwise is the mistake isCloudLlmActive made.
                 objectStore = _objectStore.IsConfigured,
+                // Without this there is no password reset: a reset that cannot deliver a link
+                // is a form that silently does nothing.
+                email = _email.IsConfigured,
             },
 
             // Whether the one-off data repairs ran, and what they removed.

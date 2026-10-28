@@ -1,9 +1,11 @@
+using Microsoft.AspNetCore.Authorization;
 using System.ComponentModel.DataAnnotations;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.IdentityModel.Tokens;
+using RadarV2.Services;
 using RadarV2.Services.Interfaces;
 
 namespace RadarV2.Controllers;
@@ -14,11 +16,19 @@ public class AuthController : ControllerBase
 {
     private readonly IAuthService _auth;
     private readonly IConfiguration _config;
+    private readonly PasswordResetService _resets;
+    private readonly IEmailSender _email;
 
-    public AuthController(IAuthService auth, IConfiguration config)
+    public AuthController(
+        IAuthService auth,
+        IConfiguration config,
+        PasswordResetService resets,
+        IEmailSender email)
     {
         _auth = auth;
         _config = config;
+        _resets = resets;
+        _email = email;
     }
 
     public sealed class RegisterRequest
@@ -58,6 +68,63 @@ public class AuthController : ControllerBase
             return Unauthorized(new { error = result.Error });
 
         return Ok(CreateResponse(result));
+    }
+
+    public sealed class ForgotPasswordRequest
+    {
+        [Required, EmailAddress] public string Email { get; set; } = string.Empty;
+    }
+
+    public sealed class ResetPasswordRequest
+    {
+        [Required] public string Token { get; set; } = string.Empty;
+        [Required, MinLength(8)] public string NewPassword { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// Starts a password reset.
+    /// </summary>
+    /// <remarks>
+    /// Answers identically whether or not the address has an account. Saying "no such user" would
+    /// turn this endpoint into a way to find out who has signed up.
+    /// </remarks>
+    [AllowAnonymous]
+    [HttpPost("forgot-password")]
+    public async Task<IActionResult> ForgotPasswordAsync(
+        [FromBody] ForgotPasswordRequest request, CancellationToken ct = default)
+    {
+        if (!ModelState.IsValid) return ValidationProblem();
+
+        // Where the link should point. Taken from configuration rather than the request, so a
+        // forged Origin header cannot send somebody a reset link to a site we do not own.
+        var appUrl = _config["App:PublicUrl"] ?? "https://radarproapp.com";
+
+        await _resets.RequestAsync(request.Email, appUrl, ct);
+
+        return Ok(new
+        {
+            message = "If that address has a Radar account, a reset link is on its way.",
+            // Whether a link could actually be sent. False means no email provider is configured,
+            // and a reset form that silently delivers nothing is worse than one that says so.
+            canSend = _email.IsConfigured,
+        });
+    }
+
+    /// <summary>Redeems a reset token and sets the new password.</summary>
+    [AllowAnonymous]
+    [HttpPost("reset-password")]
+    public async Task<IActionResult> ResetPasswordAsync(
+        [FromBody] ResetPasswordRequest request, CancellationToken ct = default)
+    {
+        if (!ModelState.IsValid) return ValidationProblem();
+
+        var ok = await _resets.RedeemAsync(request.Token, request.NewPassword, ct);
+
+        // One message for unknown, used and expired alike: which of the three it was is not the
+        // user's business to learn by probing.
+        return ok
+            ? Ok(new { message = "Your password has been changed. You can sign in with it now." })
+            : BadRequest(new { error = "That reset link is no longer valid. Request a new one." });
     }
 
     [HttpPost("~/api/admin/auth/login")]
