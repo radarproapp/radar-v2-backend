@@ -85,12 +85,28 @@ public class LessonResourceService
     /// </remarks>
     public async Task FillAsync(GrowthRoadmap roadmap, CancellationToken ct = default)
     {
-        var lessons = roadmap.Modules
+        var all = roadmap.Modules
             .SelectMany(m => m.Lessons ?? [])
-            .Where(l => l.ResourcesJudgedAt is null && !string.IsNullOrWhiteSpace(l.Title))
+            .Where(l => !string.IsNullOrWhiteSpace(l.Title))
             .ToList();
 
-        if (lessons.Count == 0) return;
+        var lessons = all.Where(l => l.ResourcesJudgedAt is null).ToList();
+
+        // Lessons that were judged but never summarised.
+        //
+        // Only so many lessons get summaries in a pass, and which ones miss out is now whichever
+        // judgements return slowest — so a lesson could be settled with videos that have no
+        // summary and never be looked at again, because the settled-at stamp is what decides
+        // whether a lesson is revisited. They are collected here instead and summarised without
+        // being judged a second time, which is the half they already have.
+        var unsummarised = all
+            .Where(l => l.ResourcesJudgedAt is not null
+                        && l.ResourceAttempts < MaxVideoWaits
+                        && l.Resources.Any(r => r.Kind == LessonResourceKind.Video
+                                                && string.IsNullOrWhiteSpace(r.Summary)))
+            .ToList();
+
+        if (lessons.Count == 0 && unsummarised.Count == 0) return;
 
         var subject = !string.IsNullOrWhiteSpace(roadmap.Interest) ? roadmap.Interest : roadmap.Goal;
         var goal = !string.IsNullOrWhiteSpace(roadmap.Goal) ? roadmap.Goal : roadmap.Interest;
@@ -134,7 +150,7 @@ public class LessonResourceService
             return new Pending(lesson, videos, articles, siblings);
         }))).ToList();
 
-        await AdmitAllAsync(gathered, goal, subject, ct);
+        await AdmitAllAsync(gathered, unsummarised, goal, subject, ct);
     }
 
     /// <summary>What one lesson has to offer, before anything has been allowed through.</summary>
@@ -157,9 +173,13 @@ public class LessonResourceService
     /// summary written for it.
     /// </remarks>
     private async Task AdmitAllAsync(
-        List<Pending> gathered, string goal, string subject, CancellationToken ct)
+        List<Pending> gathered,
+        List<RoadmapLesson> unsummarised,
+        string goal,
+        string subject,
+        CancellationToken ct)
     {
-        if (gathered.Count == 0) return;
+        if (gathered.Count == 0 && unsummarised.Count == 0) return;
 
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
         deadline.CancelAfter(TimeSpan.FromSeconds(JudgementSeconds));
@@ -173,11 +193,28 @@ public class LessonResourceService
         // nothing about it depends on the others.
         //
         // Still bounded: a fixed number of lessons get summaries per pass, claimed first come
-        // first served, and the rest keep their videos and are written on a later visit.
+        // first served. A lesson that misses out keeps its videos and is picked up by the
+        // unsummarised pass below on a later visit — which is what makes that sentence true,
+        // rather than a claim about a revisit that the settled-at stamp prevented.
         using var summaryBudget = new SemaphoreSlim(MaxLessonsSummarisedPerPass);
 
         try
         {
+            // The ones already judged go first, so a lesson that has been waiting for a summary
+            // across visits is not beaten to the budget again by a lesson being judged for the
+            // first time.
+            await Task.WhenAll(unsummarised.Select(async lesson =>
+            {
+                var videos = lesson.Resources
+                    .Where(r => r.Kind == LessonResourceKind.Video)
+                    .ToList();
+
+                if (videos.Count == 0 || !summaryBudget.Wait(0)) return;
+
+                lesson.ResourceAttempts++;
+                await SummariseVideosAsync(lesson, videos, subject, deadline.Token);
+            }));
+
             await Task.WhenAll(gathered.Select(async pending =>
             {
                 await AdmitAsync(pending, goal, deadline.Token);

@@ -9,6 +9,16 @@ namespace RadarV2.Services;
 /// </summary>
 public static class FollowUpService
 {
+    /// <summary>
+    /// How many separate engagements make a term worth naming as a theme.
+    /// </summary>
+    /// <remarks>
+    /// Three. One open is an accident and two is a coincidence; a banner that calls either of
+    /// them a habit is telling the reader something about themselves that is not true, and the
+    /// next thing they learn is to close it without reading.
+    /// </remarks>
+    private const int RepeatedEngagements = 3;
+
     public static List<FollowUpSuggestion> Suggest(
         UserProfile profile,
         IReadOnlyList<BehavioralSignal> topSignals,
@@ -27,6 +37,9 @@ public static class FollowUpService
         var positiveSignals = allSignals
             .Where(s => s.Strength > 0.05 && (s.NegativeCount == 0 || s.PositiveCount > s.NegativeCount))
             .Where(s => s.ExplicitFeedback > -0.5)
+            // A pattern, not a click. "You've been engaging most with X" is a claim about a habit,
+            // and one open is not one — so a term has to have been returned to.
+            .Where(s => s.PositiveCount >= RepeatedEngagements)
             .OrderByDescending(s => (s.PositiveCount * 2.0) + BehavioralSignalService.DecayedStrength(s))
             .ThenByDescending(s => s.UpdatedAt)
             .Select(s => s.Term.Trim())
@@ -39,8 +52,14 @@ public static class FollowUpService
         // — so a brand new account was told it had been engaging most with three things it had
         // never opened. If there is not enough behaviour to describe, the banner does not appear.
 
+        // Three, because the sentence names three and a banner that announces one theme as the
+        // things you engage with most is describing a coincidence.
+        //
+        // This read "> 0", directly under a comment claiming that a thin history means no banner.
+        // It did not: one signal was enough, so the banner appeared for anybody who had opened
+        // anything, every time, which is what made it furniture rather than an observation.
         var top3 = positiveSignals.Take(3).ToList();
-        if (top3.Count > 0)
+        if (top3.Count == 3)
         {
             var prompt = top3.Count switch
             {
@@ -52,7 +71,12 @@ public static class FollowUpService
             var unaddedInterest = top3.FirstOrDefault(t => !interests.Contains(t));
             suggestions.Add(new FollowUpSuggestion
             {
-                Id = $"top3:{string.Join("-", top3)}",
+                // Identity is the set, not the order.
+                //
+                // This was the terms joined in rank order, and that order changes on almost every
+                // interaction — so dismissing the banner produced a different id next time and the
+                // same message came straight back. Dismissal had never once worked for it.
+                Id = $"top3:{string.Join("-", top3.OrderBy(t => t, StringComparer.OrdinalIgnoreCase))}",
                 Kind = "topInteractions",
                 Prompt = prompt,
                 Detail = "Radar is tuning your daily intelligence, briefings, and opportunities around these themes.",
