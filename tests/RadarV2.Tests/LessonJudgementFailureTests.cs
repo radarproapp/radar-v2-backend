@@ -36,7 +36,7 @@ public class LessonJudgementFailureTests
     public async Task AnEmptyBodyIsNotAnAnswer()
     {
         var verdicts = await JudgeReturning("{}").JudgeAsync(
-            "Understanding Numbers", "Counting and comparing", "Learn mathematics", OneCandidate());
+            "Understanding Numbers", "Counting and comparing", "Learn mathematics", [], OneCandidate());
 
         Assert.Null(verdicts);
     }
@@ -49,7 +49,7 @@ public class LessonJudgementFailureTests
     public async Task KeepingNoneIsAnAnswer()
     {
         var verdicts = await JudgeReturning("""{"items":[]}""").JudgeAsync(
-            "Understanding Numbers", "Counting and comparing", "Learn mathematics", OneCandidate());
+            "Understanding Numbers", "Counting and comparing", "Learn mathematics", [], OneCandidate());
 
         Assert.NotNull(verdicts);
         Assert.Empty(verdicts!);
@@ -60,7 +60,7 @@ public class LessonJudgementFailureTests
     {
         var verdicts = await JudgeReturning(
             """{"items":[{"id":"item-1","keep":true,"reason":"teaches place value"}]}""")
-            .JudgeAsync("Understanding Numbers", "Counting", "Learn mathematics", OneCandidate());
+            .JudgeAsync("Understanding Numbers", "Counting", "Learn mathematics", [], OneCandidate());
 
         Assert.NotNull(verdicts);
         Assert.Single(verdicts!);
@@ -74,7 +74,45 @@ public class LessonJudgementFailureTests
         var judge = new LessonResourceJudge(
             new StubEngine(null), NullLogger<LessonResourceJudge>.Instance);
 
-        Assert.Null(await judge.JudgeAsync("A lesson", "", "a goal", OneCandidate()));
+        Assert.Null(await judge.JudgeAsync("A lesson", "", "a goal", [], OneCandidate()));
+    }
+
+    /// <summary>
+    /// The rest of the path reaches the judge.
+    /// </summary>
+    /// <remarks>
+    /// A learner building a path in Architecture was offered resources on layered architecture.
+    /// A lesson called "Introduction to Architecture" is genuinely ambiguous on its own, and the
+    /// thing that settles it — the lessons sitting beside it — was on the same page and was not
+    /// being passed.
+    /// </remarks>
+    [Fact]
+    public async Task TheRestOfThePathIsPutToTheJudge()
+    {
+        var engine = new StubEngine("""{"items":[]}""");
+        var judge = new LessonResourceJudge(engine, NullLogger<LessonResourceJudge>.Instance);
+
+        await judge.JudgeAsync(
+            "Introduction to Architecture",
+            "What the discipline covers",
+            "Architecture",
+            ["Site analysis and orientation", "Building regulations and approvals"],
+            OneCandidate());
+
+        Assert.Contains("Site analysis and orientation", engine.LastUserPrompt);
+        Assert.Contains("Building regulations and approvals", engine.LastUserPrompt);
+    }
+
+    /// <summary>A lesson standing alone says so, rather than claiming an empty path.</summary>
+    [Fact]
+    public async Task ALoneLessonSaysItIsAlone()
+    {
+        var engine = new StubEngine("""{"items":[]}""");
+        var judge = new LessonResourceJudge(engine, NullLogger<LessonResourceJudge>.Instance);
+
+        await judge.JudgeAsync("A lesson", "", "a goal", [], OneCandidate());
+
+        Assert.Contains("only lesson on the path", engine.LastUserPrompt);
     }
 
     /// <summary>
@@ -82,9 +120,14 @@ public class LessonJudgementFailureTests
     /// </summary>
     private sealed class StubEngine(string? json) : IAiEngine
     {
+        /// <summary>The last prompt it was asked, so a test can check what the judge was told.</summary>
+        public string LastUserPrompt { get; private set; } = string.Empty;
+
         public Task<T?> GenerateJsonAsync<T>(
             string feature, string systemPrompt, string userPrompt, CancellationToken ct = default)
         {
+            LastUserPrompt = userPrompt;
+
             if (json is null) throw new InvalidOperationException("the provider is unreachable");
 
             return Task.FromResult(JsonSerializer.Deserialize<T>(

@@ -109,6 +109,7 @@ public class LessonResourceJudge
         string lessonTitle,
         string lessonBody,
         string learningGoal,
+        IReadOnlyList<string> otherLessons,
         IReadOnlyList<Candidate> candidates,
         CancellationToken ct = default)
     {
@@ -119,7 +120,10 @@ public class LessonResourceJudge
         try
         {
             var result = await _ai.GenerateJsonAsync<JudgementResponse>(
-                Feature, SystemPrompt, BuildPrompt(lessonTitle, lessonBody, learningGoal, considered), ct);
+                Feature,
+                SystemPrompt,
+                BuildPrompt(lessonTitle, lessonBody, learningGoal, otherLessons, considered),
+                ct);
 
             // Null, or a body with no items field at all: not an answer. See JudgementResponse.
             if (result?.Items is null) return null;
@@ -172,8 +176,40 @@ public class LessonResourceJudge
         "never a lesson resource, even when it uses the subject's vocabulary. Return only valid " +
         "JSON matching the requested schema.";
 
+    /// <summary>
+    /// What the rest of the path is about, as evidence of which subject this is.
+    /// </summary>
+    /// <remarks>
+    /// A learner building a path in Architecture was offered resources on layered architecture —
+    /// the software kind. Nothing was malfunctioning: a lesson titled "Introduction to
+    /// Architecture", judged on its own, is genuinely ambiguous, and on the evidence available a
+    /// post about software layers was a defensible match.
+    ///
+    /// The evidence that resolves it was already on the same page and was not being passed.
+    /// Beside "Site analysis" and "Building regulations", the subject is not in doubt. One lesson
+    /// does not say which field it belongs to; a path does.
+    ///
+    /// This does not fix an ambiguous goal. A path whose every lesson is generic stays ambiguous,
+    /// and the honest answer there is to ask the learner rather than to guess better.
+    /// </remarks>
+    private static string PathContext(IReadOnlyList<string> otherLessons)
+    {
+        var named = otherLessons
+            .Where(t => !string.IsNullOrWhiteSpace(t))
+            .Take(8)
+            .ToList();
+
+        return named.Count == 0
+            ? "(this is the only lesson on the path)"
+            : string.Join("; ", named.Select(Shorten));
+    }
+
     private static string BuildPrompt(
-        string lessonTitle, string lessonBody, string learningGoal, IReadOnlyList<Candidate> candidates)
+        string lessonTitle,
+        string lessonBody,
+        string learningGoal,
+        IReadOnlyList<string> otherLessons,
+        IReadOnlyList<Candidate> candidates)
     {
         // Every field flattened, not just the summary. Titles and sources arrive from ingested
         // RSS, so a newline in one would forge further candidate lines inside a prompt whose only
@@ -186,6 +222,10 @@ public class LessonResourceJudge
 
             The lesson is: {{Shorten(lessonTitle)}}
             What the lesson covers: {{Shorten(Blank(lessonBody, "(no description)"))}}
+
+            The other lessons on this path: {{PathContext(otherLessons)}}
+            Use those to settle which field this is. A word can belong to more than one subject,
+            and the path says which one the learner means.
 
             Candidate resources:
             {{string.Join("\n", lines)}}

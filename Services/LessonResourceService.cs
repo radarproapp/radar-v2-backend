@@ -114,12 +114,24 @@ public class LessonResourceService
         // And the per-lesson reads together rather than one after another. They are independent
         // queries against the same collection, so running them in sequence meant the build waited
         // for the sum of them while a learner watched a spinner.
+        // What the rest of the path is about. A lesson title can belong to more than one field;
+        // the lessons around it say which one the learner means.
+        var allTitles = roadmap.Modules
+            .SelectMany(m => m.Lessons ?? [])
+            .Select(l => l.Title)
+            .Where(t => !string.IsNullOrWhiteSpace(t))
+            .ToList();
+
         var gathered = (await Task.WhenAll(lessons.Select(async lesson =>
         {
             var videos = await VideoCandidatesAsync(lesson, ct);
             var articles = await ArticleCandidatesAsync(lesson, distinctive, ct);
 
-            return new Pending(lesson, videos, articles);
+            var siblings = allTitles
+                .Where(t => !string.Equals(t, lesson.Title, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            return new Pending(lesson, videos, articles, siblings);
         }))).ToList();
 
         await AdmitAllAsync(gathered, goal, subject, ct);
@@ -127,7 +139,10 @@ public class LessonResourceService
 
     /// <summary>What one lesson has to offer, before anything has been allowed through.</summary>
     private sealed record Pending(
-        RoadmapLesson Lesson, List<LessonResource> Videos, List<LessonResource> Articles);
+        RoadmapLesson Lesson,
+        List<LessonResource> Videos,
+        List<LessonResource> Articles,
+        IReadOnlyList<string> SiblingTitles);
 
     /// <summary>
     /// Puts every lesson's candidates to the judge, and keeps only what it admits.
@@ -275,7 +290,8 @@ public class LessonResourceService
             return;
         }
 
-        var verdicts = await _judge.JudgeAsync(lesson.Title, lesson.Body, goal, candidates, ct);
+        var verdicts = await _judge.JudgeAsync(
+            lesson.Title, lesson.Body, goal, pending.SiblingTitles, candidates, ct);
 
         lesson.ResourceAttempts++;
 
