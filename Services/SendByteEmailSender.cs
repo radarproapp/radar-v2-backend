@@ -59,6 +59,32 @@ public class SendByteEmailSender : IEmailSender
     /// </remarks>
     public bool IsSandbox => ApiKey?.StartsWith("sk_test_", StringComparison.Ordinal) ?? false;
 
+    /// <summary>
+    /// What happened the last time Radar tried to send, for /api/version.
+    /// </summary>
+    /// <remarks>
+    /// Added because the answer was otherwise unreachable. The reset endpoint deliberately
+    /// returns the same thing whether or not an address has an account, so it cannot report a
+    /// send failure; the refusal goes to the host's log dashboard, and on a managed platform
+    /// without CLI access that is nowhere.
+    ///
+    /// So "the key is set and no email arrives" had exactly one diagnostic route: wait, and
+    /// guess. This is the same fix /api/ai/status needed for the same reason.
+    ///
+    /// No recipient address is recorded. The point is whether SendByte accepted it and why not,
+    /// which is a status and an error code — a diagnostic endpoint should not also be a list of
+    /// who has been emailed.
+    /// </remarks>
+    public static string? LastSendOutcome { get; private set; }
+
+    public static DateTime? LastSendAt { get; private set; }
+
+    private static void Record(string outcome)
+    {
+        LastSendOutcome = outcome;
+        LastSendAt = DateTime.UtcNow;
+    }
+
     public async Task<bool> SendAsync(string to, string subject, string body, CancellationToken ct = default)
     {
         if (!IsConfigured)
@@ -92,6 +118,10 @@ public class SendByteEmailSender : IEmailSender
             // 201 on a send, 200 when an idempotency key replays an earlier one.
             if (response.IsSuccessStatusCode)
             {
+                Record(IsSandbox
+                    ? $"HTTP {(int)response.StatusCode} — accepted by a sandbox key, so not delivered"
+                    : $"HTTP {(int)response.StatusCode} — accepted");
+
                 if (IsSandbox)
                 {
                     // Said every time rather than once at startup: a sandbox key left in place is
@@ -106,6 +136,10 @@ public class SendByteEmailSender : IEmailSender
 
             var detail = await response.Content.ReadAsStringAsync(ct);
 
+            // Trimmed and kept. "domain_not_verified" is the difference between a key that is
+            // wrong and a domain that has not been verified yet, and both look like silence.
+            Record($"HTTP {(int)response.StatusCode} — {Trim(detail)}");
+
             // Kept rather than only logged as a status. "domain_not_verified" and
             // "suppressed_recipient" are both fixable, and neither is guessable from a 403.
             _log.LogError(
@@ -118,8 +152,16 @@ public class SendByteEmailSender : IEmailSender
         }
         catch (Exception ex)
         {
+            Record($"{ex.GetType().Name}: {ex.Message}");
             _log.LogError(ex, "Could not reach SendByte to send {Subject}.", subject);
             return false;
         }
+    }
+
+    /// <summary>Enough of the response to identify the error code, and no more.</summary>
+    private static string Trim(string detail)
+    {
+        var flat = detail.ReplaceLineEndings(" ").Trim();
+        return flat.Length > 300 ? flat[..300] : flat;
     }
 }

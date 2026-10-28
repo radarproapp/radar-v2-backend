@@ -109,6 +109,15 @@ public class VersionController : ControllerBase
                 emailSandbox = (_email as SendByteEmailSender)?.IsSandbox ?? false,
             },
 
+            // What happened the last time Radar tried to send. No recipient, no key — a status
+            // and an error code, which is the difference between "the key is wrong" and "the
+            // domain is not verified yet". Both otherwise look identical: silence.
+            lastEmail = new
+            {
+                at = SendByteEmailSender.LastSendAt,
+                outcome = SendByteEmailSender.LastSendOutcome ?? "nothing sent since this instance started",
+            },
+
             // Whether the one-off data repairs ran, and what they removed.
             //
             // Added because "did the cleanup run?" had no answer from outside the box: the
