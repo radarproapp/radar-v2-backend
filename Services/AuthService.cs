@@ -82,7 +82,7 @@ public class AuthService : IAuthService
     {
         try
         {
-            var site = (_config["App:PublicUrl"] ?? "https://radarproapp.com").TrimEnd('/');
+            var site = PublicSite.From(_config);
             var firstName = name.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? name;
 
             var (html, text) = EmailTemplate.Build(

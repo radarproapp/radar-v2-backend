@@ -72,7 +72,7 @@ public static class EmailTemplate
         string? footnote = null,
         string? publicUrl = null)
     {
-        var site = (publicUrl ?? "https://radarproapp.com").TrimEnd('/');
+        var site = (publicUrl ?? PublicSite.Canonical).TrimEnd('/');
 
         return (
             Html(heading, preheader, paragraphs, action, footnote, site),

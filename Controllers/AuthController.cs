@@ -97,7 +97,7 @@ public class AuthController : ControllerBase
 
         // Where the link should point. Taken from configuration rather than the request, so a
         // forged Origin header cannot send somebody a reset link to a site we do not own.
-        var appUrl = _config["App:PublicUrl"] ?? "https://radarproapp.com";
+        var appUrl = PublicSite.From(_config);
 
         await _resets.RequestAsync(request.Email, appUrl, ct);
 

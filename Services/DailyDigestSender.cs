@@ -53,7 +53,7 @@ public class DailyDigestSender
             return new Result(0, 0, 0, 0);
         }
 
-        var site = (_config["App:PublicUrl"] ?? "https://radarproapp.com").TrimEnd('/');
+        var site = PublicSite.From(_config);
         var signingKey = _config["Auth:Jwt:Key"] ?? string.Empty;
 
         var wanted = await _db.Profiles

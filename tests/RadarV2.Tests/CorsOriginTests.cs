@@ -61,6 +61,22 @@ public class CorsOriginTests
     }
 
     /// <summary>
+    /// The two lists have to agree.
+    /// </summary>
+    /// <remarks>
+    /// Emails address links to <see cref="RadarV2.Services.PublicSite.Canonical"/>, and the page
+    /// that opens has to be able to call the API. If that host is not an allowed origin, a reset
+    /// link opens a page that loads and then cannot do the one thing it exists to do — which is
+    /// the same silent failure as the whole site being locked out, just narrowed to the people who
+    /// have forgotten their password.
+    /// </remarks>
+    [Fact]
+    public void TheHostEmailedLinksPointAtCanCallTheApi()
+    {
+        Assert.Contains(RadarV2.Services.PublicSite.Canonical, AllowedOrigins());
+    }
+
+    /// <summary>
     /// Nothing dead in the list. A stale host is not harmful on its own, but it is what made the
     /// list look like it had been maintained while the live site was missing from it.
     /// </summary>

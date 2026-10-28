@@ -112,10 +112,13 @@ public class VersionController : ControllerBase
             // Where emailed links point, and where the logo in them is loaded from.
             //
             // Not a secret — it is a public URL — and worth reporting because getting it wrong is
-            // silent and total: the default is radarproapp.com, which currently 404s, so a reset
-            // link would arrive pointing at a dead domain and the only symptom would be a user
-            // saying the link does not work.
-            publicUrl = _config["App:PublicUrl"] ?? "https://radarproapp.com (default)",
+            // silent and total: a reset link would arrive pointing somewhere dead, and the only
+            // symptom would be a user saying the link does not work. It said exactly that while
+            // the default pointed at a domain that had not been assigned yet.
+            //
+            // Marked when it is the default rather than configured, so the two cannot be confused
+            // by someone reading this to find out which one is in force.
+            publicUrl = _config["App:PublicUrl"] ?? $"{PublicSite.Canonical} (default)",
 
             // What happened the last time Radar tried to send. No recipient, no key — a status
             // and an error code, which is the difference between "the key is wrong" and "the
