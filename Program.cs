@@ -264,7 +264,21 @@ builder.Services.AddHttpClient("R2", client => client.Timeout = TimeSpan.FromSec
 builder.Services.AddScoped<IObjectStore, R2ObjectStore>();
 
 // Email, and the password reset that could not exist without it.
-builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
+//
+// SendByte over HTTP rather than its SMTP relay: Railway and most of its peers block outbound
+// 587, 465 and 2525 to stop their infrastructure being used for spam, so an SMTP sender works
+// locally and times out in production. The API also says *why* it refused — an unverified domain,
+// a suppressed recipient — where SMTP gives a code and a disconnect.
+//
+// SmtpEmailSender stays available for a deployment that would rather use the relay; swapping the
+// registration is the whole change, and it reads SendByte's credentials by default.
+builder.Services.AddHttpClient("SendByte", client =>
+{
+    client.BaseAddress = new Uri("https://api.sendbyte.africa/");
+    client.Timeout = TimeSpan.FromSeconds(20);
+});
+
+builder.Services.AddScoped<IEmailSender, SendByteEmailSender>();
 builder.Services.AddScoped<PasswordResetService>();
 builder.Services.AddScoped<TaddyClient>();
 builder.Services.AddScoped<GroqWhisperClient>();

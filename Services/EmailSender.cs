@@ -34,9 +34,22 @@ public class SmtpEmailSender : IEmailSender
     }
 
     private string? Host => _config["Email:SmtpHost"];
-    private string? From => _config["Email:From"];
-    private string? Username => _config["Email:Username"];
-    private string? Password => _config["Email:Password"];
+    private string? From => _config["Email:From"] ?? _config["SendByte:From"];
+
+    /// <summary>
+    /// SendByte documents the username as "apikey" by convention — any value is accepted — and
+    /// the password as the API key itself. Falling back to those means switching to the SMTP
+    /// relay needs a host and nothing else.
+    /// </summary>
+    private string? Username => _config["Email:Username"]
+        ?? (string.IsNullOrWhiteSpace(_config["SendByte:ApiKey"]) ? null : "apikey");
+
+    private string? Password => _config["Email:Password"] ?? _config["SendByte:ApiKey"];
+
+    /// <summary>
+    /// 587 is SendByte's default and uses STARTTLS, which is what EnableSsl does on that port.
+    /// 465 is implicit TLS and 2525 is STARTTLS again, for networks that block the other two.
+    /// </summary>
     private int Port => _config.GetValue("Email:SmtpPort", 587);
 
     /// <summary>

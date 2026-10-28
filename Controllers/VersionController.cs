@@ -103,6 +103,10 @@ public class VersionController : ControllerBase
                 // Without this there is no password reset: a reset that cannot deliver a link
                 // is a form that silently does nothing.
                 email = _email.IsConfigured,
+                // A SendByte sk_test_ key behaves exactly like a working one from here — 201, an
+                // id, no email. Reported so "configured but nothing arrives" is answerable from
+                // outside rather than by waiting for an inbox that will never fill.
+                emailSandbox = (_email as SendByteEmailSender)?.IsSandbox ?? false,
             },
 
             // Whether the one-off data repairs ran, and what they removed.

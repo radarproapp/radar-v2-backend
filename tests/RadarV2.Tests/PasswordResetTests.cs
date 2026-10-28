@@ -108,4 +108,81 @@ public class PasswordResetTests
 
         Assert.True(sender.IsConfigured);
     }
+
+    private static SendByteEmailSender SendByte(params (string Key, string Value)[] settings)
+    {
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(settings.Select(x => new KeyValuePair<string, string?>(x.Key, x.Value)))
+            .Build();
+
+        return new SendByteEmailSender(config, new StubFactory(), NullLogger<SendByteEmailSender>.Instance);
+    }
+
+    private sealed class StubFactory : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) => new() { BaseAddress = new Uri("https://api.sendbyte.africa/") };
+    }
+
+    /// <summary>
+    /// A key with nowhere to send from cannot send, so both settings are required.
+    /// </summary>
+    /// <remarks>
+    /// The same rule the object store and the OpenRouter status field both had to learn: reporting
+    /// configured because one string is present means reporting a working sender that fails on
+    /// every call.
+    /// </remarks>
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData("sk_live_abc", null)]
+    [InlineData(null, "radar@radarproapp.com")]
+    public void AnIncompleteSendByteSenderIsNotConfigured(string? key, string? from)
+    {
+        var settings = new List<(string, string)>();
+        if (key is not null) settings.Add(("SendByte:ApiKey", key));
+        if (from is not null) settings.Add(("SendByte:From", from));
+
+        Assert.False(SendByte([.. settings]).IsConfigured);
+    }
+
+    [Fact]
+    public void AKeyAndASenderIsEnough()
+    {
+        var sender = SendByte(("SendByte:ApiKey", "sk_live_abc"), ("SendByte:From", "radar@radarproapp.com"));
+
+        Assert.True(sender.IsConfigured);
+    }
+
+    /// <summary>
+    /// A sandbox key is accepted, returns an id, and delivers nothing. From the application's side
+    /// that is indistinguishable from working, so it has to be detectable.
+    /// </summary>
+    [Fact]
+    public void ASandboxKeyIsRecognised()
+    {
+        var test = SendByte(("SendByte:ApiKey", "sk_test_abc"), ("SendByte:From", "radar@radarproapp.com"));
+        var live = SendByte(("SendByte:ApiKey", "sk_live_abc"), ("SendByte:From", "radar@radarproapp.com"));
+
+        Assert.True(test.IsSandbox);
+        Assert.False(live.IsSandbox);
+    }
+
+    /// <summary>
+    /// The SMTP relay reads SendByte's credentials, so switching to it needs a host and nothing
+    /// else — the username is "apikey" by convention and the password is the API key.
+    /// </summary>
+    [Fact]
+    public void TheSmtpRelayFallsBackToSendByteCredentials()
+    {
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection([
+                new("Email:SmtpHost", "smtp.sendbyte.africa"),
+                new("SendByte:ApiKey", "sk_live_abc"),
+                new("SendByte:From", "radar@radarproapp.com"),
+            ])
+            .Build();
+
+        var sender = new SmtpEmailSender(config, NullLogger<SmtpEmailSender>.Instance);
+
+        Assert.True(sender.IsConfigured);
+    }
 }
