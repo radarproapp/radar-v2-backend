@@ -22,3 +22,5 @@ appsettings.*.local.json
 .env
 .env.*
 !.env.example
+_*.py
+_*.cs
