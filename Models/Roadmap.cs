@@ -112,6 +112,27 @@ public class RoadmapLesson
     public string ResourceNote { get; set; } = string.Empty;
 
     /// <summary>
+    /// When this lesson's resources were last checked against it. Null means never.
+    /// </summary>
+    /// <remarks>
+    /// This is what makes the gate reach lessons that were filled before it existed. Those have
+    /// resources already, and the old rule for refilling was "has none" — so every lesson holding
+    /// an article matched on one shared word would have kept it for good. Fixing the matcher does
+    /// not fix what the old matcher already wrote.
+    ///
+    /// Null on everything built before this, so all of it is judged once on the next visit and
+    /// whatever does not belong is dropped then.
+    ///
+    /// It also stops a lesson being re-judged every time the path is opened: a lesson the engine
+    /// looked at and found nothing for is finished, not empty, and paying for that answer again
+    /// on every render would be the expensive way to get the same silence.
+    ///
+    /// Deliberately left null when the check could not be made at all, so a provider outage is
+    /// retried rather than recorded as an answer.
+    /// </remarks>
+    public DateTime? ResourcesJudgedAt { get; set; }
+
+    /// <summary>
     /// Five videos and two articles for this lesson, each summarised.
     /// </summary>
     /// <remarks>

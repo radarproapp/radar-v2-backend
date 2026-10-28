@@ -87,7 +87,7 @@ public class LessonResourceService
     {
         var lessons = roadmap.Modules
             .SelectMany(m => m.Lessons ?? [])
-            .Where(l => l.Resources.Count == 0 && !string.IsNullOrWhiteSpace(l.Title))
+            .Where(l => l.ResourcesJudgedAt is null && !string.IsNullOrWhiteSpace(l.Title))
             .ToList();
 
         if (lessons.Count == 0) return;
@@ -191,6 +191,7 @@ public class LessonResourceService
         {
             lesson.Resources = [];
             lesson.ResourceNote = NothingRelevant;
+            lesson.ResourcesJudgedAt = DateTime.UtcNow;
             return;
         }
 
@@ -212,6 +213,10 @@ public class LessonResourceService
 
         lesson.Resources = [.. videos, .. articles];
         lesson.ResourceNote = lesson.Resources.Count == 0 ? NothingRelevant : string.Empty;
+
+        // An answer, so it is not asked again. Whatever the old matcher left on this lesson has
+        // now been replaced by what the judge admitted, which may well be nothing.
+        lesson.ResourcesJudgedAt = DateTime.UtcNow;
     }
 
     /// <summary>
