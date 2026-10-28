@@ -140,13 +140,14 @@ var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get
     ?? ["http://localhost:5173", "http://127.0.0.1:5173"];
 var configuredOrigins = allowedOrigins.ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-// Strict mode is opt-in, never inferred. appsettings.json already ships a non-empty
-// Cors:AllowedOrigins (localhost plus an old Netlify host), so "a list exists" says nothing about
-// whether the real site is in it — the deployed frontend currently reaches the API through the
-// host-wildcard below, not through that list. Inferring strictness from a non-empty list would
-// therefore have cut off the live site the moment this deployed.
+// Strict mode is opt-in, never inferred. The list below now does name the real site, but the
+// host-wildcard underneath it is still what lets a Vercel preview deployment reach this API —
+// every preview gets its own hostname, so no list can cover them. Turning strict on closes that,
+// and closes the staging-frontend-calling-production hole with it; it also stops previews working
+// against this API, which is why it is a decision rather than something inferred from the list
+// being non-empty.
 //
-// So: set Cors__Strict=true only once Cors__AllowedOrigins__0 names the site that must work.
+// The earlier version of this comment said the list did not name the live site. It does now.
 var strictOrigins = builder.Configuration.GetValue("Cors:Strict", false);
 
 static bool IsHostedSpaOrigin(string origin, ISet<string> configuredOrigins, bool strict)
@@ -157,13 +158,11 @@ static bool IsHostedSpaOrigin(string origin, ISet<string> configuredOrigins, boo
     if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
         return false;
 
-    // Vercel and Netlify give every preview deployment its own hostname, so a non-production API
-    // has to accept the whole host suffix or frontend previews cannot reach it.
+    // Vercel and Netlify give every preview deployment its own hostname, so there is no list that
+    // covers them — a preview frontend can only reach this API through the whole host suffix.
     //
-    // In production that is too wide once staging exists: a staging frontend is also a *.vercel.app
-    // origin, so without an explicit list it could call the production API. Setting
-    // Cors__AllowedOrigins__0 on the production service closes this; until then the warning below
-    // fires on every boot.
+    // Wider than production wants: a staging frontend is also a *.vercel.app origin, so this lets
+    // one call the production API. Cors__Strict=true closes it once previews no longer need to.
     return uri.Host.EndsWith(".vercel.app", StringComparison.OrdinalIgnoreCase)
         || uri.Host.EndsWith(".netlify.app", StringComparison.OrdinalIgnoreCase);
 }
