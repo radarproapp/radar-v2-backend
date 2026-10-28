@@ -93,6 +93,21 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         // Return clean JSON for failed API auth rather than a redirect or HTML.
         options.Events = new JwtBearerEvents
         {
+            // A valid signature is no longer the whole question. A token stamped with a version
+            // behind the one on the account was issued before a password reset, and a reset has to
+            // mean the sessions already open on that account are over — otherwise the one action
+            // somebody takes when they think they have been compromised does nothing about it.
+            OnTokenValidated = async context =>
+            {
+                var guard = context.HttpContext.RequestServices
+                    .GetRequiredService<SessionVersionGuard>();
+
+                if (!await guard.IsStillValidAsync(context.Principal, context.HttpContext.RequestAborted))
+                {
+                    context.Fail("This session ended when the account password was changed.");
+                }
+            },
+
             OnChallenge = async context =>
             {
                 context.HandleResponse();
@@ -111,6 +126,11 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 builder.Services.AddMemoryCache();
+
+// Singleton so the cached versions are shared by the whole process: the request that ends an
+// account's sessions and the next request to arrive have to agree, and a per-request cache would
+// mean a database read on every authenticated call instead.
+builder.Services.AddSingleton<SessionVersionGuard>();
 
 // CORS for the React SPA (separate origin in dev and once deployed).
 // JWT bearer auth means no cookies cross the origin, so no AllowCredentials needed.

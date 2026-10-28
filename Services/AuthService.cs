@@ -132,7 +132,11 @@ public class AuthService : IAuthService
             Success = true,
             UserId = user.Id,
             UserName = profile?.Name ?? email,
-            Role = role
+            Role = role,
+
+            // Whatever the account is on now. Signing in after a reset has to produce a token the
+            // reset does not immediately invalidate.
+            TokenVersion = user.TokenVersion
         };
     }
 

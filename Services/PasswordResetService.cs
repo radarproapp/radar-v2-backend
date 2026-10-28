@@ -21,17 +21,28 @@ namespace RadarV2.Services;
 /// database should not hand over working reset links.</item>
 /// <item>Redeeming reports only whether it worked, never why it did not.</item>
 /// </list>
+///
+/// And one about what a reset is for: redeeming ends every session already open on the account.
+/// Somebody resetting a password they believe has been seen is trying to remove whoever has it,
+/// and a thirty-day token that keeps working would have left them there for a month while the
+/// screen said the password had been changed.
 /// </remarks>
 public class PasswordResetService
 {
     private readonly RadarDatabase _db;
     private readonly IEmailSender _email;
+    private readonly SessionVersionGuard _sessions;
     private readonly ILogger<PasswordResetService> _log;
 
-    public PasswordResetService(RadarDatabase db, IEmailSender email, ILogger<PasswordResetService> log)
+    public PasswordResetService(
+        RadarDatabase db,
+        IEmailSender email,
+        SessionVersionGuard sessions,
+        ILogger<PasswordResetService> log)
     {
         _db = db;
         _email = email;
+        _sessions = sessions;
         _log = log;
     }
 
@@ -121,15 +132,42 @@ public class PasswordResetService
         var user = await _db.Users.Find(u => u.Id == reset.UserId).FirstOrDefaultAsync(ct);
         if (user is null) return false;
 
-        user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(newPassword);
-        await _db.Users.ReplaceOneAsync(u => u.Id == user.Id, user, cancellationToken: ct);
+        await _db.Users.UpdateOneAsync(
+            u => u.Id == user.Id,
+            BuildReset(BCrypt.Net.BCrypt.HashPassword(newPassword)),
+            cancellationToken: ct);
+
+        // The new version is whatever the database arrived at, which this does not know — so the
+        // cached one is dropped rather than guessed.
+        _sessions.Forget(user.Id);
 
         // Single use: consumed whether or not anything else later fails.
         await _db.PasswordResets.DeleteManyAsync(r => r.UserId == user.Id, ct);
 
-        _log.LogInformation("A password was reset.");
+        _log.LogInformation("A password was reset and the account's existing sessions were ended.");
         return true;
     }
+
+    /// <summary>
+    /// The write a redemption performs: the new password, and the end of every session.
+    /// </summary>
+    /// <remarks>
+    /// One write, both changes. The second half is what makes a reset mean anything: without it
+    /// the new password governs only the next sign-in, and every token already issued keeps
+    /// working for up to thirty days — so the one action somebody takes when they think their
+    /// account has been seen would not remove whoever had seen it.
+    ///
+    /// Combined rather than sequential because the halves are worthless apart. A new password
+    /// without the sessions ended is the defect this fixes; sessions ended without the new
+    /// password is an account its owner cannot get into.
+    ///
+    /// An update rather than writing back the user object that was read a moment earlier: a
+    /// replace would carry the version from before this change and undo a reset running beside it.
+    /// </remarks>
+    public static UpdateDefinition<UserDocument> BuildReset(string passwordHash) =>
+        Builders<UserDocument>.Update.Combine(
+            Builders<UserDocument>.Update.Set(u => u.PasswordHash, passwordHash),
+            SessionVersionGuard.EndAllSessions());
 
     /// <summary>Only the hash is stored, so the table is not a list of working reset links.</summary>
     private static string Hash(string token) =>

@@ -145,14 +145,15 @@ public class AuthController : ControllerBase
     {
         var expiresAt = DateTime.UtcNow.AddDays(30);
         return new AuthResponse(
-            Token: BuildToken(result.UserId!, result.UserName ?? string.Empty, result.Role, expiresAt),
+            Token: BuildToken(result.UserId!, result.UserName ?? string.Empty, result.Role, result.TokenVersion, expiresAt),
             ExpiresAtUtc: expiresAt,
             UserId: result.UserId!,
             UserName: result.UserName ?? string.Empty,
             Role: result.Role);
     }
 
-    private string BuildToken(string userId, string userName, string role, DateTime expiresAt)
+    private string BuildToken(
+        string userId, string userName, string role, int tokenVersion, DateTime expiresAt)
     {
         var issuer   = _config["Auth:Jwt:Issuer"]   ?? "Radar";
         var audience = _config["Auth:Jwt:Audience"] ?? "Radar";
@@ -164,7 +165,11 @@ public class AuthController : ControllerBase
             new(ClaimTypes.NameIdentifier, userId),
             new(JwtRegisteredClaimNames.UniqueName, userName),
             new(ClaimTypes.Name, userName),
-            new(ClaimTypes.Role, role)
+            new(ClaimTypes.Role, role),
+
+            // What makes this token revocable. It is checked on every request against the version
+            // stored on the account, so a password reset can end the sessions already open.
+            new(SessionVersionGuard.ClaimName, tokenVersion.ToString())
         };
 
         var token = new JwtSecurityToken(
