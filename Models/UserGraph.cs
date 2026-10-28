@@ -41,9 +41,19 @@ public class UserGraph
     public bool HasActivity =>
         Listening.SecondsPlayed > 0
         || Reading.ItemsOpened > 0
+        // Building a path is activity. This counted only *completed* lessons, so somebody who
+        // had just answered the three questions and had a section built was told "Nothing to
+        // show yet — your graph fills itself in as you read, listen, build a path" on a page
+        // that already knew they had five lessons across one section. Found on production, by
+        // reading the two fields next to each other.
+        || Learning.PathSections > 0
         || Learning.LessonsCompleted > 0
         || Learning.QuizzesTaken > 0
         || Learning.ExercisesCompleted > 0
+        || Reading.ItemsSaved > 0
+        || Reading.NotesWritten > 0
+        || Reading.CapturesMade > 0
+        || Opportunities.Saved > 0
         || Opportunities.Applied > 0;
 }
 

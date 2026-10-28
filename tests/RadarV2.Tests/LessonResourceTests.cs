@@ -188,4 +188,42 @@ public class LessonResourceTests
 
         Assert.Equal(["a", "b", "c"], ordered);
     }
+
+    /// <summary>
+    /// Building a path counts as having done something.
+    /// </summary>
+    /// <remarks>
+    /// HasActivity checked completed lessons and not sections, so a learner who had answered the
+    /// three questions and had a section built was shown "Nothing to show yet — your graph fills
+    /// itself in as you read, listen, build a path" by a page whose own payload said five lessons
+    /// across one section. Caught on production by reading the two fields next to each other.
+    /// </remarks>
+    [Fact]
+    public void APathWithNoCompletedLessonsStillCountsAsActivity()
+    {
+        var graph = new UserGraph();
+        graph.Learning.PathSections = 1;
+        graph.Learning.LessonsTotal = 5;
+        graph.Learning.LessonsCompleted = 0;
+
+        Assert.True(graph.HasActivity);
+    }
+
+    // Saving something is a deliberate act and the graph already counts it, so it should not be
+    // reported as an empty graph either.
+    [Fact]
+    public void SavingSomethingCountsAsActivity()
+    {
+        var graph = new UserGraph();
+        graph.Reading.ItemsSaved = 1;
+
+        Assert.True(graph.HasActivity);
+    }
+
+    // And a genuinely new account is still empty, which is the case the flag exists for.
+    [Fact]
+    public void ANewAccountHasNoActivity()
+    {
+        Assert.False(new UserGraph().HasActivity);
+    }
 }
