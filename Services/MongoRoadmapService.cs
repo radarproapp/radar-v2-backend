@@ -1008,8 +1008,12 @@ public class MongoRoadmapService : IRoadmapService
         // After the stage resources, because this needs the modules in place — and inside the
         // same method so every route that builds or reads a roadmap gets it, instead of only the
         // one somebody remembered to call.
-        await _lessonResources.FillAsync(roadmap, ct);
+        // Before the fill, not after. This queues searches in the background and returns at once;
+        // starting it afterwards meant the very pass that decides a lesson's resources always ran
+        // against a cache nothing had filled yet.
         WarmLessonVideosForEmptyLessons(roadmap);
+
+        await _lessonResources.FillAsync(roadmap, ct);
 
         RecalculateMastery(roadmap);
     }

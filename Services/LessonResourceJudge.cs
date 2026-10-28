@@ -57,9 +57,26 @@ public class LessonResourceJudge
     /// <summary>What the judge decided about it.</summary>
     public sealed record Verdict(string Id, bool Keep, string Reason);
 
+    /// <summary>
+    /// What came back. <see cref="Items"/> is null when the field was absent.
+    /// </summary>
+    /// <remarks>
+    /// Nullable rather than initialised to an empty list, and that is the whole defence against
+    /// the worst failure this gate can have.
+    ///
+    /// The engine never returns null. When the provider is unreachable, out of credit, rate
+    /// limited or past its deadline, it falls through to a deterministic brain, and for a feature
+    /// that brain has no template for it synthesises "{}". Deserialised into a class whose list
+    /// was initialised to empty, that is indistinguishable from the model having read every
+    /// candidate and kept none.
+    ///
+    /// So a spend cap or a rotated key read as "the corpus has nothing for this lesson" — which
+    /// was then written down as a final answer, on every lesson, permanently, wiping the very
+    /// resources this gate exists to replace. An absent field now reads as no answer at all.
+    /// </remarks>
     private sealed class JudgementResponse
     {
-        public List<JudgedItem> Items { get; set; } = [];
+        public List<JudgedItem>? Items { get; set; }
     }
 
     public sealed class JudgedItem
@@ -104,7 +121,8 @@ public class LessonResourceJudge
             var result = await _ai.GenerateJsonAsync<JudgementResponse>(
                 Feature, SystemPrompt, BuildPrompt(lessonTitle, lessonBody, learningGoal, considered), ct);
 
-            if (result is null) return null;
+            // Null, or a body with no items field at all: not an answer. See JudgementResponse.
+            if (result?.Items is null) return null;
 
             return Reconcile(considered, result.Items);
         }
@@ -157,14 +175,17 @@ public class LessonResourceJudge
     private static string BuildPrompt(
         string lessonTitle, string lessonBody, string learningGoal, IReadOnlyList<Candidate> candidates)
     {
+        // Every field flattened, not just the summary. Titles and sources arrive from ingested
+        // RSS, so a newline in one would forge further candidate lines inside a prompt whose only
+        // job is to be a strict filter — and it would be a feed publisher, not a learner, doing it.
         var lines = candidates.Select(c =>
-            $"- id: {c.Id}\n  title: {c.Title}\n  source: {c.Source}\n  summary: {Shorten(c.Summary)}");
+            $"- id: {c.Id}\n  title: {Shorten(c.Title)}\n  source: {Shorten(c.Source)}\n  summary: {Shorten(c.Summary)}");
 
         return $$"""
-            The learner is working towards: {{Blank(learningGoal, "(not stated)")}}
+            The learner is working towards: {{Shorten(Blank(learningGoal, "(not stated)"))}}
 
-            The lesson is: {{lessonTitle}}
-            What the lesson covers: {{Blank(lessonBody, "(no description)")}}
+            The lesson is: {{Shorten(lessonTitle)}}
+            What the lesson covers: {{Shorten(Blank(lessonBody, "(no description)"))}}
 
             Candidate resources:
             {{string.Join("\n", lines)}}

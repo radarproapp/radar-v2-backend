@@ -28,8 +28,51 @@ public class LessonRelevanceTests
     {
         var terms = LessonRelevance.TermsOf("Understanding Numbers");
 
-        // The corpus says "numbers" is everywhere, so it is not distinctive.
-        Assert.False(LessonRelevance.WorthJudging(articleTitle, terms, []));
+        // Derived, not assumed. An earlier version of this test passed [] for the distinctive
+        // terms and so asserted nothing about the rule it was named for — it handed the function
+        // the answer. "numbers" appearing in 40 of 10,000 titles is a realistic frequency for a
+        // common word, and the threshold has to reject it for this assertion to mean anything.
+        var distinctive = LessonRelevance.IsDistinctive(matchingItems: 40, corpusSize: 10_000)
+            ? terms
+            : [];
+
+        Assert.Empty(distinctive);
+        Assert.False(LessonRelevance.WorthJudging(articleTitle, terms, distinctive));
+    }
+
+    /// <summary>
+    /// The threshold has to sit where ordinary words fall outside it.
+    /// </summary>
+    /// <remarks>
+    /// It was two per cent, and nothing pinned it. A single word reaching two per cent of every
+    /// title in a general corpus is close to unheard of, so effectively every term counted as rare
+    /// and the "one rare term is enough" path admitted almost anything — including the exact pair
+    /// reported from production. The rule was written down but not in force.
+    ///
+    /// These two cases bracket it tightly enough that moving it in either direction fails one.
+    /// </remarks>
+    [Fact]
+    public void TheThresholdRejectsAnOrdinaryWordAndAcceptsARareOne()
+    {
+        // A common word: 0.4% of titles.
+        Assert.False(LessonRelevance.IsDistinctive(matchingItems: 40, corpusSize: 10_000));
+
+        // A genuine term of art: 0.1%.
+        Assert.True(LessonRelevance.IsDistinctive(matchingItems: 10, corpusSize: 10_000));
+    }
+
+    /// <summary>
+    /// A term in no title at all is not evidence, it is absence.
+    /// </summary>
+    /// <remarks>
+    /// Zero matches scored 0/N, which passed the threshold and made the term maximally
+    /// distinctive — so a word appearing nowhere in the corpus could single-handedly admit an item
+    /// it had matched only in a summary, bypassing the two-term rule entirely.
+    /// </remarks>
+    [Fact]
+    public void ATermThatMatchesNothingIsNotDistinctive()
+    {
+        Assert.False(LessonRelevance.IsDistinctive(matchingItems: 0, corpusSize: 10_000));
     }
 
     /// <summary>
@@ -78,20 +121,6 @@ public class LessonRelevanceTests
 
         Assert.True(LessonRelevance.WorthJudging(
             "What prompts actually do", terms, ["prompts"]));
-    }
-
-    /// <summary>
-    /// Which words are worthless is measured, not listed.
-    /// </summary>
-    /// <remarks>
-    /// The list this replaced said of itself that it "is not exhaustive and cannot be". A word
-    /// only ever reached it after it had already put the wrong thing in front of somebody.
-    /// </remarks>
-    [Fact]
-    public void AWordMatchingMuchOfTheCorpusIsNotDistinctive()
-    {
-        Assert.False(LessonRelevance.IsDistinctive(matchingItems: 900, corpusSize: 10_000));
-        Assert.True(LessonRelevance.IsDistinctive(matchingItems: 12, corpusSize: 10_000));
     }
 
     /// <summary>An empty corpus makes nothing distinctive, rather than everything.</summary>

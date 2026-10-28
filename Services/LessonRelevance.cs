@@ -45,10 +45,18 @@ public static class LessonRelevance
     /// them together still say something — so it stays available for <see cref="MinimumTerms"/>
     /// rather than being discarded.
     ///
-    /// Two per cent of a general corpus is already a large number of items spanning every subject
-    /// in it. Anything that loose cannot be the only reason an item is in front of a learner.
+    /// Two in a thousand. It was twenty, which was far too loose to do anything: a single word
+    /// reaching two per cent of all titles in a general corpus is close to unheard of, so nearly
+    /// every term counted as rare — including "numbers", the term that caused the reported bug.
+    /// The rule was written down but not in force.
+    ///
+    /// Worth being plain about the limit, because a number cannot fix this on its own. A lesson
+    /// titled "Understanding Numbers" has exactly one content word, so there is no second term to
+    /// require and no threshold that separates a maths lesson from an IPO headline on the word
+    /// they genuinely share. For titles like that the judgement is the only real filter, and this
+    /// stage only decides what it is worth asking about.
     /// </remarks>
-    public const double CommonTermShare = 0.02;
+    public const double CommonTermShare = 0.002;
 
     /// <summary>
     /// How many distinct lesson terms an item must match when none of them is rare.
@@ -130,9 +138,19 @@ public static class LessonRelevance
             text, WordStartPattern(term), RegexOptions.IgnoreCase | RegexOptions.CultureInvariant));
     }
 
-    /// <summary>Whether a term is rare enough in the corpus to stand on its own.</summary>
+    /// <summary>
+    /// Whether a term is rare enough in the corpus to stand on its own.
+    /// </summary>
+    /// <remarks>
+    /// Rare, not absent. A term matching no title at all scored zero, which passed the threshold
+    /// and made it the strongest possible evidence — so a word that appears nowhere in the corpus
+    /// could single-handedly admit an item it had matched only in a summary, which is exactly the
+    /// two-term rule being bypassed.
+    /// </remarks>
     public static bool IsDistinctive(long matchingItems, long corpusSize) =>
-        corpusSize > 0 && (double)matchingItems / corpusSize <= CommonTermShare;
+        corpusSize > 0
+        && matchingItems > 0
+        && (double)matchingItems / corpusSize <= CommonTermShare;
 
     /// <summary>
     /// Whether an item is worth asking the AI engine about.

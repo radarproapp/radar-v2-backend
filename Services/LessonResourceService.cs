@@ -173,6 +173,20 @@ public class LessonResourceService
         "Nothing in Radar's library teaches this lesson yet. Rather than fill the space with "
         + "items that only share a word with the title, it is left empty.";
 
+    /// <summary>
+    /// How many passes a lesson may wait for its videos before settling without them.
+    /// </summary>
+    /// <remarks>
+    /// Three. Enough for a background warm to land across a couple of visits, few enough that a
+    /// lesson whose search genuinely returns nothing — or whose quota is spent — stops asking.
+    /// </remarks>
+    private const int MaxVideoWaits = 3;
+
+    /// <summary>Still collecting. Said plainly, because the lesson is not finished.</summary>
+    public const string StillGathering =
+        "Radar is still looking for videos for this lesson. What it has found so far is below; "
+        + "open this again shortly for the rest.";
+
     /// <summary>Radar could not look. A fault, and it has to read like one.</summary>
     public const string CouldNotCheck =
         "Radar could not check these against the lesson just now, so none are shown. "
@@ -189,19 +203,28 @@ public class LessonResourceService
 
         if (candidates.Count == 0)
         {
+            lesson.ResourceAttempts++;
             lesson.Resources = [];
-            lesson.ResourceNote = NothingRelevant;
-            lesson.ResourcesJudgedAt = DateTime.UtcNow;
+
+            // Nothing to ask about yet is not the same as nothing existing, while the video cache
+            // is still being filled.
+            var waiting = _youtube.IsConfigured && lesson.ResourceAttempts < MaxVideoWaits;
+
+            lesson.ResourceNote = waiting ? StillGathering : NothingRelevant;
+            if (!waiting) lesson.ResourcesJudgedAt = DateTime.UtcNow;
             return;
         }
 
         var verdicts = await _judge.JudgeAsync(lesson.Title, lesson.Body, goal, candidates, ct);
 
+        lesson.ResourceAttempts++;
+
         if (verdicts is null)
         {
-            // Not an answer. The lesson shows nothing and says the check did not happen, which is
-            // a different sentence from the corpus having nothing.
-            lesson.Resources = [];
+            // Not an answer. Nothing is kept and nothing is settled: a provider that is down, out
+            // of credit or past its deadline must be retried, not written down as a finding about
+            // the corpus. Whatever the lesson already had is left alone rather than wiped on the
+            // strength of a failed call.
             lesson.ResourceNote = CouldNotCheck;
             return;
         }
@@ -212,11 +235,22 @@ public class LessonResourceService
         var articles = Admitted(pending.Articles, reasons).Take(ArticlesPerLesson).ToList();
 
         lesson.Resources = [.. videos, .. articles];
-        lesson.ResourceNote = lesson.Resources.Count == 0 ? NothingRelevant : string.Empty;
 
-        // An answer, so it is not asked again. Whatever the old matcher left on this lesson has
-        // now been replaced by what the judge admitted, which may well be nothing.
-        lesson.ResourcesJudgedAt = DateTime.UtcNow;
+        // Videos are read from a cache something else fills in the background, so a cold cache is
+        // not an answer about videos — it is an answer that has not arrived. Settling here would
+        // mean no lesson built after this ever gets one, because the first pass is the only pass.
+        var waitingForVideos =
+            _youtube.IsConfigured
+            && pending.Videos.Count == 0
+            && lesson.ResourceAttempts < MaxVideoWaits;
+
+        lesson.ResourceNote = waitingForVideos ? StillGathering
+            : lesson.Resources.Count == 0 ? NothingRelevant
+            : string.Empty;
+
+        // Settled only when there was nothing further to wait for. Whatever the old matcher left
+        // on this lesson has now been replaced by what the judge admitted, which may be nothing.
+        if (!waitingForVideos) lesson.ResourcesJudgedAt = DateTime.UtcNow;
     }
 
     /// <summary>

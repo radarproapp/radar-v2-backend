@@ -1,0 +1,121 @@
+using System.Text.Json;
+using Microsoft.Extensions.Logging.Abstractions;
+using RadarV2.Models;
+using RadarV2.Services;
+using RadarV2.Services.Interfaces;
+
+namespace RadarV2.Tests;
+
+/// <summary>
+/// A failed judgement must not be recorded as a finding about the corpus.
+///
+/// The gate was written on the assumption that the engine returns null when it cannot answer. It
+/// never does: every failure falls through to a deterministic brain, and for a feature that brain
+/// has no template for, it synthesises "{}". Deserialised into a response whose list was
+/// initialised to empty, that is indistinguishable from the model having read every candidate and
+/// kept none.
+///
+/// So a rotated key or a spent monthly cap read as "nothing in the library teaches this lesson",
+/// and that was written down permanently, on every lesson of every path, in a single pass — taking
+/// with it the resources the whole change exists to replace. The retry branch was unreachable.
+///
+/// These tests exist because every other test in the suite passed while that was true.
+/// </summary>
+public class LessonJudgementFailureTests
+{
+    private static LessonResourceJudge JudgeReturning(string json) =>
+        new(new StubEngine(json), NullLogger<LessonResourceJudge>.Instance);
+
+    private static IReadOnlyList<LessonResourceJudge.Candidate> OneCandidate() =>
+        [new("item-1", "A title", "A source", "A summary")];
+
+    /// <summary>
+    /// The exact body the deterministic brain produces for this feature.
+    /// </summary>
+    [Fact]
+    public async Task AnEmptyBodyIsNotAnAnswer()
+    {
+        var verdicts = await JudgeReturning("{}").JudgeAsync(
+            "Understanding Numbers", "Counting and comparing", "Learn mathematics", OneCandidate());
+
+        Assert.Null(verdicts);
+    }
+
+    /// <summary>
+    /// And the case it has to stay distinguishable from: the model really did read them and keep
+    /// none, which is a finished answer and settles the lesson.
+    /// </summary>
+    [Fact]
+    public async Task KeepingNoneIsAnAnswer()
+    {
+        var verdicts = await JudgeReturning("""{"items":[]}""").JudgeAsync(
+            "Understanding Numbers", "Counting and comparing", "Learn mathematics", OneCandidate());
+
+        Assert.NotNull(verdicts);
+        Assert.Empty(verdicts!);
+    }
+
+    [Fact]
+    public async Task AKeptItemComesBack()
+    {
+        var verdicts = await JudgeReturning(
+            """{"items":[{"id":"item-1","keep":true,"reason":"teaches place value"}]}""")
+            .JudgeAsync("Understanding Numbers", "Counting", "Learn mathematics", OneCandidate());
+
+        Assert.NotNull(verdicts);
+        Assert.Single(verdicts!);
+        Assert.Equal("teaches place value", verdicts![0].Reason);
+    }
+
+    /// <summary>A thrown engine is not an answer either.</summary>
+    [Fact]
+    public async Task AnEngineThatThrowsIsNotAnAnswer()
+    {
+        var judge = new LessonResourceJudge(
+            new StubEngine(null), NullLogger<LessonResourceJudge>.Instance);
+
+        Assert.Null(await judge.JudgeAsync("A lesson", "", "a goal", OneCandidate()));
+    }
+
+    /// <summary>
+    /// Returns whatever JSON it is given, or throws when given none.
+    /// </summary>
+    private sealed class StubEngine(string? json) : IAiEngine
+    {
+        public Task<T?> GenerateJsonAsync<T>(
+            string feature, string systemPrompt, string userPrompt, CancellationToken ct = default)
+        {
+            if (json is null) throw new InvalidOperationException("the provider is unreachable");
+
+            return Task.FromResult(JsonSerializer.Deserialize<T>(
+                json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }));
+        }
+
+        public Task<string?> GenerateTextAsync(
+            string feature, string systemPrompt, string userPrompt, CancellationToken ct = default) =>
+            throw new NotSupportedException();
+
+        public bool TryGetCachedJson<T>(
+            string feature, string systemPrompt, string userPrompt, out T? value) =>
+            throw new NotSupportedException();
+
+        public void WarmJson<T>(string feature, string systemPrompt, string userPrompt) =>
+            throw new NotSupportedException();
+
+        public IAsyncEnumerable<string> StreamChatAsync(
+            string feature, string systemPrompt, IReadOnlyCollection<ChatMessage> messages,
+            CancellationToken ct = default) =>
+            throw new NotSupportedException();
+
+        public Task<float[]?> EmbedAsync(string text, CancellationToken ct = default) =>
+            throw new NotSupportedException();
+
+        public Task RecordActivityAsync(
+            string feature, string? userId, string mode, bool success, long durationMs,
+            string? summary = null, CancellationToken ct = default) =>
+            Task.CompletedTask;
+
+        public Task<AiEngineStats> GetEngineStatsAsync(CancellationToken ct = default) =>
+            throw new NotSupportedException();
+    }
+}

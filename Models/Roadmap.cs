@@ -133,6 +133,18 @@ public class RoadmapLesson
     public DateTime? ResourcesJudgedAt { get; set; }
 
     /// <summary>
+    /// How many times resources have been gathered for this lesson.
+    /// </summary>
+    /// <remarks>
+    /// Bounds the waiting. Videos are read from a cache that something else fills in the
+    /// background, so the first pass over a new lesson almost always sees it cold — and a lesson
+    /// that settles on the first pass settles with no videos, for good. Leaving it unsettled lets
+    /// the next visit pick them up; this is what stops that becoming a lesson which is re-judged
+    /// on every render forever because the videos are never coming.
+    /// </remarks>
+    public int ResourceAttempts { get; set; }
+
+    /// <summary>
     /// Five videos and two articles for this lesson, each summarised.
     /// </summary>
     /// <remarks>
