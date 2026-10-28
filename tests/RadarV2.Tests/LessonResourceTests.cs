@@ -15,14 +15,8 @@ namespace RadarV2.Tests;
 /// </summary>
 public class LessonResourceTests
 {
-    private static IEnumerable<string> Keywords(string title)
-    {
-        var method = typeof(LessonResourceService).GetMethod(
-            "Keywords", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
-        return (IEnumerable<string>)method!.Invoke(null, [title])!;
-    }
+    private static IEnumerable<string> Keywords(string title) =>
+        LessonRelevance.TermsOf(title);
 
     private static string VideoIdOf(LessonResource video)
     {
@@ -59,12 +53,25 @@ public class LessonResourceTests
     }
 
     // Three is enough to be specific without the OR-filter matching half the corpus.
+    /// <summary>
+    /// The specific terms survive, however late in the title they appear.
+    /// </summary>
+    /// <remarks>
+    /// This replaces a test asserting at most three terms were used. That cap was part of the
+    /// defect, not a protection against it: taking the first three words over four characters
+    /// threw away whatever made a lesson specific in favour of whatever happened to come first,
+    /// and left the match resting on the generic words that remained.
+    ///
+    /// What actually needs guarding is the opposite — that a distinctive word deep in a title is
+    /// still available to match on.
+    /// </remarks>
     [Fact]
-    public void AtMostThreeTermsAreUsed()
+    public void TheSpecificTermsSurviveWhereverTheyAppear()
     {
         var keywords = Keywords("Configuring network segmentation across enterprise firewall appliances").ToList();
 
-        Assert.True(keywords.Count <= 3, $"Used {keywords.Count} terms.");
+        Assert.Contains("firewall", keywords, StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("segmentation", keywords, StringComparer.OrdinalIgnoreCase);
     }
 
     [Fact]

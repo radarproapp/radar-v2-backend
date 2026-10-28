@@ -72,4 +72,15 @@ public class LessonResource
     /// the client link into the brief rather than straight out to the publisher.
     /// </summary>
     public string? ContentItemId { get; set; }
+
+    /// <summary>
+    /// What a learner gets from this, in the judge's own words.
+    /// </summary>
+    /// <remarks>
+    /// Written by the gate that admitted it, not generated to fill the line. Empty when it was
+    /// kept without one — the card then shows the summary alone rather than a reason Radar made
+    /// up. Section 9 of the implementation guide asks for resources that are explained rather
+    /// than listed, and a reason nobody actually gave is not an explanation.
+    /// </remarks>
+    public string WhyRelevant { get; set; } = string.Empty;
 }

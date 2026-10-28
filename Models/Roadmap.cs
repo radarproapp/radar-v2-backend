@@ -99,6 +99,19 @@ public class RoadmapLesson
     public string? SearchHint { get; set; }
 
     /// <summary>
+    /// Why this lesson has no resources, when it has none.
+    /// </summary>
+    /// <remarks>
+    /// Section 19 asks for a clear message when there are no results, and there are two different
+    /// nothings here that a learner must be able to tell apart: Radar looked and found nothing
+    /// about this lesson, or Radar could not look. The first is a fact about the corpus and the
+    /// second is a fault, and showing the same blank space for both hides the fault.
+    ///
+    /// Empty when the lesson has resources.
+    /// </remarks>
+    public string ResourceNote { get; set; } = string.Empty;
+
+    /// <summary>
     /// Five videos and two articles for this lesson, each summarised.
     /// </summary>
     /// <remarks>
