@@ -96,17 +96,31 @@ public class LessonResourceService
         var goal = !string.IsNullOrWhiteSpace(roadmap.Goal) ? roadmap.Goal : roadmap.Interest;
 
         var corpusSize = await CorpusSizeAsync(ct);
-        var gathered = new List<Pending>();
 
-        foreach (var lesson in lessons)
+        // Every term on the path, counted once.
+        //
+        // This was done per lesson, so a five-lesson section on one subject counted the same
+        // words five times — and each count is a full scan, because a case-insensitive regex
+        // cannot use an index even if one existed on Title. Lessons in a section share most of
+        // their vocabulary, which is exactly why the duplication was expensive and exactly why
+        // removing it is cheap.
+        var terms = lessons
+            .SelectMany(l => LessonRelevance.TermsOf(l.Title, l.SearchHint))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var distinctive = await DistinctiveTermsAsync(terms, corpusSize, ct);
+
+        // And the per-lesson reads together rather than one after another. They are independent
+        // queries against the same collection; running them in sequence meant the section build
+        // waited for the sum of them while a learner watched a spinner.
+        var gathered = (await Task.WhenAll(lessons.Select(async lesson =>
         {
-            if (ct.IsCancellationRequested) break;
-
             var videos = await VideoCandidatesAsync(lesson, ct);
-            var articles = await ArticleCandidatesAsync(lesson, corpusSize, ct);
+            var articles = await ArticleCandidatesAsync(lesson, distinctive, ct);
 
-            gathered.Add(new Pending(lesson, videos, articles));
-        }
+            return new Pending(lesson, videos, articles);
+        }))).ToList();
 
         await AdmitAllAsync(gathered, goal, subject, ct);
     }
@@ -135,13 +149,42 @@ public class LessonResourceService
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
         deadline.CancelAfter(TimeSpan.FromSeconds(JudgementSeconds));
 
+        // Summarise each lesson the moment it is admitted, rather than waiting for every lesson
+        // to be judged first.
+        //
+        // These were two phases with a deadline each, so the worst case was one wait stacked on
+        // another while a learner watched a spinner — and the second phase could not start until
+        // the slowest lesson in the first had finished. A lesson's videos are ready to summarise
+        // as soon as that lesson has been decided; nothing about it depends on the others.
+        //
+        // The budget is still bounded: a fixed number of lessons get summaries per pass, claimed
+        // first come first served, and the rest keep their videos and are written on a later
+        // visit.
+        using var summaryBudget = new SemaphoreSlim(MaxLessonsSummarisedPerPass);
+
         try
         {
-            await Task.WhenAll(gathered.Select(p => AdmitAsync(p, goal, deadline.Token)));
+            await Task.WhenAll(gathered.Select(async pending =>
+            {
+                await AdmitAsync(pending, goal, deadline.Token);
+
+                var videos = pending.Lesson.Resources
+                    .Where(r => r.Kind == LessonResourceKind.Video)
+                    .ToList();
+
+                // Wait(0) claims a slot or gives up at once — never blocks a lesson waiting for
+                // another lesson's summary to finish.
+                if (videos.Count > 0 && summaryBudget.Wait(0))
+                {
+                    await SummariseVideosAsync(pending.Lesson, videos, subject, deadline.Token);
+                }
+            }));
         }
         catch (Exception ex)
         {
-            _log.LogWarning(ex, "Some lessons could not have their resources checked.");
+            // Every lesson keeps whatever it reached. A summary that did not arrive is a blank
+            // line, and the next visit fills it.
+            _log.LogWarning(ex, "Some lessons could not have their resources checked or summarised.");
         }
 
         // Anything the deadline caught keeps no resources and says why. Shipping unjudged
@@ -155,18 +198,18 @@ public class LessonResourceService
             }
         }
 
-        var toSummarise = gathered
-            .Where(p => p.Lesson.Resources.Any(r => r.Kind == LessonResourceKind.Video))
-            .Take(MaxLessonsSummarisedPerPass)
-            .Select(p => (p.Lesson,
-                p.Lesson.Resources.Where(r => r.Kind == LessonResourceKind.Video).ToList()))
-            .ToList();
-
-        await SummariseAllAsync(toSummarise, subject, ct);
     }
 
-    /// <summary>How long every lesson on a path gets, together, to be checked.</summary>
-    private const int JudgementSeconds = 25;
+    /// <summary>
+    /// How long every lesson on a path gets, together, to be checked and summarised.
+    /// </summary>
+    /// <remarks>
+    /// One budget, not two. Judging and summarising used to be separate phases with 25 seconds
+    /// each, so the worst case was a learner waiting out both — and the measured build of a
+    /// five-lesson section took the better part of a minute. They overlap now, so this is the
+    /// ceiling for the whole thing rather than for half of it.
+    /// </remarks>
+    private const int JudgementSeconds = 30;
 
     /// <summary>Radar looked, and the corpus has nothing that teaches this lesson.</summary>
     public const string NothingRelevant =
@@ -286,230 +329,6 @@ public class LessonResourceService
                 r.WhyRelevant = reasons[r.Id];
                 return r;
             });
-
-    /// <summary>
-    /// Summarises every lesson's videos at once, with a deadline.
-    /// </summary>
-    /// <remarks>
-    /// These were written one lesson at a time, inside the request that built the section — six
-    /// model calls in sequence, each allowed up to its own budget, on the request a learner is
-    /// waiting on after pressing "Build this section". Run together and bounded, so a slow
-    /// provider costs the page a few seconds rather than a minute, and the lessons keep their
-    /// videos either way.
-    /// </remarks>
-    private async Task SummariseAllAsync(
-        List<(RoadmapLesson Lesson, List<LessonResource> Videos)> pending,
-        string subject,
-        CancellationToken ct)
-    {
-        if (pending.Count == 0) return;
-
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        deadline.CancelAfter(TimeSpan.FromSeconds(25));
-
-        try
-        {
-            await Task.WhenAll(pending.Select(p =>
-                SummariseVideosAsync(p.Lesson, p.Videos, subject, deadline.Token)));
-        }
-        catch (Exception ex)
-        {
-            // Every lesson keeps its videos. A summary that did not arrive is a blank line, and
-            // the next visit fills it.
-            _log.LogWarning(ex, "Some lesson video summaries did not complete.");
-        }
-    }
-
-    /// <summary>
-    /// How many of each kind go forward to be judged.
-    /// </summary>
-    /// <remarks>
-    /// More than are shown, because the judge drops things and a lesson with five candidates for
-    /// five slots can only pass them all or show a gap. Bounded because every candidate is text in
-    /// a prompt somebody is waiting on.
-    /// </remarks>
-    private const int CandidatesPerKind = 8;
-
-    /// <summary>
-    /// Videos from the YouTube cache, deduplicated.
-    /// </summary>
-    /// <remarks>
-    /// Still cache-only. The warm is the caller's job; this returns what exists, and a cold cache
-    /// shows as a lesson without videos rather than a wait on somebody else's API.
-    ///
-    /// These carry no summary yet — summaries are written after the judge has chosen, so none is
-    /// paid for on a video that gets dropped. The judge therefore sees a video by its title and
-    /// channel, which is what a learner scrolling a results page sees too.
-    /// </remarks>
-    private async Task<List<LessonResource>> VideoCandidatesAsync(
-        RoadmapLesson lesson, CancellationToken ct)
-    {
-        if (!_youtube.IsConfigured) return [];
-
-        // The hint exists because a readable lesson title makes a poor query: "What hospital nurse
-        // manager actually involves day to day" finds nothing.
-        var query = !string.IsNullOrWhiteSpace(lesson.SearchHint) ? lesson.SearchHint! : lesson.Title;
-
-        var cached = await _youtube.GetCachedAsync(query, ct: ct);
-        if (cached.Count == 0) return [];
-
-        var videos = cached.Select(video => new LessonResource
-        {
-            Kind = LessonResourceKind.Video,
-            Title = video.Title,
-            Url = video.Url,
-            EmbedUrl = video.EmbedUrl,
-            ThumbnailUrl = video.ThumbnailUrl,
-            Source = video.ChannelTitle,
-            PublishedAt = video.PublishedAt,
-            // Set when a summary is written. There are no transcripts — the transcription keys are
-            // not configured — so this is as good as it gets today, and it says so.
-            SummarySource = SummarySource.Description,
-        });
-
-        return LessonRelevance.Distinct(videos, v => v.Url, v => v.Title)
-            .Take(CandidatesPerKind)
-            .ToList();
-    }
-
-    /// <summary>
-    /// Articles from Radar's own corpus that could plausibly belong to this lesson.
-    /// </summary>
-    /// <remarks>
-    /// What this used to do, and why each part of it is gone:
-    ///
-    /// It took the first three words of the title over four characters that were not on a filler
-    /// list, matched any one of them as a bare substring against article titles, and sorted what
-    /// came back by source credibility and then by date. "Understanding Numbers" reduced to
-    /// "Numbers", and the most credible recent article containing that word was an IPO report.
-    ///
-    /// Now: terms anchor to word starts, a match needs either a term the corpus says is rare or
-    /// two terms together, and the ranking leads with relevance as section 20 requires.
-    ///
-    /// The old fallback is gone entirely. When the lesson's own terms found nothing it widened to
-    /// any article whose topic matched the subject, newest first — which is not a search for
-    /// anything. It is the corpus in publication order under a heading claiming to be a reading
-    /// list. An empty lesson is better, and now says so.
-    /// </remarks>
-    private async Task<List<LessonResource>> ArticleCandidatesAsync(
-        RoadmapLesson lesson, long corpusSize, CancellationToken ct)
-    {
-        var terms = LessonRelevance.TermsOf(lesson.Title, lesson.SearchHint);
-        if (terms.Count == 0) return [];
-
-        var distinctive = await DistinctiveTermsAsync(terms, corpusSize, ct);
-
-        var readable = Builders<ContentItem>.Filter.And(
-            Builders<ContentItem>.Filter.In(c => c.Type, new[] { ContentType.Article, ContentType.Essay }),
-            Builders<ContentItem>.Filter.Ne(c => c.Url, null),
-            Builders<ContentItem>.Filter.Ne(c => c.Url, string.Empty));
-
-        // Wide on purpose: the database finds anything that mentions a term, and the rules below
-        // decide which of those is evidence. Doing it the other way — a query strict enough to
-        // need no filtering — would mean expressing the rules as Mongo filters, where they can be
-        // neither read nor tested.
-        var mentionsATerm = Builders<ContentItem>.Filter.Or(
-            terms.Select(term => Builders<ContentItem>.Filter.Regex(
-                c => c.Title,
-                new MongoDB.Bson.BsonRegularExpression(LessonRelevance.WordStartPattern(term), "i"))));
-
-        var found = await _db.ContentItems
-            .Find(readable & mentionsATerm)
-            .Limit(CandidateScanLimit)
-            .ToListAsync(ct);
-
-        var worth = found.Where(item => LessonRelevance.WorthJudging(
-            item.Title + " " + FirstNonEmpty(item.WhatHappened, item.AiSummary), terms, distinctive));
-
-        var ranked = LessonRelevance.Rank(
-            worth,
-            item => item.Title,
-            item => item.CredibilityTier,
-            item => item.PublishedAt,
-            terms,
-            distinctive);
-
-        return LessonRelevance.Distinct(ranked, i => i.Url, i => i.Title)
-            .Take(CandidatesPerKind)
-            .Select(item => new LessonResource
-            {
-                Kind = LessonResourceKind.Article,
-                ContentItemId = item.Id,
-                Title = item.Title,
-                Url = item.Url ?? string.Empty,
-                ThumbnailUrl = item.ThumbnailUrl,
-                Source = item.Source ?? string.Empty,
-                Duration = item.EstimatedReadTime,
-                PublishedAt = item.PublishedAt,
-
-                // Already written, when the item was enriched. Re-summarising something that has a
-                // summary is paying twice for the same sentence.
-                Summary = FirstNonEmpty(item.WhatHappened, item.AiSummary, item.WhyItMatters),
-                SummarySource = SummarySource.Publisher,
-            })
-            .ToList();
-    }
-
-    /// <summary>
-    /// How many matching articles are pulled back before the rules are applied.
-    /// </summary>
-    /// <remarks>
-    /// A ceiling on one query, not a quality setting. A term like "numbers" can match a large part
-    /// of a general corpus, and the ranking happens here rather than in the database because
-    /// relevance is not something a Mongo sort can express.
-    /// </remarks>
-    private const int CandidateScanLimit = 200;
-
-    /// <summary>
-    /// Which of these terms are rare enough in the corpus to mean something on their own.
-    /// </summary>
-    /// <remarks>
-    /// One count per term, cached for a day. The corpus grows slowly and the same handful of
-    /// lesson titles are asked about repeatedly, so this costs one count per new term per day
-    /// rather than one per lesson per build.
-    ///
-    /// This is what replaced the hand-written list of weak words, which by its own admission could
-    /// never be complete. A word is weak here because the corpus says so.
-    /// </remarks>
-    private async Task<List<string>> DistinctiveTermsAsync(
-        List<string> terms, long corpusSize, CancellationToken ct)
-    {
-        if (corpusSize <= 0) return [];
-
-        var distinctive = new List<string>();
-
-        foreach (var term in terms)
-        {
-            var key = "lesson-term-frequency:" + term.ToLowerInvariant();
-
-            if (!_cache.TryGetValue(key, out long matches))
-            {
-                matches = await _db.ContentItems.CountDocumentsAsync(
-                    Builders<ContentItem>.Filter.Regex(
-                        c => c.Title,
-                        new MongoDB.Bson.BsonRegularExpression(
-                            LessonRelevance.WordStartPattern(term), "i")),
-                    cancellationToken: ct);
-
-                _cache.Set(key, matches, TimeSpan.FromDays(1));
-            }
-
-            if (LessonRelevance.IsDistinctive(matches, corpusSize)) distinctive.Add(term);
-        }
-
-        return distinctive;
-    }
-
-    /// <summary>How much there is to be rare within. Cached for the same reason.</summary>
-    private async Task<long> CorpusSizeAsync(CancellationToken ct)
-    {
-        if (_cache.TryGetValue("lesson-corpus-size", out long size)) return size;
-
-        size = await _db.ContentItems.EstimatedDocumentCountAsync(cancellationToken: ct);
-        _cache.Set("lesson-corpus-size", size, TimeSpan.FromDays(1));
-
-        return size;
-    }
 
     private async Task SummariseVideosAsync(
         RoadmapLesson lesson, List<LessonResource> videos, string subject, CancellationToken ct)
