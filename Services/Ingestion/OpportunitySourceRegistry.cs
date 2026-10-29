@@ -41,6 +41,17 @@ public static class OpportunitySourceRegistry
 
         new("Remotive", "https://remotive.com/remote-jobs/feed",
             "Remote", OpportunityType.RemoteJob, "Career"),
+
+        // Jobs in Nigeria, which nothing here carried.
+        //
+        // Every other feed is global, pan-African or remote, so a graduate in Lagos looking for
+        // work in Lagos was served scholarships and remote programming roles. Radar is built for
+        // students, graduates and professionals in Africa; not one source was posting the jobs
+        // most of them are actually applying for.
+        //
+        // 595 entries when checked, dated the same day, each linking back to the posting.
+        new("Hot Nigerian Jobs", "https://www.hotnigerianjobs.com/feed/rss.xml",
+            "Nigeria", OpportunityType.Job, "Career"),
     ];
 
     // Checked and deliberately excluded, so nobody re-adds them hopefully:
@@ -48,4 +59,15 @@ public static class OpportunitySourceRegistry
     //   remoteok.com/remote-jobs.rss  → 410, feed retired
     //   youthop.com/feed              → 200 but zero entries
     //   afterschoolafrica.com/feed/   → 200 but zero entries
+    //
+    //   jobberman.com                 → publishes no job feed. /jobs/feed and /rss both return
+    //                                   HTML, and the only feed it advertises is its blog
+    //                                   (rss-articles.xml, one entry). Its robots.txt disallows
+    //                                   /job/, /api/, /ajax/ and every filtered listing URL, so
+    //                                   there is no route to its listings that it permits. It
+    //                                   would need an agreement with them, not a crawler.
+    //
+    //   myjobmag.com                  → advertises no feed; /feed and /jobs-rss-feed are 404.
+    //   ngcareers.com                 → /feed is an HTML page; the feed it advertises belongs to
+    //                                   a third-party widget, not to its listings.
 }
