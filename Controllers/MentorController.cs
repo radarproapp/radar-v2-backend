@@ -204,37 +204,6 @@ public class MentorController : ControllerBase
         return ok ? Ok(new { success = true }) : NotFound(new { error = "Task not found" });
     }
 
-    // ── Work Review & Revision Loop ─────────────────────────────────────────
-    public sealed class ReviewWorkRequest
-    {
-        [Required, MinLength(1)] public string WorkTitle { get; set; } = string.Empty;
-        [Required, MinLength(1)] public string WorkContent { get; set; } = string.Empty;
-        [Required, MinLength(1)] public string ReviewType { get; set; } = string.Empty;
-        public string? RevisedFromId { get; set; }
-    }
-
-    [HttpPost("review")]
-    public async Task<IActionResult> ReviewWorkAsync([FromBody] ReviewWorkRequest request)
-    {
-        if (!ModelState.IsValid) return ValidationProblem();
-
-        var profile = await _profiles.GetCurrentUserAsync();
-        if (profile is null) return NotFound(new { error = "Profile not found" });
-
-        var review = await _mentor.ReviewWorkAsync(profile.Id, request.WorkTitle, request.WorkContent, request.ReviewType, request.RevisedFromId);
-        return Ok(review);
-    }
-
-    [HttpGet("reviews")]
-    public async Task<IActionResult> GetUserReviewsAsync()
-    {
-        var profile = await _profiles.GetCurrentUserAsync();
-        if (profile is null) return NotFound(new { error = "Profile not found" });
-
-        var reviews = await _mentor.GetUserReviewsAsync(profile.Id);
-        return Ok(reviews);
-    }
-
     // ── Personal Learning Memory & Topic Mastery ────────────────────────────
     [HttpGet("memory")]
     public async Task<IActionResult> GetLearningMemoryAsync()

@@ -19,8 +19,6 @@ public interface ILearningMentorService
     Task<bool> ToggleTaskCompletionAsync(string userId, string planId, int weekNumber, int taskIndex);
 
     // 4. Work Review (Evaluation score, strengths, weaknesses, main issue, specific improvements, next step, revision loop)
-    Task<MentorWorkReview> ReviewWorkAsync(string userId, string workTitle, string workContent, string reviewType, string? revisedFromId = null);
-    Task<List<MentorWorkReview>> GetUserReviewsAsync(string userId);
 
     // 5. Personal Learning Memory & Mastery Tracking
     Task<PersonalLearningMemory> GetLearningMemoryAsync(string userId);

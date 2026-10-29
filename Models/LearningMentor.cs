@@ -117,35 +117,6 @@ public class MentorStudyPlan
     public DateTime? LastAdjustedAt { get; set; }
 }
 
-public class MentorWorkReview
-{
-    /// <summary>
-    /// False when Radar could not actually evaluate the work. Previously a parse failure produced
-    /// a fabricated review — verified identical for a security incident report and a banana bread
-    /// recipe, down to the score — which is worse than no review: it is misleading feedback on
-    /// something the user is trying to improve, and a judgement Radar never made.
-    /// </summary>
-    public bool WasReviewed { get; set; } = true;
-
-    public string Id { get; set; } = Guid.NewGuid().ToString();
-    public string UserId { get; set; } = string.Empty;
-    public string WorkTitle { get; set; } = string.Empty;
-    public string WorkContent { get; set; } = string.Empty;
-    public string ReviewType { get; set; } = "Essay"; // "Essay", "Assignment", "Research", "Report", "CV", "BusinessPlan", "Code", "Project"
-    public int Score { get; set; } = 75; // Out of 100
-    public string Feedback { get; set; } = string.Empty;
-    public List<string> Strengths { get; set; } = [];
-    public List<string> Weaknesses { get; set; } = [];
-    public string MainIssue { get; set; } = string.Empty;
-    public List<string> Improvements { get; set; } = [];
-    public List<string> Suggestions { get; set; } = [];
-    public string NextStep { get; set; } = string.Empty; // "Rewrite paragraph 3 using evidence-analysis approach."
-    public int RevisionNumber { get; set; } = 1;
-    public int? PreviousScore { get; set; }
-    public string? RevisedFromId { get; set; }
-    public DateTime ReviewedAt { get; set; } = DateTime.UtcNow;
-}
-
 public class PersonalLearningMemory
 {
     public string UserId { get; set; } = string.Empty;
@@ -157,7 +128,6 @@ public class PersonalLearningMemory
     public List<string> RecentMistakes { get; set; } = [];
     public List<TopicMastery> Masteries { get; set; } = [];
     public List<string> CompletedProjects { get; set; } = [];
-    public int SubmittedReviewsCount { get; set; }
     public DateTime LastActiveAt { get; set; } = DateTime.UtcNow;
 }
 

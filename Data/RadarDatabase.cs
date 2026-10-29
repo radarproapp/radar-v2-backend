@@ -70,7 +70,6 @@ public class RadarDatabase
     public IMongoCollection<YouTubeChannelDoc> YouTubeChannels => _db.GetCollection<YouTubeChannelDoc>("youtube_channels");
     public IMongoCollection<MentorQuiz> MentorQuizzes => _db.GetCollection<MentorQuiz>("mentor_quizzes");
     public IMongoCollection<MentorStudyPlan> MentorStudyPlans => _db.GetCollection<MentorStudyPlan>("mentor_study_plans");
-    public IMongoCollection<MentorWorkReview> MentorWorkReviews => _db.GetCollection<MentorWorkReview>("mentor_work_reviews");
     public IMongoCollection<TopicMastery> TopicMasteries => _db.GetCollection<TopicMastery>("topic_masteries");
     public IMongoCollection<SpacedRevisionItem> SpacedRevisions => _db.GetCollection<SpacedRevisionItem>("spaced_revisions");
     public IMongoCollection<AiActivityLogDoc> AiActivities => _db.GetCollection<AiActivityLogDoc>("ai_activities");

@@ -380,135 +380,6 @@ public class MongoLearningMentorService : ILearningMentorService
         return true;
     }
 
-    // ── 4. Work Review & Revision Loop ──────────────────────────────────────────────
-
-    public async Task<MentorWorkReview> ReviewWorkAsync(string userId, string workTitle, string workContent, string reviewType, string? revisedFromId = null)
-    {
-        MentorWorkReview? previousReview = null;
-        if (!string.IsNullOrEmpty(revisedFromId))
-        {
-            previousReview = await _db.MentorWorkReviews.Find(r => r.Id == revisedFromId && r.UserId == userId).FirstOrDefaultAsync();
-        }
-
-        var previousContext = previousReview != null
-            ? $"""
-               NOTE: This is a REVISED SUBMISSION of previous work.
-               Previous Score: {previousReview.Score}/100.
-               Previous Main Issue: "{previousReview.MainIssue}"
-               Previous Next Step: "{previousReview.NextStep}"
-               Please compare the new version against the previous issue. Did the user address it? Give an improved score if warranted and highlight how they improved.
-               """
-            : "";
-
-        var prompt = $$"""
-            You are the Radar AI Learning Mentor reviewing a user's submitted {{reviewType.ToLowerInvariant()}}.
-            Title: "{{workTitle}}"
-            Content:
-            ---
-            {{workContent}}
-            ---
-
-            {{previousContext}}
-
-            Perform a rigorous, constructive pedagogical evaluation:
-            1. Assign an objective Score out of 100 (e.g. 76).
-            2. Identify 2-3 specific Strengths.
-            3. Identify 2-3 Weaknesses.
-            4. State the Main Issue clearly: Explain WHAT is wrong and WHY it undermines the work.
-            5. Provide 2-3 Specific Improvements.
-            6. Give an explicit, immediate Next Step (e.g. "Rewrite paragraph 3 using the evidence-analysis approach.").
-
-            Return JSON:
-            {
-              "score": 78,
-              "feedback": "Overall assessment paragraph.",
-              "strengths": ["Strength 1", "Strength 2"],
-              "weaknesses": ["Weakness 1", "Weakness 2"],
-              "mainIssue": "You provided evidence but did not explain why the evidence supports your argument.",
-              "improvements": ["Improvement 1", "Improvement 2"],
-              "suggestions": ["Broader suggestion 1", "Broader suggestion 2"],
-              "nextStep": "Rewrite paragraph 3 using the evidence-analysis approach."
-            }
-            Return only valid JSON, no markdown.
-            """;
-
-        var response = await CallLlmAsync(prompt);
-
-        var review = new MentorWorkReview
-        {
-            UserId = userId,
-            WorkTitle = workTitle,
-            WorkContent = workContent,
-            ReviewType = reviewType,
-            RevisedFromId = revisedFromId,
-            RevisionNumber = previousReview != null ? previousReview.RevisionNumber + 1 : 1,
-            PreviousScore = previousReview?.Score
-        };
-
-        try
-        {
-            using var doc = JsonDocument.Parse(response);
-            var root = doc.RootElement;
-
-            review.Score = root.TryGetProperty("score", out var sc) ? sc.GetInt32() : 75;
-            review.Feedback = root.TryGetProperty("feedback", out var fb) ? fb.GetString() ?? "" : "";
-            review.MainIssue = root.TryGetProperty("mainIssue", out var mi) ? mi.GetString() ?? "" : "";
-            review.NextStep = root.TryGetProperty("nextStep", out var ns) ? ns.GetString() ?? "" : "Review the suggestions and make targeted revisions.";
-
-            if (root.TryGetProperty("strengths", out var str))
-                foreach (var s in str.EnumerateArray()) review.Strengths.Add(s.GetString() ?? "");
-
-            if (root.TryGetProperty("weaknesses", out var wk))
-                foreach (var w in wk.EnumerateArray()) review.Weaknesses.Add(w.GetString() ?? "");
-
-            if (root.TryGetProperty("improvements", out var imp))
-                foreach (var i in imp.EnumerateArray()) review.Improvements.Add(i.GetString() ?? "");
-
-            if (root.TryGetProperty("suggestions", out var sug))
-                foreach (var s in sug.EnumerateArray()) review.Suggestions.Add(s.GetString() ?? "");
-        }
-        catch
-        {
-            // No fabricated assessment. The work is kept so the user does not lose it and can
-            // resubmit, but Radar says plainly that it did not manage to read it.
-            review.WasReviewed = false;
-            review.Score = 0;
-            review.Feedback = "Radar could not review this just now. Your work is saved — try submitting it again in a moment.";
-            review.NextStep = "Submit again to get your review.";
-        }
-
-        // An empty or partial response is the same failure wearing a different hat: a review with
-        // no main issue and no strengths tells the user nothing while looking like it did.
-        if (review.WasReviewed
-            && string.IsNullOrWhiteSpace(review.MainIssue)
-            && review.Strengths.Count == 0
-            && review.Weaknesses.Count == 0)
-        {
-            review.WasReviewed = false;
-            review.Score = 0;
-            review.Feedback = "Radar could not review this just now. Your work is saved — try submitting it again in a moment.";
-            review.NextStep = "Submit again to get your review.";
-        }
-
-        // Clean formatting
-        review.Feedback = PlainText.Clean(review.Feedback);
-        review.MainIssue = PlainText.Clean(review.MainIssue);
-        review.NextStep = PlainText.Clean(review.NextStep);
-
-        await _db.MentorWorkReviews.InsertOneAsync(review);
-        return review;
-    }
-
-    public async Task<List<MentorWorkReview>> GetUserReviewsAsync(string userId)
-    {
-        if (string.IsNullOrEmpty(userId)) return [];
-        return await _db.MentorWorkReviews
-            .Find(r => r.UserId == userId)
-            .SortByDescending(r => r.ReviewedAt)
-            .Limit(20)
-            .ToListAsync();
-    }
-
     // ── 5. Personal Learning Memory & Topic Mastery ─────────────────────────────────
 
     public async Task<PersonalLearningMemory> GetLearningMemoryAsync(string userId)
@@ -517,8 +388,6 @@ public class MongoLearningMentorService : ILearningMentorService
         var storedRoadmap = await _db.Roadmaps.Find(r => r.UserId == userId).SortByDescending(r => r.CreatedAt).FirstOrDefaultAsync();
         var roadmap = storedRoadmap is not null && MongoRoadmapService.WasAskedFor(storedRoadmap) ? storedRoadmap : null;
         var masteries = await GetTopicMasteriesAsync(userId);
-        var reviewsCount = await _db.MentorWorkReviews.CountDocumentsAsync(r => r.UserId == userId);
-
         var weakList = masteries.SelectMany(m => m.Subtopics)
             .Where(s => s.MasteryPercent < 60)
             .Select(s => s.Name)
@@ -545,7 +414,6 @@ public class MongoLearningMentorService : ILearningMentorService
             StrongAreas = strongList,
             Masteries = masteries,
             CompletedProjects = roadmap?.CompletedExerciseIds ?? [],
-            SubmittedReviewsCount = (int)reviewsCount,
             // Nothing records mistakes yet, so the honest list is empty. These three were
             // hardcoded and shown to every learner as their own recent errors.
             RecentMistakes = []
