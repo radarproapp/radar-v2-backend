@@ -62,8 +62,26 @@ public static class ProjectScore
         // skipped three of eight has not thereby made the work better, and dropping them from
         // the total would round the gaps away.
         var earned = criteria.Sum(c => Weight(c.Verdict));
+        var mark = (int)Math.Round(1 + 9 * (earned / criteria.Count), MidpointRounding.AwayFromZero);
 
-        return (int)Math.Round(1 + 9 * (earned / criteria.Count), MidpointRounding.AwayFromZero);
+        // A criterion that is not met at all keeps the work below the bar, whatever the rest
+        // scored.
+        //
+        // Measured on production, twice. A two-line document reading "2 + 2 = 4" first scored
+        // nine, because the bar for a verdict had never been defined. With that fixed the same
+        // document came back honestly judged - two Partly, one NotMet, two Met - and still scored
+        // six, because three points out of five is sixty per cent and sixty per cent reached the
+        // pass mark. So the prompt was right and the arithmetic was wrong, and the arithmetic was
+        // mine: I chose the mapping and never worked out what it allowed.
+        //
+        // Accepted has to mean the standard was met. A standard with one of its criteria entirely
+        // unmet has not been, and the fix is specific - which is more use to a learner than a
+        // pass they cannot learn from.
+        //
+        // The mark still shows how far off it is: a project with one gap scores five, not one.
+        var unmet = criteria.Any(c => c.Verdict is "NotMet");
+
+        return unmet ? Math.Min(mark, PassMark - 1) : mark;
     }
 
     /// <summary>Whether this mark clears the bar.</summary>

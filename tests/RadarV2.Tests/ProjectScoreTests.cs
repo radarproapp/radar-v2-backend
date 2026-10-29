@@ -127,4 +127,72 @@ public class ProjectScoreTests
             Assert.DoesNotContain(word, verdict);
         }
     }
+
+    // ── The bar, as measured on production ──────────────────────────────────
+
+    /// <summary>
+    /// A criterion that is not met at all keeps the work below the bar.
+    /// </summary>
+    /// <remarks>
+    /// The exact shape that reached production. A two-line document reading "2 + 2 = 4" was
+    /// judged honestly - two Partly, one NotMet, two Met - and still scored six, because three
+    /// points out of five is sixty per cent and sixty per cent reached the pass mark. The prompt
+    /// was right; the arithmetic was wrong.
+    /// </remarks>
+    [Fact]
+    public void TheShapeThatPassedOnProductionNoLongerPasses()
+    {
+        var thin = new List<AssessmentCriterion>
+        {
+            C("Partly"), C("Partly"), C("NotMet"), C("Met"), C("Met"),
+        };
+
+        var score = ProjectScore.Of(thin);
+
+        Assert.False(ProjectScore.IsAccepted(score), $"Scored {score}, which still clears the bar.");
+    }
+
+    /// <summary>
+    /// Strong work with one gap is held back too, and that is the point.
+    /// </summary>
+    /// <remarks>
+    /// Accepted has to mean the standard was met, and a standard with one of its criteria
+    /// entirely unmet has not been. The fix is specific, which is more use than a pass nobody can
+    /// learn from.
+    /// </remarks>
+    [Fact]
+    public void OneUnmetCriterionHoldsBackOtherwiseStrongWork()
+    {
+        var nearlyThere = new List<AssessmentCriterion>
+        {
+            C("Met"), C("Met"), C("Met"), C("Met"), C("Met"), C("Met"), C("NotMet"),
+        };
+
+        Assert.False(ProjectScore.IsAccepted(ProjectScore.Of(nearlyThere)));
+    }
+
+    /// <summary>
+    /// The mark still says how far off it is. One gap is a five, not a one.
+    /// </summary>
+    [Fact]
+    public void TheMarkStillShowsHowCloseTheWorkIs()
+    {
+        var oneGap = new List<AssessmentCriterion>
+        {
+            C("Met"), C("Met"), C("Met"), C("Met"), C("Met"), C("Met"), C("NotMet"),
+        };
+
+        var mostlyMissing = All("NotMet");
+
+        Assert.Equal(ProjectScore.PassMark - 1, ProjectScore.Of(oneGap));
+        Assert.True(ProjectScore.Of(oneGap) > ProjectScore.Of(mostlyMissing));
+    }
+
+    /// <summary>Work with nothing unmet is still marked on what it earned.</summary>
+    [Fact]
+    public void NothingUnmetIsStillMarkedNormally()
+    {
+        Assert.Equal(10, ProjectScore.Of(All("Met")));
+        Assert.True(ProjectScore.IsAccepted(ProjectScore.Of(All("Partly"))));
+    }
 }
