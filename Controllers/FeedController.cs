@@ -19,6 +19,7 @@ public class FeedController : ControllerBase
     private readonly IAnalyticsService _analytics;
     private readonly IContentReportService _reports;
     private readonly PlaybackService _playback;
+    private readonly IOpportunityService _opportunities;
 
     public FeedController(
         IIntelligenceFeedService feed,
@@ -26,7 +27,8 @@ public class FeedController : ControllerBase
         IPersonalizedWhyService why,
         IAnalyticsService analytics,
         IContentReportService reports,
-        PlaybackService playback)
+        PlaybackService playback,
+        IOpportunityService opportunities)
     {
         _feed = feed;
         _profiles = profiles;
@@ -34,6 +36,7 @@ public class FeedController : ControllerBase
         _analytics = analytics;
         _reports = reports;
         _playback = playback;
+        _opportunities = opportunities;
     }
 
     /// <summary>
@@ -86,6 +89,16 @@ public class FeedController : ControllerBase
     /// duplicate or skipped items. <c>page</c>/<c>pageSize</c> are intentionally gone — they were
     /// exactly the shifting window this replaces.
     /// </summary>
+    /// <summary>
+    /// How many opportunities ride along with the first page.
+    /// </summary>
+    /// <remarks>
+    /// Few, because they sit above a feed somebody came to read. The whole matched set is a
+    /// screen of its own; this is the handful worth interrupting for, already ranked by the
+    /// matching that screen uses.
+    /// </remarks>
+    private const int OpportunitiesOnFirstPage = 3;
+
     [HttpGet]
     public async Task<IActionResult> GetFeedAsync(
         [FromQuery] string? type = null,
@@ -100,7 +113,34 @@ public class FeedController : ControllerBase
             return BadRequest(new { error = fieldError });
 
         var page = await _feed.GetFeedPageAsync(profile, ParseType(type), cursor, limit);
-        return Ok(fieldSet.ProjectPage(page, FeedFieldProjectors));
+        var projected = fieldSet.ProjectPage(page, FeedFieldProjectors);
+
+        var feedPage = new FeedPage
+        {
+            Items = projected.Items,
+            NextCursor = projected.NextCursor,
+            HasMore = projected.HasMore,
+            EmptyReason = projected.EmptyReason,
+        };
+
+        // The third strand. Radar Intelligence is developments in what you follow, material for
+        // what you are working towards, and things you can actually apply for - and the last of
+        // those lived only behind its own screen, so the feed showed two thirds of what it is.
+        //
+        // First page only. They are a standing set rather than a stream, so repeating them under
+        // every scroll would be the same handful of things over and over.
+        //
+        // Type filters are left alone: somebody who has narrowed the feed to podcasts is reading,
+        // not applying.
+        if (cursor is null && type is null)
+        {
+            var daily = await _opportunities.GetDailyFeedAsync(profile);
+
+            feedPage.Opportunities = daily.Items.Take(OpportunitiesOnFirstPage).ToList();
+            feedPage.OpportunityFocus = daily.PrimaryFocus;
+        }
+
+        return Ok(feedPage);
     }
 
     [HttpGet("saved")]
