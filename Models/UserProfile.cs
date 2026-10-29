@@ -32,6 +32,23 @@ public class UserProfile
 
     // Layer 1 of the personalization model: the situation that makes an item relevant beyond the
     // raw interests. All optional, captured progressively (onboarding, Edit Profile, follow-ups).
+    /// <summary>
+    /// What is in the reader's way — box 3 of personalisation, shown as "challenges".
+    /// </summary>
+    /// <remarks>
+    /// Already existed and was already consumed by opportunity matching, relevance scoring,
+    /// interest personalisation and the "what is blocking them" line in a personalised why. It
+    /// was only ever filled in by the older onboarding, so for most profiles it was empty and all
+    /// of that ranking had nothing to work with. Box 3 asks for it directly now.
+    ///
+    /// Called "challenges" on screen because that is what a reader would call it. The field keeps
+    /// its name because eight places read it, and renaming the stored field to match a label is
+    /// how a migration gets written for no reason.
+    ///
+    /// A goal says where somebody is going; a challenge says what is stopping them, and the two
+    /// want different material. "Become a data analyst" and "I have no portfolio to show" lead to
+    /// the same field and completely different reading.
+    /// </remarks>
     public List<string> Problems { get; set; } = [];
     public string CurrentIntent { get; set; } = string.Empty;
     public string TargetRole { get; set; } = string.Empty;
@@ -47,6 +64,14 @@ public class UserProfile
     /// </remarks>
     public List<string> Goals { get; set; } = [];
 
+    /// <summary>
+    /// Which kinds of opportunity to watch for, from the older third box.
+    /// </summary>
+    /// <remarks>
+    /// Kept and still honoured where it is set. Nothing asks for it any more, but profiles that
+    /// answered it have a real preference stored, and dropping the field would quietly discard an
+    /// answer somebody gave.
+    /// </remarks>
     public List<string> OpportunityPreferences { get; set; } = [];
     public List<string> Geography { get; set; } = [];
     public List<string> DecisionNeeds { get; set; } = [];

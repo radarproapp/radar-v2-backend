@@ -201,21 +201,36 @@ public class MeController : ControllerBase
     {
         public List<string> Interests { get; set; } = [];
         public List<string> Goals { get; set; } = [];
+
+        /// <summary>Box 3: what is in the reader's way.</summary>
+        public List<string> Challenges { get; set; } = [];
+
+        /// <summary>
+        /// The older box 3. No longer asked for; accepted so an older client still saves what it
+        /// collected rather than having the answer silently dropped.
+        /// </summary>
         public List<string> OpportunityPreferences { get; set; } = [];
+
         public PersonaType? Persona { get; set; }
     }
 
     /// <summary>
-    /// The three boxes: what you follow, what you want, what you are looking for.
+    /// The three boxes: what you follow, what you want, and what is in your way.
     /// </summary>
     /// <remarks>
     /// Asked at the point of use rather than at signup. Before anyone has seen Radar, a
     /// questionnaire is answered carelessly or abandoned; once someone is looking at a feed that
     /// is not theirs, the question answers itself.
     ///
-    /// Interests and goals are both required, because the feed is ranked on them and without
-    /// either there is nothing to rank by. Opportunity preferences are optional: someone who
-    /// wants nothing applied for should still get a feed.
+    /// Interests and goals are both required, because the feed is built on them and without
+    /// either there is nothing to build from. Challenges are optional — somebody who does not
+    /// want to name an obstacle should still get a feed — but they are the box that changes what
+    /// the feed is for. A goal says where a reader is going; a challenge says what is stopping
+    /// them, and "become a data analyst" and "I have no portfolio to show" want completely
+    /// different material from the same corpus.
+    ///
+    /// The third box used to ask which kinds of opportunity to watch for. Those are worked out
+    /// from the goals and challenges now instead of asked for.
     /// </remarks>
     [HttpPost("personalise")]
     public async Task<IActionResult> PersonaliseAsync([FromBody] PersonaliseRequest request, CancellationToken ct = default)
@@ -238,7 +253,13 @@ public class MeController : ControllerBase
 
         profile.Interests = interests;
         profile.Goals = goals;
-        profile.OpportunityPreferences = Clean(request.OpportunityPreferences);
+        // Into Problems, which is the field this has always been. See UserProfile.Problems.
+        profile.Problems = Clean(request.Challenges);
+
+        // Only when an older client sent some. Overwriting a stored preference with the empty
+        // list a current client sends would discard an answer somebody gave.
+        var opportunityPreferences = Clean(request.OpportunityPreferences);
+        if (opportunityPreferences.Count > 0) profile.OpportunityPreferences = opportunityPreferences;
 
         // The goal a learning path is built around is one of them — the first, until they say
         // otherwise. The list drives the feed; this one drives Learn.
@@ -255,6 +276,7 @@ public class MeController : ControllerBase
             isPersonalised = profile.IsPersonalised,
             interests = profile.Interests,
             goals = profile.Goals,
+            challenges = profile.Problems,
             opportunityPreferences = profile.OpportunityPreferences,
             persona = profile.Persona.ToString(),
         });
