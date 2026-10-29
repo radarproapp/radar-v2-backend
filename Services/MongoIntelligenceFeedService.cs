@@ -196,7 +196,6 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
         if (dismissedIds.Count > 0)
             filter &= Builders<ContentItem>.Filter.Nin(i => i.Id, dismissedIds);
 
-        var interestTerms = FeedStrands.TermsFor(FeedStrands.Strand.Interest, profile);
         var goalTerms = FeedStrands.TermsFor(FeedStrands.Strand.Goal, profile);
 
         // An item has to mention something the reader wrote. Nothing else is shown.
@@ -216,7 +215,11 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
         // InterestPersonalization already uses it.
         var strands = new List<FilterDefinition<ContentItem>>();
 
-        if (interestTerms.Count > 0) strands.Add(FeedStrands.Mentioning(interestTerms));
+        // Interests go in whole, so they can be stemmed, expanded into the field's own vocabulary,
+        // and looked for as a phrase in the body. Goals and challenges stay word-matched against
+        // the narrow fields: they are written as sentences, and the words they reduce to are
+        // common enough that letting them loose in a body would fill the feed with near-misses.
+        if (profile.Interests.Count > 0) strands.Add(FeedStrands.AboutSubjects(profile.Interests));
         if (goalTerms.Count > 0) strands.Add(FeedStrands.Mentioning(goalTerms));
 
         // Both strands empty means nothing to match on, and nothing to match on means nothing

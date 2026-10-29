@@ -233,4 +233,77 @@ public class FeedStrandTests
         Assert.Empty(FeedStrands.TermsFor(FeedStrands.Strand.Goal, profile));
         Assert.True(profile.IsPersonalised);
     }
+
+    // ── Reaching the words the corpus actually uses ─────────────────────────
+
+    private static string Render(MongoDB.Driver.FilterDefinition<ContentItem> filter)
+    {
+        var registry = BsonSerializer.SerializerRegistry;
+        return filter
+            .Render(new RenderArgs<ContentItem>(registry.GetSerializer<ContentItem>(), registry))
+            .ToString();
+    }
+
+    /// <summary>
+    /// A subject is searched for in the forms a headline uses, not only as typed.
+    /// </summary>
+    /// <remarks>
+    /// "Nursing" does not match "Nurse" as a prefix, and "Marketing" does not match "Market".
+    /// Searching the reader's word unaltered reached four of the corpus's 337 topic strings for a
+    /// typical profile, so titles were carrying the filter alone.
+    /// </remarks>
+    [Theory]
+    [InlineData("Nursing", "Nurs")]
+    [InlineData("Marketing", "Market")]
+    [InlineData("Economics", "Economic")]
+    public void ASubjectIsSearchedForByItsStem(string interest, string stem)
+    {
+        Assert.Contains(stem, Render(FeedStrands.AboutSubjects([interest])));
+    }
+
+    /// <summary>
+    /// And in the field's own vocabulary, which shares no letters with what was typed.
+    /// </summary>
+    [Fact]
+    public void AFieldBringsItsOwnWords()
+    {
+        var rendered = Render(FeedStrands.AboutSubjects(["Cybersecurity"]));
+
+        Assert.Contains("malware", rendered, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// The body is searched only for the whole subject.
+    /// </summary>
+    /// <remarks>
+    /// A single word loose in a body is how a feed fills with near-misses: "product" appears in
+    /// half the business coverage ever written, while "product management" appearing in a summary
+    /// is the item being about it.
+    /// </remarks>
+    [Fact]
+    public void TheBodyIsSearchedForAPhraseAndNotForOneWord()
+    {
+        Assert.Contains("WhatHappened", Render(FeedStrands.AboutSubjects(["Product Management"])));
+        Assert.DoesNotContain("WhatHappened", Render(FeedStrands.AboutSubjects(["Robotics"])));
+    }
+
+    /// <summary>
+    /// A subject Radar has never heard of still searches for itself.
+    /// </summary>
+    /// <remarks>
+    /// The layer mapping returned nothing for anything outside its keyword list, so a reader who
+    /// typed their own subject got no hint at all. Nothing here privileges a listed field.
+    /// </remarks>
+    [Fact]
+    public void AnUnlistedSubjectStillSearches()
+    {
+        Assert.Contains("Ethnomusicolog", Render(FeedStrands.AboutSubjects(["Ethnomusicology"])));
+    }
+
+    /// <summary>A subject that reduces to nothing matches nothing, not everything.</summary>
+    [Fact]
+    public void ASubjectTooShortToSearchMatchesNothing()
+    {
+        Assert.DoesNotContain("regularExpression", Render(FeedStrands.AboutSubjects(["New"])));
+    }
 }

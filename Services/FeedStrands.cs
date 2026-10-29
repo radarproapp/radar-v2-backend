@@ -149,6 +149,57 @@ public static class FeedStrands
     }
 
     /// <summary>
+    /// Everything that counts as this subject being mentioned, including in the body.
+    /// </summary>
+    /// <remarks>
+    /// Two things the plain term match cannot do.
+    ///
+    /// It searches for the words the corpus uses rather than only the ones the reader typed —
+    /// stems, so "Nursing" finds "Nurse", and the field's other vocabulary, so somebody following
+    /// cybersecurity finds an item about malware. Without that, a typical profile reached four of
+    /// the corpus's 337 topic strings and titles carried the filter alone.
+    ///
+    /// And it looks in the written summary, but only for the whole subject as a phrase. A single
+    /// word loose in a body is how a feed fills with near-misses — "product" appears in half the
+    /// business coverage ever written — whereas "product management" appearing in a summary is
+    /// the item being about it. The narrow fields take words; the wide field takes phrases.
+    /// </remarks>
+    public static FilterDefinition<ContentItem> AboutSubjects(IReadOnlyCollection<string> subjects)
+    {
+        if (subjects.Count == 0) return Builders<ContentItem>.Filter.Where(_ => false);
+
+        var clauses = new List<FilterDefinition<ContentItem>>();
+
+        foreach (var subject in subjects.Take(MaxTerms))
+        {
+            foreach (var term in DomainVocabulary.SearchTerms(subject))
+            {
+                var pattern = new BsonRegularExpression(LessonRelevance.WordStartPattern(term), "i");
+
+                clauses.Add(Builders<ContentItem>.Filter.Regex(i => i.Topic, pattern));
+                clauses.Add(Builders<ContentItem>.Filter.Regex(i => i.Title, pattern));
+                clauses.Add(Builders<ContentItem>.Filter.Regex("Tags", pattern));
+            }
+
+            // The whole subject, in the body. Only worth asking when it is more than one word —
+            // a single word here is the loose match this is trying to avoid, and it is already
+            // covered against topic, title and tags above.
+            var phrase = subject.Trim();
+            if (!phrase.Contains(' ')) continue;
+
+            var asPhrase = new BsonRegularExpression(
+                LessonRelevance.WordStartPattern(phrase), "i");
+
+            clauses.Add(Builders<ContentItem>.Filter.Regex(i => i.WhatHappened, asPhrase));
+            clauses.Add(Builders<ContentItem>.Filter.Regex(i => i.AiSummary, asPhrase));
+        }
+
+        return clauses.Count == 0
+            ? Builders<ContentItem>.Filter.Where(_ => false)
+            : Builders<ContentItem>.Filter.Or(clauses);
+    }
+
+    /// <summary>
     /// Which strand an item belongs to, given what matched it.
     /// </summary>
     /// <remarks>
