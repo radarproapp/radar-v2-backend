@@ -1026,23 +1026,49 @@ public class MongoRoadmapService : IRoadmapService
     }
 
     /// <summary>
-    /// Queues searches for lessons that still have no videos.
+    /// Queues searches for the lessons that are still waiting on videos.
     /// </summary>
     /// <remarks>
-    /// Capped the same way the old single-video warm was: a search costs 100 quota units against
-    /// 10,000 a day, so one page view must not be able to spend a meaningful share of it. Five
-    /// results per search instead of three costs nothing extra — the price is per request.
+    /// Capped because a search costs 100 quota units against 10,000 a day, so one page view must
+    /// not be able to spend a meaningful share of it. Five results per search instead of three
+    /// costs nothing extra — the price is per request, not per result.
+    ///
+    /// Only lessons that have not settled. This used to warm any lesson without videos, including
+    /// ones whose resources were already decided — and a settled lesson is never refilled, so
+    /// every search spent on one bought nothing. On a path with several sections that was most of
+    /// the budget: the same finished lessons were re-searched on every read while the newly built
+    /// ones queued behind them and never reached the front.
+    ///
+    /// Measured on production before the change: a fifteen-lesson roadmap had five videos on
+    /// every older lesson and none on any lesson built that day, after two full passes. The
+    /// instrumentation on /api/version ruled out quota — searches were succeeding and finding
+    /// results — which left reach as the only explanation.
     /// </remarks>
+    /// <summary>
+    /// How many searches one read of a path may queue.
+    /// </summary>
+    /// <remarks>
+    /// Six rather than four, now that none of them is spent on a lesson that cannot use the
+    /// result. A newly built section is five lessons, so this clears one in a single read instead
+    /// of leaving the last of them waiting behind the others.
+    ///
+    /// Still a ceiling on a daily quota that cannot be seen from here - which is why
+    /// YouTubeSearchService counts what it spends and /api/version reports it.
+    /// </remarks>
+    private const int WarmedPerRead = 6;
+
     private void WarmLessonVideosForEmptyLessons(GrowthRoadmap roadmap)
     {
         if (!_youtube.IsConfigured) return;
 
         var queries = roadmap.Modules
             .SelectMany(m => m.Lessons ?? [])
-            .Where(l => !l.Videos.Any() && !string.IsNullOrWhiteSpace(l.Title))
+            .Where(l => l.ResourcesJudgedAt is null
+                        && !l.Videos.Any()
+                        && !string.IsNullOrWhiteSpace(l.Title))
             .Select(l => !string.IsNullOrWhiteSpace(l.SearchHint) ? l.SearchHint! : l.Title)
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Take(4)
+            .Take(WarmedPerRead)
             .ToList();
 
         if (queries.Count == 0) return;
