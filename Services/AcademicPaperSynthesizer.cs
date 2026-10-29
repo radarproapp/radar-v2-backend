@@ -60,6 +60,11 @@ public static class AcademicPaperSynthesizer
                 abstractText, "future work", "further research", "next step", "remains to be", "we plan", "should be investigated", "open question");
         }
 
+        if (string.IsNullOrWhiteSpace(paper.PaperBreakdown.Conclusion))
+        {
+            paper.PaperBreakdown.Conclusion = FromSource(abstractText, "we conclude", "in conclusion", "concludes", "overall", "taken together", "these results suggest", "we argue that", "this shows");
+        }
+
         if (string.IsNullOrWhiteSpace(paper.PaperBreakdown.WhyItMatters))
         {
             // Facts only, exactly as the full enricher states them. A hand-written catalogue
@@ -136,7 +141,12 @@ public static class AcademicPaperSynthesizer
             // Spec 8.2. Both extracted from the abstract on the same terms as every other
             // section: present when the authors said it, NotStated when they did not.
             Limitations = FromSource(abstractText, "limitation", "however", "caveat", "constrain", "we did not", "does not", "cannot", "small sample", "future"),
-            FutureWork = FromSource(abstractText, "future work", "further research", "next step", "remains to be", "we plan", "should be investigated", "open question")
+            FutureWork = FromSource(abstractText, "future work", "further research", "next step", "remains to be", "we plan", "should be investigated", "open question"),
+
+            // On the same terms as every other extracted section: the authors' own concluding
+            // sentences where they wrote them, and NotStated where they did not. A conclusion
+            // assembled from the title would be Radar's conclusion, attributed to them.
+            Conclusion = FromSource(abstractText, "we conclude", "in conclusion", "concludes", "overall", "taken together", "these results suggest", "we argue that", "this shows")
         };
 
         // Calculate total word count

@@ -192,6 +192,22 @@ public class MongoResearchService : IResearchService
         return System.Text.RegularExpressions.Regex.Replace(title.ToLowerInvariant(), @"[^a-z0-9]", "");
     }
 
+    /// <summary>
+    /// The plain-English summary of a paper, built once and attached to it.
+    /// </summary>
+    /// <remarks>
+    /// Written for somebody who is not in the field. The prompt used to ask for a "comprehensive
+    /// introduction contextualizing the paper within the field" and got exactly that: a second
+    /// abstract, in the same register as the first, which is no use to a student deciding whether
+    /// a paper is worth two hours. Simple words and short sentences are the point of the feature,
+    /// not a stylistic preference.
+    ///
+    /// Built from the title and the abstract, because that is all Radar has. So the instruction
+    /// that matters most is the one about not filling gaps: a paper whose abstract does not say
+    /// how the study was done gets a methodology section saying so. The alternative is a
+    /// confident paragraph about a sample size nobody reported, in a product whose whole claim is
+    /// that it does not invent academic information.
+    /// </remarks>
     private async Task EnsureAiPaperBreakdownAsync(ContentItem paper)
     {
         if (paper.PaperBreakdown != null && paper.WordCount > 400) return;
@@ -199,42 +215,59 @@ public class MongoResearchService : IResearchService
         try
         {
             var prompt = $$"""
-                Synthesize a strict ~500-word academic breakdown for the following research paper:
+                Summarise this research paper for a reader who is not in its field.
+
                 Title: {{paper.Title}}
                 Authors: {{string.Join(", ", paper.Authors)}}
-                Journal: {{paper.Journal ?? paper.Source ?? "Peer-Reviewed Press"}}
+                Journal: {{paper.Journal ?? paper.Source ?? "not recorded"}}
                 Year: {{paper.PublishedAt.Year}}
+                Topic: {{paper.Topic ?? "not recorded"}}
                 Abstract: {{paper.AiSummary ?? paper.WhatHappened ?? ""}}
-                Topic: {{paper.Topic ?? "Interdisciplinary Science"}}
 
-                Format strictly as JSON with all 7 mandated sections:
+                How to write it:
+                - Very simple English. Short sentences. The words somebody would use out loud.
+                - No jargon unless you explain it in the same sentence, in brackets.
+                - About 500 words across all sections together, so roughly 60 to 70 each.
+                - Say what the paper says, not what you think of it.
+
+                What you must not do:
+                - Do not add anything that is not in the title or abstract above. No sample sizes,
+                  statistics, methods, places or dates that are not stated there.
+                - Where the abstract does not say, write exactly: Not stated in the abstract.
+                  That is a useful answer. An invented one is not.
+
+                Respond ONLY with valid JSON:
                 {
-                  "introduction": "Comprehensive introduction contextualizing the paper within the field...",
-                  "problem": "Specific, empirical problem statement the researchers target...",
-                  "aimAndObjectives": "Key aim and structured objectives of the investigation...",
-                  "methodology": "Empirical methodology, datasets, models, or experimental setup used...",
-                  "keyArguments": "Primary theoretical arguments and claims articulated by the authors...",
-                  "findings": "Verified quantitative and qualitative findings produced by the study...",
-                  "contribution": "Direct scientific contribution to the field and why it matters to practitioners...",
-                  "whyItMatters": "Actionable explanation connecting this academic evidence to real-world application."
+                  "introduction": "what this paper is about and what field it sits in",
+                  "problem": "the problem the researchers set out to solve, and why it mattered",
+                  "aimAndObjectives": "what they were trying to find out",
+                  "methodology": "how they did the study, as far as the abstract says",
+                  "keyArguments": "the main points the authors make",
+                  "findings": "what they found, including any numbers the abstract gives",
+                  "conclusion": "what the authors conclude from it",
+                  "contribution": "what this adds that was not there before",
+                  "whyItMatters": "what somebody outside the field could do with this"
                 }
                 """;
 
             var breakdown = await _ai.GenerateJsonAsync<AcademicPaperBreakdown>(
                 "academic-paper-breakdown",
-                "You are Radar's Academic Research Synthesizer. Produce strict, verified 7-part 500-word academic paper breakdowns.",
+                "You summarise research papers in plain English for readers outside the field. You "
+                + "never state anything the paper's own abstract does not, and you say so plainly "
+                + "where it is silent.",
                 prompt);
 
             if (breakdown != null && !string.IsNullOrWhiteSpace(breakdown.Introduction))
             {
                 paper.PaperBreakdown = breakdown;
+                AcademicPaperSynthesizer.EnsureDerivedParts(paper);
                 paper.WordCount = breakdown.TotalWordCount;
                 return;
             }
         }
         catch
         {
-            // Fall back to template synthesizer cleanly
+            // Fall back to the template synthesizer, which works from the same abstract.
         }
 
         AcademicPaperSynthesizer.EnrichPaperWithStrictBreakdown(paper);

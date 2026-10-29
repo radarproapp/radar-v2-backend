@@ -43,7 +43,29 @@ public class AcademicPaperBreakdown
     /// <summary>What the authors say should be studied next, where they say it.</summary>
     public string FutureWork { get; set; } = string.Empty;
 
+    /// <summary>
+    /// What the paper concludes, in a few sentences.
+    /// </summary>
+    /// <remarks>
+    /// Named in the spec alongside introduction, problem, methodology and findings, and the only
+    /// one of the five that was not here. Contribution is a different question - what this adds
+    /// to the field - and a reader who asked "so what did they conclude?" was being answered
+    /// with an argument about significance.
+    /// </remarks>
+    public string Conclusion { get; set; } = string.Empty;
+
+    /// <summary>
+    /// How long the summary runs, which the 500-word target is measured against.
+    /// </summary>
+    /// <remarks>
+    /// Every narrative section counts. Conclusion was added after this was written and would
+    /// have been left out of it, the same way Era, Limitations and FutureWork each had to be
+    /// backfilled after being added.
+    /// </remarks>
     public int TotalWordCount =>
-        (Introduction + " " + Problem + " " + AimAndObjectives + " " + Methodology + " " + KeyArguments + " " + Findings + " " + Contribution)
+        string.Join(
+            " ",
+            Introduction, Problem, AimAndObjectives, Methodology,
+            KeyArguments, Findings, Contribution, Conclusion)
         .Split(new[] { ' ', '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries).Length;
 }
