@@ -131,4 +131,89 @@ public class OpportunityFitTests
     {
         Assert.True(OpportunityFit.PointsFor(PersonaType.Student, OpportunityType.Funding) > 0);
     }
+
+    // ── What the learner actually said ──────────────────────────────────────
+
+    private const string NursingPost =
+        "Graduate Nurse Trainee Programme. We are recruiting registered nurses into a two-year "
+        + "rotation across paediatrics and critical care. Start date: January.";
+
+    /// <summary>A stated interest is matched on the words an advert actually uses.</summary>
+    /// <remarks>
+    /// The learner types "Nursing" and the posting says "Nurse". As a prefix, "nursing" matches
+    /// neither "nurse" nor "nurses", so the unlisted fields - the ones with no synonym list to
+    /// fall back on - were exactly the ones that matched nothing.
+    /// </remarks>
+    [Fact]
+    public void AStatedInterestMatchesTheWordsTheAdvertUses()
+    {
+        Assert.Contains("Nursing", OpportunityFit.Matching(NursingPost, ["Nursing"]));
+    }
+
+    /// <summary>
+    /// And matched by word, not by letters appearing somewhere.
+    /// </summary>
+    /// <remarks>
+    /// The old match was a plain Contains over the whole advert, lowercased. An interest in art
+    /// matched every posting with a "start date" in it, and the reader was then told the reason
+    /// it was shown was their interest in art. The same substring rule, in the feed, is what put
+    /// football in a prompt-engineering path.
+    /// </remarks>
+    [Fact]
+    public void ALetterSequenceInsideAnotherWordIsNotAMatch()
+    {
+        Assert.Empty(OpportunityFit.Matching(NursingPost, ["art"]));
+    }
+
+    /// <summary>
+    /// Goals count, which they did not.
+    /// </summary>
+    /// <remarks>
+    /// Goals were in the profile, used by the roadmap and by the Intelligence feed, and read in
+    /// the opportunity scorer only as a fallback source of a single domain string. So somebody
+    /// whose stated goal was a scholarship was never matched on it.
+    /// </remarks>
+    [Fact]
+    public void AStatedGoalIsMatchedToo()
+    {
+        var post = "Commonwealth Scholarship for postgraduate study in the United Kingdom.";
+
+        // The term returned is the one the learner typed, because that is what gets said back to
+        // them as the reason this is in front of them.
+        Assert.Contains("win a scholarship", OpportunityFit.Matching(post, ["win a scholarship"]));
+    }
+
+    /// <summary>
+    /// An opportunity with nothing to do with the learner matches nothing.
+    /// </summary>
+    /// <remarks>
+    /// This is the one that matters. Every opportunity started at 48 points with a floor of 38,
+    /// so one matching nothing still came back at about half and sat in the Explore tier, and the
+    /// daily batch padded itself to twelve from whatever was left. Somebody studying nursing was
+    /// shown accelerator programmes because the list was long enough to fill a page.
+    /// </remarks>
+    [Fact]
+    public void AnUnrelatedOpportunityMatchesNothing()
+    {
+        var accelerator =
+            "Seed-stage startup accelerator. Twelve weeks of mentorship and $120,000 for "
+            + "pre-product fintech founders in Lagos.";
+
+        Assert.Empty(OpportunityFit.Matching(accelerator, ["Nursing", "paediatrics"]));
+    }
+
+    /// <summary>Nothing stated is nothing matched, rather than everything matched.</summary>
+    [Fact]
+    public void ALearnerWhoStatedNothingMatchesNothing()
+    {
+        Assert.Empty(OpportunityFit.Matching(NursingPost, []));
+        Assert.Empty(OpportunityFit.Matching(NursingPost, ["", "   ", null]));
+    }
+
+    /// <summary>The same term twice is one reason, not two.</summary>
+    [Fact]
+    public void ATermStatedTwiceIsOneReason()
+    {
+        Assert.Single(OpportunityFit.Matching(NursingPost, ["Nursing", "nursing"]));
+    }
 }

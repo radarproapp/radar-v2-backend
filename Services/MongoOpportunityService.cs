@@ -77,9 +77,14 @@ public class MongoOpportunityService : IOpportunityService
         var activeRoadmap = await _db.Roadmaps.Find(r => r.UserId == profile.Id && r.IsActive).FirstOrDefaultAsync();
         var learningRecord = await RecordForAsync(profile);
 
+        var aboutThisLearner = new HashSet<string>(StringComparer.Ordinal);
+
         foreach (var opp in all)
         {
-            EnrichOpportunityWithPersonalization(opp, profile, activeRoadmap, trackingMap, learningRecord);
+            if (EnrichOpportunityWithPersonalization(opp, profile, activeRoadmap, trackingMap, learningRecord))
+            {
+                aboutThisLearner.Add(opp.Id);
+            }
         }
 
         // Apply AI match refinement if enabled
@@ -98,6 +103,19 @@ public class MongoOpportunityService : IOpportunityService
 
         // Apply user continuous learning filter: Hide opportunities marked NotRelevant unless explicitly viewing tracked
         valid = valid.Where(o => o.UserTrackingStatus != OpportunityTrackingStatus.NotRelevant).ToList();
+
+        // Only what Radar can say something about.
+        //
+        // Every opportunity started at 48 points with a floor of 38, so one matching nothing
+        // about this learner still came back at about half and sat in the Explore tier. Asked for
+        // opportunities, somebody studying nursing was shown accelerator programmes because the
+        // list was long enough to fill a page. An opportunity nobody can explain the presence of
+        // is not a weak match - it is noise with a percentage next to it.
+        //
+        // A learner who has stated nothing gets nothing here, and the screen says to personalise.
+        // That is the same rule as the Intelligence feed, and it is the honest one: Radar asks
+        // what somebody wants rather than deriving it.
+        valid = valid.Where(o => aboutThisLearner.Contains(o.Id)).ToList();
 
         // Apply filters
         if (filterType.HasValue)
@@ -180,13 +198,23 @@ public class MongoOpportunityService : IOpportunityService
         var trackingMap = await GetTrackingMapAsync(profile.Id);
         var activeRoadmap = await _db.Roadmaps.Find(r => r.UserId == profile.Id && r.IsActive).FirstOrDefaultAsync();
         var learningRecord = await RecordForAsync(profile);
-        foreach (var opp in items) EnrichOpportunityWithPersonalization(opp, profile, activeRoadmap, trackingMap, learningRecord);
+        // Re-checked rather than taken on trust. A batch stored this morning was matched against
+        // what the learner had stated then, and somebody who answers the personalise questions at
+        // lunchtime should not spend the afternoon with the feed they would have had anyway.
+        var stillRelevant = items
+            .Where(opp => EnrichOpportunityWithPersonalization(opp, profile, activeRoadmap, trackingMap, learningRecord))
+            .ToList();
 
         var ordered = stored.OpportunityIds
-            .Select(id => items.FirstOrDefault(i => i.Id == id))
+            .Select(id => stillRelevant.FirstOrDefault(i => i.Id == id))
             .Where(i => i is not null)
             .Select(i => i!)
             .ToList();
+
+        // Nothing left of it means a fresh build, not an empty day. The caller falls back when
+        // this is null, which is what "stale batch" has always meant here - a batch whose items
+        // no longer match the learner is stale in exactly the same way as one whose items expired.
+        if (ordered.Count == 0) return null;
 
         return new DailyOpportunityFeed
         {
@@ -251,9 +279,14 @@ public class MongoOpportunityService : IOpportunityService
         var activeRoadmap = await _db.Roadmaps.Find(r => r.UserId == profile.Id && r.IsActive).FirstOrDefaultAsync();
         var learningRecord = await RecordForAsync(profile);
 
+        var aboutThisLearner = new HashSet<string>(StringComparer.Ordinal);
+
         foreach (var opp in all)
         {
-            EnrichOpportunityWithPersonalization(opp, profile, activeRoadmap, trackingMap, learningRecord);
+            if (EnrichOpportunityWithPersonalization(opp, profile, activeRoadmap, trackingMap, learningRecord))
+            {
+                aboutThisLearner.Add(opp.Id);
+            }
         }
 
         // Filter expired and NotRelevant
@@ -262,6 +295,19 @@ public class MongoOpportunityService : IOpportunityService
             .Where(o => (!o.Deadline.HasValue || o.Deadline.Value >= now.AddDays(-1)) &&
                         o.UserTrackingStatus != OpportunityTrackingStatus.NotRelevant)
             .ToList();
+
+        // Only what Radar can say something about.
+        //
+        // Every opportunity started at 48 points with a floor of 38, so one matching nothing
+        // about this learner still came back at about half and sat in the Explore tier. Asked for
+        // opportunities, somebody studying nursing was shown accelerator programmes because the
+        // list was long enough to fill a page. An opportunity nobody can explain the presence of
+        // is not a weak match - it is noise with a percentage next to it.
+        //
+        // A learner who has stated nothing gets nothing here, and the screen says to personalise.
+        // That is the same rule as the Intelligence feed, and it is the honest one: Radar asks
+        // what somebody wants rather than deriving it.
+        valid = valid.Where(o => aboutThisLearner.Contains(o.Id)).ToList();
 
         // What this user has already been shown on a previous day. Without this the "daily" batch is
         // just a deterministic ranking of a static set, so the same twelve items return every day —
@@ -577,7 +623,22 @@ public class MongoOpportunityService : IOpportunityService
 
     // ── Continuous Learning & Personalization ───────────────────────────────
 
-    private void EnrichOpportunityWithPersonalization(
+    /// <summary>
+    /// Scores one opportunity for one learner, and says whether anything about them matched.
+    /// </summary>
+    /// <remarks>
+    /// The return value is the thing the feed needs and did not have. Every opportunity started
+    /// at 48 and the score was clamped to a floor of 38, so one that matched nothing about the
+    /// learner still came back at about half and landed in the Explore tier - and the daily batch
+    /// then padded itself to twelve from whatever was left. So the feed was full every day
+    /// whether or not Radar had anything to say about any of it.
+    ///
+    /// What counts as being about the learner: the field they are studying, an interest they
+    /// stated, a goal they stated, the role the record says they are aiming for, or a topic they
+    /// are working on next. Not the deadline, and not the kind of thing it is - a conference
+    /// closing on Friday is urgent and generic at the same time.
+    /// </remarks>
+    private bool EnrichOpportunityWithPersonalization(
         Opportunity opp,
         UserProfile profile,
         GrowthRoadmap? activeRoadmap,
@@ -600,11 +661,30 @@ public class MongoOpportunityService : IOpportunityService
             signals.Add(new MatchSignal(26, $"It is {SubjectPhrase.Lower(domain)} work, which is what you are learning."));
         }
 
-        foreach (var interest in profile.Interests)
+        // By word rather than by substring. A plain Contains on a stated interest matched any
+        // advert with those letters in it anywhere: "art" hit every "start date", "AI" hit
+        // "said". MentionsSubject matches whole words and known forms of them, which is the same
+        // rule the feed uses against the same kind of text.
+        var personal = domain is not null && signals.Count > 0;
+
+        foreach (var interest in OpportunityFit.Matching(fullText, profile.Interests))
         {
-            if (string.IsNullOrWhiteSpace(interest) || !fullText.Contains(interest.ToLowerInvariant())) continue;
             score += 8;
+            personal = true;
             signals.Add(new MatchSignal(8, $"You said you are interested in {SubjectPhrase.Lower(interest)}."));
+        }
+
+        // What they said they are trying to do. Goals were in the profile, used by the roadmap
+        // and by the Intelligence feed, and read here only as a fallback source of one domain
+        // string - so somebody whose goal was a scholarship was never matched on it.
+        foreach (var goal in OpportunityFit.Matching(fullText, profile.Goals))
+        {
+            score += 12;
+            personal = true;
+            // The learner's own wording, quoted rather than inflected. A goal is a phrase - "win
+            // a scholarship", "move into data work" - and reading it into the middle of a
+            // sentence produces "a step toward win a scholarship".
+            signals.Add(new MatchSignal(12, $"It fits what you said you are working on: {SubjectPhrase.Lower(goal)}."));
         }
 
         // Where the user is. Remote is called out separately because it is the thing worth saying:
@@ -653,6 +733,7 @@ public class MongoOpportunityService : IOpportunityService
             var role = Firm(record.TargetRole);
             if (role is not null && fullText.Contains(role.ToLowerInvariant()))
             {
+                personal = true;
                 score += 12;
                 signals.Add(new MatchSignal(12, $"It is a step toward {SubjectPhrase.Lower(role)}, the role you are aiming for."));
             }
@@ -660,6 +741,7 @@ public class MongoOpportunityService : IOpportunityService
             var priority = record.PriorityTopics.FirstOrDefault(t => !string.IsNullOrWhiteSpace(t) && fullText.Contains(t.ToLowerInvariant()));
             if (priority is not null)
             {
+                personal = true;
                 score += 10;
                 signals.Add(new MatchSignal(10, $"It covers {SubjectPhrase.Lower(priority)}, which is what you are learning next."));
             }
@@ -718,6 +800,13 @@ public class MongoOpportunityService : IOpportunityService
                 "Apply, then record it in your tracker"
             ];
         }
+
+        // Something the learner already asked for, or already said something about, counts too:
+        // an opportunity they marked interesting is about them by definition.
+        return personal || opp.UserTrackingStatus is OpportunityTrackingStatus.Interested
+            or OpportunityTrackingStatus.Saved
+            or OpportunityTrackingStatus.Applied
+            or OpportunityTrackingStatus.Accepted;
     }
 
     /// <summary>A reason the score moved, written the way the user will read it.</summary>

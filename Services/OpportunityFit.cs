@@ -109,6 +109,26 @@ public static class OpportunityFit
         return OpenToAnyone.Contains(type) ? Anyone : NoSignal;
     }
 
+    /// <summary>
+    /// Which of a learner's stated terms this opportunity actually speaks to.
+    /// </summary>
+    /// <remarks>
+    /// By word, not by substring. A plain Contains on a stated interest matched any advert with
+    /// those letters anywhere in it: "art" hit every "start date", "AI" hit "said", and the
+    /// learner was then told the reason it was shown was their interest in art. MentionsSubject
+    /// matches whole words and the forms an advert actually uses - nursing against "nurse" - and
+    /// is the same rule the feed applies to the same kind of text.
+    ///
+    /// Returns the terms rather than a count, because every one of them has to be sayable back to
+    /// the reader as the reason this is in front of them.
+    /// </remarks>
+    public static List<string> Matching(string text, IEnumerable<string?> terms) =>
+        terms
+            .Where(term => !string.IsNullOrWhiteSpace(term) && DomainVocabulary.MentionsSubject(text, term))
+            .Select(term => term!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
     /// <summary>Whether the type itself is a reason this is in front of them.</summary>
     public static bool IsASignal(PersonaType persona, OpportunityType type) =>
         PointsFor(persona, type) > NoSignal;
