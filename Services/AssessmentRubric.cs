@@ -68,6 +68,154 @@ public static class AssessmentRubric
                 + "without a purpose behind it cannot be judged as having worked."),
     ];
 
+    /// <summary>
+    /// An application for money: a grant, a fellowship, a scholarship.
+    /// </summary>
+    /// <remarks>
+    /// The one Radar's readers need most. Scholarships and grants are what the feed surfaces more
+    /// than anything else, and the application is the thing standing between somebody and one.
+    ///
+    /// Judged as a case made to a stranger with a budget and a pile of other applications, not as
+    /// an essay about a plan. The common failure is not bad writing; it is answering a question
+    /// the funder did not ask.
+    /// </remarks>
+    private static List<AssessmentCriterion> GrantApplication(PersonaType persona) =>
+    [
+        C("It answers what was asked",
+            "Does it respond to the funder's actual criteria, in their terms? An application that "
+            + "describes a worthy project without addressing what the fund exists to do is read "
+            + "once and set aside."),
+
+        C("The need is evidenced",
+            "Is the problem shown with something checkable - figures, sources, lived specifics - "
+            + "rather than asserted as self-evident? Every applicant believes their need is "
+            + "obvious."),
+
+        C("The plan is concrete",
+            "Does it say what will actually be done, by whom, by when? A reviewer is deciding "
+            + "whether this can happen, and intentions do not answer that."),
+
+        C("The money is accounted for",
+            "Is it clear what the funds buy and why that amount? An unexplained figure invites "
+            + "the reviewer to invent their own, which is always lower."),
+
+        C("The outcome is measurable",
+            "Can somebody tell afterwards whether this worked? 'Raise awareness' cannot be "
+            + "checked and so cannot be funded twice."),
+
+        C("You are the right person",
+            "Does it establish why this applicant, specifically, can deliver this? Not a CV - the "
+            + "connection between what they have done and what they propose."),
+
+        persona == PersonaType.Student
+            ? C("It is about the work, not the hardship",
+                "Does it make an academic or practical case rather than relying on circumstance? "
+                + "Circumstance belongs where the form asks for it, and nowhere else.")
+            : C("It fits the funder",
+                "Is there evidence of having read what this funder has backed before? A generic "
+                + "application is recognisable from the first paragraph."),
+    ];
+
+    /// <summary>
+    /// Slides written to raise money or win a decision.
+    /// </summary>
+    /// <remarks>
+    /// Judged as a sequence of claims, not as design. A deck that looks professional and argues
+    /// nothing is the common case, and the thing a reviewer is actually deciding is whether the
+    /// story holds.
+    /// </remarks>
+    private static List<AssessmentCriterion> PitchDeck() =>
+    [
+        C("The problem is real and specific",
+            "Is it a problem somebody has today, named precisely enough to be recognised by "
+            + "whoever has it? A market described in billions is not a problem."),
+
+        C("The solution follows from it",
+            "Does what is being built obviously address the problem just stated, or is there a "
+            + "leap between the two slides?"),
+
+        C("There is evidence of demand",
+            "Is there something beyond conviction - users, revenue, a waiting list, a letter of "
+            + "intent? At the earliest stage, evidence of conversations counts; assertion does "
+            + "not."),
+
+        C("The numbers are defensible",
+            "Do the figures have a stated basis, and do they survive one question? A number "
+            + "nobody can trace is worse than no number."),
+
+        C("The ask is clear",
+            "Does it say what is wanted, what it buys and what happens as a result? A deck that "
+            + "ends without an ask has wasted the meeting."),
+
+        C("It is sequenced",
+            "Does each slide earn the next, so a reader arrives at the ask already convinced "
+            + "rather than being asked to assemble the case themselves?"),
+    ];
+
+    /// <summary>
+    /// A README, an API reference, a runbook: writing that exists to be used.
+    /// </summary>
+    /// <remarks>
+    /// Judged on whether somebody can do the thing, which is the only question documentation
+    /// answers. Completeness is not the measure - a short page that gets somebody working beats a
+    /// thorough one that does not.
+    /// </remarks>
+    private static List<AssessmentCriterion> TechnicalDocumentation() =>
+    [
+        C("Someone can get started",
+            "Can a reader who has never seen this get to a working state from what is here, "
+            + "without asking anybody? That is the whole job."),
+
+        C("It says what this is for",
+            "Is it clear what the thing does and when to reach for it, before the instructions "
+            + "begin?"),
+
+        C("The steps are complete and in order",
+            "Does every step have what it needs - the prerequisite, the exact command, the "
+            + "expected result - in the order it is done?"),
+
+        C("It says what goes wrong",
+            "Are the common failures named with what to do about them? The gap between working "
+            + "and not is where readers actually spend their time."),
+
+        C("It is accurate now",
+            "Does it match what the thing currently does? Documentation describing a previous "
+            + "version is worse than none, because it is trusted."),
+
+        C("It is written for a reader",
+            "Is the assumed knowledge stated, and is the jargon either avoided or defined on "
+            + "first use?"),
+    ];
+
+    /// <summary>
+    /// A plan for teaching something to somebody.
+    /// </summary>
+    private static List<AssessmentCriterion> LessonPlan() =>
+    [
+        C("The learner comes out able to do something",
+            "Is the intended outcome stated as something a learner can do afterwards, rather "
+            + "than as a topic to be covered? 'Understand fractions' cannot be observed."),
+
+        C("It is built for who is in the room",
+            "Does it say what the learners already know, and does the plan start from there?"),
+
+        C("The time is realistic",
+            "Does the timing survive contact with a real session, including the part where "
+            + "somebody asks a question?"),
+
+        C("Learners do something",
+            "Is there a point at which the learner practises rather than listens? A plan that is "
+            + "entirely delivery is a lecture."),
+
+        C("You can tell whether it worked",
+            "Is there a check during or at the end that would reveal a learner who has not "
+            + "followed? Without one the plan cannot be adjusted."),
+
+        C("It anticipates the sticking point",
+            "Does it name where learners usually get stuck in this material, and what to do when "
+            + "they do? That knowledge is what separates a plan from a running order."),
+    ];
+
     private static AssessmentCriterion C(string name, string asks) =>
         new() { Name = name, Asks = asks };
 
@@ -89,6 +237,10 @@ public static class AssessmentRubric
         DocumentKind.PersonalStatement => PersonalStatement(),
         DocumentKind.BusinessPlan => BusinessPlan(),
         DocumentKind.SocialMediaContent => SocialMediaContent(persona),
+        DocumentKind.GrantApplication => GrantApplication(persona),
+        DocumentKind.PitchDeck => PitchDeck(),
+        DocumentKind.TechnicalDocumentation => TechnicalDocumentation(),
+        DocumentKind.LessonPlan => LessonPlan(),
         _ => [],
     };
 

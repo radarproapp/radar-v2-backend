@@ -30,6 +30,23 @@ public enum DocumentKind
     /// making a judgement about which of their work counts.
     /// </remarks>
     SocialMediaContent,
+
+    /// <summary>An application for funding: a grant, a fellowship, a scholarship.</summary>
+    /// <remarks>
+    /// High on the list for Radar's readers specifically. Scholarships and grants are the
+    /// opportunities the feed surfaces most, and the application is the thing standing between
+    /// somebody and one.
+    /// </remarks>
+    GrantApplication,
+
+    /// <summary>Slides written to raise money or win a decision.</summary>
+    PitchDeck,
+
+    /// <summary>A README, an API reference, a runbook — writing that exists to be used.</summary>
+    TechnicalDocumentation,
+
+    /// <summary>A plan for teaching something to somebody.</summary>
+    LessonPlan,
 }
 
 /// <summary>
