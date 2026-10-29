@@ -51,11 +51,27 @@ public class LessonResourceJudge
     /// </remarks>
     public const int MaxCandidates = 16;
 
-    /// <summary>One thing being considered for a lesson.</summary>
+    /// <summary>
+    /// One thing being considered for a lesson, and everything known about it.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="Summary"/> is the publisher's own words for an article, and for a video it
+    /// is the description YouTube returned. That description was being fetched, cached, and then
+    /// not passed on, so the summariser was asked to describe a video from its title and channel
+    /// alone - which is why it produced a sentence restating the title, or nothing at all.
+    /// </remarks>
     public sealed record Candidate(string Id, string Title, string Source, string? Summary);
 
-    /// <summary>What the judge decided about it.</summary>
-    public sealed record Verdict(string Id, bool Keep, string Reason);
+    /// <summary>
+    /// What the judge decided, and what it has to say about what it kept.
+    /// </summary>
+    /// <remarks>
+    /// Covers and Why are two different questions and a learner needs both: what is in this
+    /// thing, and what it gives them for the lesson they are on. They were one 15-word field
+    /// written as an audit note for a filter, and that fragment ended up on the card as the whole
+    /// explanation.
+    /// </remarks>
+    public sealed record Verdict(string Id, bool Keep, string Covers, string Why);
 
     /// <summary>
     /// What came back. <see cref="Items"/> is null when the field was absent.
@@ -93,7 +109,11 @@ public class LessonResourceJudge
 
         public bool Keep { get; set; }
 
-        public string? Reason { get; set; }
+        /// <summary>What is in it. Two or three sentences.</summary>
+        public string? Covers { get; set; }
+
+        /// <summary>What it gives this learner for this lesson. One or two sentences.</summary>
+        public string? Why { get; set; }
     }
 
     /// <summary>
@@ -160,21 +180,28 @@ public class LessonResourceJudge
         {
             if (!byId.TryGetValue(candidate.Id, out var decision) || !decision.Keep) continue;
 
-            // Kept without a reason is still kept, but nothing is invented to fill the line. The
-            // card shows the summary alone rather than a sentence Radar made up about why.
-            verdicts.Add(new Verdict(candidate.Id, true, decision.Reason?.Trim() ?? string.Empty));
+            // Kept without one or the other is still kept, and nothing is invented to fill the
+            // gap. A card missing a line is honest; a line Radar wrote on a judgement's behalf is
+            // the small fabrication the rest of the product refuses to make.
+            verdicts.Add(new Verdict(
+                candidate.Id,
+                true,
+                decision.Covers?.Trim() ?? string.Empty,
+                decision.Why?.Trim() ?? string.Empty));
         }
 
         return verdicts;
     }
 
     private const string SystemPrompt =
-        "You decide whether a resource belongs in a specific lesson of someone's learning path. " +
-        "You are strict. The question is not whether the resource is interesting or whether it " +
-        "shares words with the lesson title, but whether working through it would teach the " +
-        "learner what this lesson is about. News about a company, a market or an event is almost " +
-        "never a lesson resource, even when it uses the subject's vocabulary. Return only valid " +
-        "JSON matching the requested schema.";
+        "You decide whether a resource belongs in a specific lesson of someone's learning path, " +
+        "and you explain the ones that do. You are strict about what belongs: the question is not " +
+        "whether the resource is interesting or whether it shares words with the lesson title, " +
+        "but whether working through it would teach the learner what this lesson is about. News " +
+        "about a company, a market or an event is almost never a lesson resource, even when it " +
+        "uses the subject's vocabulary. When you explain one, write for the learner rather than " +
+        "about the decision, and never state a detail the material in front of you does not " +
+        "support. Return only valid JSON matching the requested schema.";
 
     /// <summary>
     /// What the rest of the path is about, as evidence of which subject this is.
@@ -241,10 +268,27 @@ public class LessonResourceJudge
 
             It is correct to drop every candidate. Do not keep a weak one to avoid an empty list.
 
+            For each one you keep, write two things the learner reads before deciding to spend
+            time on it.
+
+            "covers": two or three sentences on what is actually in it. Work only from the title,
+            source and summary given above. Where that is thin, say what it indicates rather than
+            inventing specifics, and if it is too thin to describe at all, return an empty string
+            rather than a sentence that restates the title.
+
+            "why": one or two sentences on what it gives this learner for THIS lesson, on the way
+            to this goal. Name the part of the lesson it serves. Not a ranking, not a verdict on
+            quality, and never "this is a great resource".
+
             Respond ONLY with valid JSON:
             {
               "items": [
-                { "id": "the id exactly as given", "keep": true, "reason": "max 15 words, what the learner gets from it" }
+                {
+                  "id": "the id exactly as given",
+                  "keep": true,
+                  "covers": "What is in it, in two or three sentences.",
+                  "why": "What it gives this learner for this lesson."
+                }
               ]
             }
             """;

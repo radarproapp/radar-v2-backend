@@ -59,12 +59,15 @@ public class LessonJudgementFailureTests
     public async Task AKeptItemComesBack()
     {
         var verdicts = await JudgeReturning(
-            """{"items":[{"id":"item-1","keep":true,"reason":"teaches place value"}]}""")
+            """{"items":[{"id":"item-1","keep":true,"covers":"Walks through place value with worked examples.","why":"Gives you the notation this lesson assumes."}]}""")
             .JudgeAsync("Understanding Numbers", "Counting", "Learn mathematics", [], OneCandidate());
 
         Assert.NotNull(verdicts);
         Assert.Single(verdicts!);
-        Assert.Equal("teaches place value", verdicts![0].Reason);
+
+        // Two fields, because a learner needs both: what is in it, and what it gives them here.
+        Assert.Equal("Walks through place value with worked examples.", verdicts![0].Covers);
+        Assert.Equal("Gives you the notation this lesson assumes.", verdicts[0].Why);
     }
 
     /// <summary>A thrown engine is not an answer either.</summary>

@@ -55,28 +55,6 @@ public class LessonResourceService
     private const int ArticlesPerLesson = 2;
 
     /// <summary>
-    /// How many lessons get summaries in one pass.
-    /// </summary>
-    /// <remarks>
-    /// One model call per lesson, each summarising that lesson's five videos together rather than
-    /// one call per video. A twenty-lesson path would otherwise be a hundred calls on a single
-    /// page load.
-    /// </remarks>
-    private const int MaxLessonsSummarisedPerPass = 6;
-
-    private sealed class SummariesResponse
-    {
-        public List<VideoSummary> Summaries { get; set; } = [];
-    }
-
-    private sealed class VideoSummary
-    {
-        /// <summary>Echoed back so a summary cannot be attached to the wrong video.</summary>
-        public string? VideoId { get; set; }
-        public string? Summary { get; set; }
-    }
-
-    /// <summary>
     /// Attaches resources to every lesson that has none yet.
     /// </summary>
     /// <remarks>
@@ -92,21 +70,8 @@ public class LessonResourceService
 
         var lessons = all.Where(l => l.ResourcesJudgedAt is null).ToList();
 
-        // Lessons that were judged but never summarised.
-        //
-        // Only so many lessons get summaries in a pass, and which ones miss out is now whichever
-        // judgements return slowest — so a lesson could be settled with videos that have no
-        // summary and never be looked at again, because the settled-at stamp is what decides
-        // whether a lesson is revisited. They are collected here instead and summarised without
-        // being judged a second time, which is the half they already have.
-        var unsummarised = all
-            .Where(l => l.ResourcesJudgedAt is not null
-                        && l.ResourceAttempts < MaxVideoWaits
-                        && l.Resources.Any(r => r.Kind == LessonResourceKind.Video
-                                                && string.IsNullOrWhiteSpace(r.Summary)))
-            .ToList();
 
-        if (lessons.Count == 0 && unsummarised.Count == 0) return;
+        if (lessons.Count == 0) return;
 
         var subject = !string.IsNullOrWhiteSpace(roadmap.Interest) ? roadmap.Interest : roadmap.Goal;
         var goal = !string.IsNullOrWhiteSpace(roadmap.Goal) ? roadmap.Goal : roadmap.Interest;
@@ -150,7 +115,7 @@ public class LessonResourceService
             return new Pending(lesson, videos, articles, siblings);
         }))).ToList();
 
-        await AdmitAllAsync(gathered, unsummarised, goal, subject, ct);
+        await AdmitAllAsync(gathered, goal, ct);
     }
 
     /// <summary>What one lesson has to offer, before anything has been allowed through.</summary>
@@ -172,70 +137,29 @@ public class LessonResourceService
     /// Judged before being summarised, so nothing is paid for twice: a dropped video never has a
     /// summary written for it.
     /// </remarks>
-    private async Task AdmitAllAsync(
-        List<Pending> gathered,
-        List<RoadmapLesson> unsummarised,
-        string goal,
-        string subject,
-        CancellationToken ct)
+    private async Task AdmitAllAsync(List<Pending> gathered, string goal, CancellationToken ct)
     {
-        if (gathered.Count == 0 && unsummarised.Count == 0) return;
+        if (gathered.Count == 0) return;
 
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
         deadline.CancelAfter(TimeSpan.FromSeconds(JudgementSeconds));
 
-        // Summarise each lesson the moment it is admitted, rather than waiting for every lesson
-        // to be judged first.
+        // One call per lesson decides what belongs and writes what a learner reads about it.
         //
-        // These were two phases with a deadline each, so the worst case stacked one wait on the
-        // other, and the second could not start until the slowest lesson in the first had
-        // finished. A lesson's videos are ready to summarise as soon as that lesson is decided;
-        // nothing about it depends on the others.
-        //
-        // Still bounded: a fixed number of lessons get summaries per pass, claimed first come
-        // first served. A lesson that misses out keeps its videos and is picked up by the
-        // unsummarised pass below on a later visit — which is what makes that sentence true,
-        // rather than a claim about a revisit that the settled-at stamp prevented.
-        using var summaryBudget = new SemaphoreSlim(MaxLessonsSummarisedPerPass);
-
+        // Judging and summarising used to be separate work with a budget between them, so only
+        // the first few lessons on a path got summaries at all and the rest showed a title and a
+        // source. But the same call already has the lesson, the goal and every candidate in front
+        // of it - asking it to explain what it just chose costs one more field per kept item, not
+        // another pass. The cap is gone, and every admitted resource arrives explained.
         try
         {
-            // The ones already judged go first, so a lesson that has been waiting for a summary
-            // across visits is not beaten to the budget again by a lesson being judged for the
-            // first time.
-            await Task.WhenAll(unsummarised.Select(async lesson =>
-            {
-                var videos = lesson.Resources
-                    .Where(r => r.Kind == LessonResourceKind.Video)
-                    .ToList();
-
-                if (videos.Count == 0 || !summaryBudget.Wait(0)) return;
-
-                lesson.ResourceAttempts++;
-                await SummariseVideosAsync(lesson, videos, subject, deadline.Token);
-            }));
-
-            await Task.WhenAll(gathered.Select(async pending =>
-            {
-                await AdmitAsync(pending, goal, deadline.Token);
-
-                var videos = pending.Lesson.Resources
-                    .Where(r => r.Kind == LessonResourceKind.Video)
-                    .ToList();
-
-                // Wait(0) claims a slot or gives up at once, so no lesson ever waits on another
-                // lesson's summary.
-                if (videos.Count > 0 && summaryBudget.Wait(0))
-                {
-                    await SummariseVideosAsync(pending.Lesson, videos, subject, deadline.Token);
-                }
-            }));
+            await Task.WhenAll(gathered.Select(pending => AdmitAsync(pending, goal, deadline.Token)));
         }
         catch (Exception ex)
         {
-            // Every lesson keeps whatever it reached. A summary that did not arrive is a blank
-            // line, and the next visit fills it.
-            _log.LogWarning(ex, "Some lessons could not have their resources checked or summarised.");
+            // Every lesson keeps whatever it reached. A line that did not arrive is a blank line,
+            // and the next visit fills it.
+            _log.LogWarning(ex, "Some lessons could not have their resources checked.");
         }
 
         // Anything the deadline caught keeps no resources and says why. Shipping unjudged
@@ -342,10 +266,10 @@ public class LessonResourceService
             return;
         }
 
-        var reasons = verdicts.ToDictionary(v => v.Id, v => v.Reason, StringComparer.Ordinal);
+        var kept = verdicts.ToDictionary(v => v.Id, v => v, StringComparer.Ordinal);
 
-        var videos = Admitted(pending.Videos, reasons).Take(VideosPerLesson).ToList();
-        var articles = Admitted(pending.Articles, reasons).Take(ArticlesPerLesson).ToList();
+        var videos = Admitted(pending.Videos, kept).Take(VideosPerLesson).ToList();
+        var articles = Admitted(pending.Articles, kept).Take(ArticlesPerLesson).ToList();
 
         lesson.Resources = [.. videos, .. articles];
 
@@ -373,12 +297,30 @@ public class LessonResourceService
     /// happened to answer in.
     /// </summary>
     private static IEnumerable<LessonResource> Admitted(
-        List<LessonResource> candidates, Dictionary<string, string> reasons) =>
+        List<LessonResource> candidates,
+        Dictionary<string, LessonResourceJudge.Verdict> kept) =>
         candidates
-            .Where(r => reasons.ContainsKey(r.Id))
+            .Where(r => kept.ContainsKey(r.Id))
             .Select(r =>
             {
-                r.WhyRelevant = reasons[r.Id];
+                var verdict = kept[r.Id];
+
+                r.WhyRelevant = verdict.Why;
+
+                // An article already carries the publisher's own account of itself, written when
+                // it was ingested. Replacing that would be paying a model to paraphrase something
+                // better than its paraphrase.
+                //
+                // A video carries only the raw YouTube description, which is a blurb with links
+                // and timestamps in it rather than anything a learner wants to read. That is what
+                // the written version replaces. When there was too little to work from it comes
+                // back empty, and the card shows the title and channel alone rather than a
+                // sentence restating the title.
+                if (r.Kind == LessonResourceKind.Video)
+                {
+                    r.Summary = verdict.Covers;
+                }
+
                 return r;
             });
 
@@ -592,62 +534,6 @@ public class LessonResourceService
         _cache.Set("lesson-corpus-size", size, TimeSpan.FromDays(1));
 
         return size;
-    }
-
-    private async Task SummariseVideosAsync(
-        RoadmapLesson lesson, List<LessonResource> videos, string subject, CancellationToken ct)
-    {
-        var listed = string.Join("\n\n", videos.Select((v, i) =>
-            $"""
-            [{i + 1}] videoId: {VideoIdOf(v)}
-            title: {v.Title}
-            channel: {v.Source}
-            """));
-
-        var prompt = $$"""
-            A learner is working through the lesson "{{lesson.Title}}" as part of learning
-            {{subject}}. Below are videos found for it.
-
-            For each one, write two or three sentences on what it covers and what the learner
-            would get from it for this lesson specifically.
-
-            You are working from the title and channel only — you have not watched them. So:
-            - Say what the title indicates it covers. Do not assert details you cannot know.
-            - If a title is too vague to tell, return an empty summary for it rather than guessing.
-            - Do not rank them, do not say "this is the best one", and do not pad.
-
-            Videos:
-            {{listed}}
-
-            Return JSON, echoing each videoId so summaries cannot be mismatched:
-            {"summaries": [{"videoId": "abc123", "summary": "Covers ... Useful here because ..."}]}
-            """;
-
-        try
-        {
-            var response = await _ai.GenerateJsonAsync<SummariesResponse>(
-                "lesson-video-summaries",
-                "You summarise what a video covers from its title and channel. You never claim to have watched it.",
-                prompt,
-                ct);
-
-            if (response is null) return;
-
-            foreach (var video in videos)
-            {
-                var id = VideoIdOf(video);
-                var match = response.Summaries
-                    .FirstOrDefault(s => string.Equals(s.VideoId, id, StringComparison.OrdinalIgnoreCase));
-
-                if (!string.IsNullOrWhiteSpace(match?.Summary))
-                    video.Summary = match!.Summary!.Trim();
-            }
-        }
-        catch (Exception ex)
-        {
-            // The lesson keeps its videos. A failed summary is a blank line, not a missing list.
-            _log.LogWarning(ex, "Could not summarise videos for lesson {Lesson}", lesson.Title);
-        }
     }
 
     /// <summary>The YouTube id, taken off the embed url the ref built.</summary>

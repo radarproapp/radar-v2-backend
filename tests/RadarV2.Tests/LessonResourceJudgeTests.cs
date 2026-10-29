@@ -30,8 +30,8 @@ public class LessonResourceJudgeTests
         // Answered out of order, and about only two of the three.
         var judged = new List<LessonResourceJudge.JudgedItem>
         {
-            new() { Id = "c", Keep = true, Reason = "teaches the thing" },
-            new() { Id = "a", Keep = false, Reason = "off topic" },
+            new() { Id = "c", Keep = true, Why = "teaches the thing" },
+            new() { Id = "a", Keep = false, Why = "off topic" },
         };
 
         var kept = LessonResourceJudge.Reconcile(candidates, judged);
@@ -54,7 +54,7 @@ public class LessonResourceJudgeTests
 
         var judged = new List<LessonResourceJudge.JudgedItem>
         {
-            new() { Id = "a", Keep = true, Reason = "on topic" },
+            new() { Id = "a", Keep = true, Why = "on topic" },
         };
 
         var kept = LessonResourceJudge.Reconcile(candidates, judged);
@@ -71,7 +71,7 @@ public class LessonResourceJudgeTests
 
         var judged = new List<LessonResourceJudge.JudgedItem>
         {
-            new() { Id = "invented-by-the-model", Keep = true, Reason = "excellent" },
+            new() { Id = "invented-by-the-model", Keep = true, Why = "excellent" },
         };
 
         Assert.Empty(LessonResourceJudge.Reconcile(candidates, judged));
@@ -84,7 +84,7 @@ public class LessonResourceJudgeTests
 
         var judged = new List<LessonResourceJudge.JudgedItem>
         {
-            new() { Id = null, Keep = true, Reason = "on topic" },
+            new() { Id = null, Keep = true, Why = "on topic" },
         };
 
         Assert.Empty(LessonResourceJudge.Reconcile(candidates, judged));
@@ -105,13 +105,13 @@ public class LessonResourceJudgeTests
 
         var judged = new List<LessonResourceJudge.JudgedItem>
         {
-            new() { Id = "a", Keep = true, Reason = null },
+            new() { Id = "a", Keep = true, Why = null },
         };
 
         var kept = LessonResourceJudge.Reconcile(candidates, judged);
 
         Assert.Single(kept);
-        Assert.Equal(string.Empty, kept[0].Reason);
+        Assert.Equal(string.Empty, kept[0].Why);
     }
 
     /// <summary>
@@ -129,8 +129,8 @@ public class LessonResourceJudgeTests
 
         var judged = new List<LessonResourceJudge.JudgedItem>
         {
-            new() { Id = "a", Keep = false, Reason = "reports an event, teaches nothing" },
-            new() { Id = "b", Keep = false, Reason = "different field, same words" },
+            new() { Id = "a", Keep = false, Why = "reports an event, teaches nothing" },
+            new() { Id = "b", Keep = false, Why = "different field, same words" },
         };
 
         Assert.Empty(LessonResourceJudge.Reconcile(candidates, judged));
