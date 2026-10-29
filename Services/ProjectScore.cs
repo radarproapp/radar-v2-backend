@@ -30,6 +30,9 @@ public static class ProjectScore
     /// </remarks>
     public const int PassMark = 6;
 
+    /// <summary>What a fully met criterion is worth, in half-points.</summary>
+    private const int FullyMet = 2;
+
     /// <summary>
     /// What each verdict is worth.
     /// </summary>
@@ -37,12 +40,15 @@ public static class ProjectScore
     /// Partly is worth half rather than nothing. Work that does the thing but does not evidence
     /// it is not the same as work that does not do the thing, and a scale that treats them alike
     /// tells a learner nothing about which of the two they have.
+    ///
+    /// Counted in half-points as whole numbers, so the mark is integer arithmetic from end to end
+    /// and no part of it turns on how a fraction happened to land.
     /// </remarks>
-    private static double Weight(string verdict) => verdict switch
+    private static int HalfPoints(string verdict) => verdict switch
     {
-        "Met" => 1.0,
-        "Partly" => 0.5,
-        _ => 0.0,
+        "Met" => FullyMet,
+        "Partly" => 1,
+        _ => 0,
     };
 
     /// <summary>
@@ -61,8 +67,17 @@ public static class ProjectScore
         // Unjudged criteria are counted in the denominator but score nothing. A model that
         // skipped three of eight has not thereby made the work better, and dropping them from
         // the total would round the gaps away.
-        var earned = criteria.Sum(c => Weight(c.Verdict));
-        var mark = (int)Math.Round(1 + 9 * (earned / criteria.Count), MidpointRounding.AwayFromZero);
+        var earned = criteria.Sum(c => HalfPoints(c.Verdict));
+        var available = FullyMet * criteria.Count;
+
+        // Rounded down, never up. A mark is never nudged across the bar by arithmetic: eight
+        // criteria every one of which was only partly met earns half the points available, and
+        // half of the way up a scale from one to ten is five and a half. Rounding that to the
+        // nearest whole number made it six, so work where nothing was fully met was accepted.
+        //
+        // Integer division here truncates, which is the rule stated plainly: a learner gets the
+        // mark the criteria earned and no more.
+        var mark = 1 + 9 * earned / available;
 
         // A criterion that is not met at all keeps the work below the bar, whatever the rest
         // scored.

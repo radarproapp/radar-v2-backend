@@ -19,6 +19,9 @@ public class ProjectScoreTests
     private static List<AssessmentCriterion> All(string verdict, int count = 8) =>
         [.. Enumerable.Range(0, count).Select(_ => C(verdict))];
 
+    private static List<AssessmentCriterion> SomeOf(string first, int firstCount, string second, int secondCount) =>
+        [.. All(first, firstCount), .. All(second, secondCount)];
+
     [Fact]
     public void EverythingMetIsTenOutOfTen()
     {
@@ -42,9 +45,10 @@ public class ProjectScoreTests
     [Fact]
     public void PartlyCountsForHalf()
     {
-        var score = ProjectScore.Of(All("Partly"));
+        var partly = ProjectScore.Of(All("Partly"));
 
-        Assert.True(score is > 5 and < 7, $"Everything partly met scored {score}.");
+        Assert.True(partly > ProjectScore.Of(All("NotMet")), $"Everything partly met scored {partly}.");
+        Assert.True(partly < ProjectScore.Of(All("Met")), $"Everything partly met scored {partly}.");
     }
 
     /// <summary>
@@ -193,6 +197,37 @@ public class ProjectScoreTests
     public void NothingUnmetIsStillMarkedNormally()
     {
         Assert.Equal(10, ProjectScore.Of(All("Met")));
-        Assert.True(ProjectScore.IsAccepted(ProjectScore.Of(All("Partly"))));
+        Assert.Equal(ProjectScore.PassMark + 2, ProjectScore.Of(SomeOf("Met", 6, "Partly", 2)));
+    }
+
+    /// <summary>
+    /// Work where every criterion is only partly met does not clear the bar.
+    /// </summary>
+    /// <remarks>
+    /// Half the points available is five and a half on a scale from one to ten, and rounding to
+    /// the nearest whole number made that a six. So eight criteria of which not one was fully met
+    /// was accepted work, which is the opposite of what a bar is for. The mark is rounded down
+    /// now: never nudged across the bar by arithmetic.
+    ///
+    /// This is a different gap from the NotMet rule below it. There the model said outright that
+    /// something was missing; here it said every single thing was half done, and no cap would
+    /// have caught it.
+    /// </remarks>
+    [Fact]
+    public void EverythingOnlyPartlyMetDoesNotPass()
+    {
+        var score = ProjectScore.Of(All("Partly"));
+
+        Assert.False(ProjectScore.IsAccepted(score), $"Nothing was fully met and it scored {score}.");
+    }
+
+    /// <summary>
+    /// And a mark is never rounded up, at any point on the scale.
+    /// </summary>
+    [Fact]
+    public void AMarkIsNeverRoundedUp()
+    {
+        // Three of four met is three quarters of the way up, which is 7.75.
+        Assert.Equal(7, ProjectScore.Of(SomeOf("Met", 3, "Unjudged", 1)));
     }
 }
