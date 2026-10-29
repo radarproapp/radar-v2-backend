@@ -129,6 +129,21 @@ public class VersionController : ControllerBase
                 outcome = SendByteEmailSender.LastSendOutcome ?? "nothing sent since this instance started",
             },
 
+            // What happened the last time Radar asked YouTube for anything.
+            //
+            // Lesson videos come from a cache something fills in the background, and a failed
+            // search returns an empty list exactly like a search that found nothing. So a path
+            // whose lessons have no videos could mean an exhausted quota, a restricted key, or a
+            // warm that simply has not reached those lessons - and from outside the host there
+            // was no way to tell which. The count is here because the quota is daily and spent
+            // 100 units at a time, so it is the only local evidence of how close this process is.
+            lastYouTubeSearch = new
+            {
+                at = YouTubeSearchService.LastSearchAt,
+                outcome = YouTubeSearchService.LastSearchOutcome ?? "nothing searched since this instance started",
+                searchesThisProcess = YouTubeSearchService.SearchesThisProcess,
+            },
+
             // Whether the one-off data repairs ran, and what they removed.
             //
             // Added because "did the cleanup run?" had no answer from outside the box: the
