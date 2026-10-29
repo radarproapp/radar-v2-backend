@@ -227,13 +227,22 @@ public class MongoResearchService : IResearchService
                 How to write it:
                 - Very simple English. Short sentences. The words somebody would use out loud.
                 - No jargon unless you explain it in the same sentence, in brackets.
-                - About 500 words across all sections together, so roughly 60 to 70 each.
                 - Say what the paper says, not what you think of it.
+
+                How long:
+                - About 500 words across all sections together. Aim for 60 words in each section
+                  you can write, and no fewer than 40.
+                - Reach that by explaining, not by padding. Say what the technical words mean,
+                  what the field is, and why the problem is hard for somebody meeting it for the
+                  first time. A reader who does not know the field needs those sentences, and
+                  they are the whole reason this exists instead of the abstract.
+                - Where a section has no source, say so in one line and put the words into the
+                  sections that do. Do not spread a thin abstract across nine headings.
 
                 What you must not do:
                 - Do not add anything that is not in the title or abstract above. No sample sizes,
                   statistics, methods, places or dates that are not stated there.
-                - Where the abstract does not say, write exactly: Not stated in the abstract.
+                - Where the abstract does not say, write exactly: {{AcademicPaperSynthesizer.NotStated}}
                   That is a useful answer. An invented one is not.
 
                 Respond ONLY with valid JSON:

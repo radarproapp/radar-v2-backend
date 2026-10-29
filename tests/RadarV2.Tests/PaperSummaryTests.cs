@@ -55,6 +55,12 @@ public class PaperSummaryTests
         Assert.Contains("Very simple English", prompt);
         Assert.Contains("500 words", prompt);
         Assert.Contains("not in its field", prompt);
+
+        // Measured on production: the first summary came back at 185 words against a 500-word
+        // target, about 20 a section. A target with no floor and no account of how to reach it
+        // honestly is a target the model rounds down to whatever the abstract already said.
+        Assert.Contains("no fewer than 40", prompt);
+        Assert.Contains("by explaining, not by padding", prompt);
     }
 
     /// <summary>
@@ -70,8 +76,15 @@ public class PaperSummaryTests
     {
         var prompt = PromptSource();
 
-        Assert.Contains("Not stated in the abstract", prompt);
         Assert.Contains("Do not add anything that is not in the title or abstract", prompt);
+
+        // One wording for "the paper does not say", shared with the template fallback by
+        // referencing its constant. Two phrasings reached the same reader on one screen: the
+        // model wrote "Not stated in the abstract" and the backfilled sections said "Not clearly
+        // stated in the available source", which reads as two different findings.
+        // Asserted as the interpolation rather than the phrase: the point is that the prompt
+        // references the one constant, so the two can never drift apart again.
+        Assert.Contains("{{AcademicPaperSynthesizer.NotStated}}", prompt);
     }
 
     /// <summary>
