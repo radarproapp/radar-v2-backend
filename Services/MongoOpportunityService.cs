@@ -201,8 +201,15 @@ public class MongoOpportunityService : IOpportunityService
         // Re-checked rather than taken on trust. A batch stored this morning was matched against
         // what the learner had stated then, and somebody who answers the personalise questions at
         // lunchtime should not spend the afternoon with the feed they would have had anyway.
+        //
+        // And anything they dismissed is gone. This was the one read of the four with no
+        // NotRelevant filter: the other three have it, so marking an item not relevant removed it
+        // from the All view and it came back on the daily feed at the next refetch, scoring 38 per
+        // cent. The two views disagreed about the same dismissal.
         var stillRelevant = items
-            .Where(opp => EnrichOpportunityWithPersonalization(opp, profile, activeRoadmap, trackingMap, learningRecord))
+            .Where(opp =>
+                EnrichOpportunityWithPersonalization(opp, profile, activeRoadmap, trackingMap, learningRecord)
+                && opp.UserTrackingStatus != OpportunityTrackingStatus.NotRelevant)
             .ToList();
 
         var ordered = stored.OpportunityIds
@@ -211,10 +218,14 @@ public class MongoOpportunityService : IOpportunityService
             .Select(i => i!)
             .ToList();
 
-        // Nothing left of it means a fresh build, not an empty day. The caller falls back when
-        // this is null, which is what "stale batch" has always meant here - a batch whose items
-        // no longer match the learner is stale in exactly the same way as one whose items expired.
-        if (ordered.Count == 0) return null;
+        // A batch most of which no longer applies is rebuilt, not served short.
+        //
+        // The fallback used to need the batch to be entirely gone, while the comment above it
+        // promised no "short or empty day". Twelve stored in the morning, nine of them stopped
+        // matching at lunchtime, and the afternoon was three items with no top-up. Rebuilding
+        // costs one scan and gives the learner the day they would have had if they had asked an
+        // hour later.
+        if (ordered.Count < MinimumHydratedBatch) return null;
 
         return new DailyOpportunityFeed
         {
@@ -222,7 +233,9 @@ public class MongoOpportunityService : IOpportunityService
             Message = $"{ordered.Count} opportunities for you today",
             PrimaryFocus = activeRoadmap?.Interest ?? profile.PrimaryGoal,
             Items = ordered,
-            NewToYouCount = stored.NewToYouCount,
+            // Counted from what is actually being shown. Copied from the morning's stored value,
+            // this could claim more new items than the batch now has in it.
+            NewToYouCount = ordered.Count(o => o.IsNewToYou),
             SeenEarlier = await GetSeenEarlierAsync(profile, stored.OpportunityIds),
             TierCounts = new Dictionary<string, int>
             {
@@ -262,9 +275,13 @@ public class MongoOpportunityService : IOpportunityService
         var activeRoadmap = await _db.Roadmaps.Find(r => r.UserId == profile.Id && r.IsActive).FirstOrDefaultAsync();
         var learningRecord = await RecordForAsync(profile);
 
+        // Scored and filtered on the same terms as the rest. Shown on an earlier day is not a
+        // reason to keep showing something the learner no longer matches: somebody whose
+        // interests moved from cybersecurity to nursing was carrying last week's security rows
+        // under a nursing feed.
         return items
             .Where(o => !o.Deadline.HasValue || o.Deadline.Value >= now)
-            .Select(o => { EnrichOpportunityWithPersonalization(o, profile, activeRoadmap, trackingMap, learningRecord); return o; })
+            .Where(o => EnrichOpportunityWithPersonalization(o, profile, activeRoadmap, trackingMap, learningRecord))
             .Where(o => o.UserTrackingStatus != OpportunityTrackingStatus.NotRelevant)
             .OrderBy(o => o.DaysUntilDeadline)
             .Take(20)
@@ -388,6 +405,14 @@ public class MongoOpportunityService : IOpportunityService
             ? $"{feed.NewToYouCount} new opportunities for you today"
             : $"{curated.Count} opportunities for you today";
         feed.SeenEarlier = await GetSeenEarlierAsync(profile, curated.Select(c => c.Id).ToList());
+
+        // An empty day is not stored.
+        //
+        // GetDailyFeedAsync hydrates only a batch with ids in it, so storing an empty one meant
+        // every request from a learner with nothing matchable skipped hydration and rebuilt in
+        // full - a 500-document scan, four more round trips and an upsert, to return nothing. The
+        // write was pure cost for exactly the people getting the least.
+        if (curated.Count == 0) return feed;
 
         await _db.DailyOpportunityBatches.ReplaceOneAsync(
             d => d.Id == $"{profile.Id}:{todayKey}",
@@ -814,6 +839,15 @@ public class MongoOpportunityService : IOpportunityService
 
     /// <summary>Where everyone starts, before anything is known about the fit.</summary>
     private const int BaseScore = 48;
+
+    /// <summary>
+    /// How much of a stored batch has to survive re-checking before it is served as today's.
+    /// </summary>
+    /// <remarks>
+    /// Below this it is rebuilt. A third of a day is closer to a bug than to a short day, and the
+    /// rebuild is one scan.
+    /// </remarks>
+    private const int MinimumHydratedBatch = 6;
 
     /// <summary>
     /// How sure the record has to be before it is allowed to move a match. The same threshold the
