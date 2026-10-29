@@ -245,31 +245,64 @@ public class FeedStrandTests
     }
 
     /// <summary>
-    /// A subject is searched for in the forms a headline uses, not only as typed.
+    /// The production path searches for a short subject, not only the term extractor does.
     /// </summary>
     /// <remarks>
-    /// "Nursing" does not match "Nurse" as a prefix, and "Marketing" does not match "Market".
-    /// Searching the reader's word unaltered reached four of the corpus's 337 topic strings for a
-    /// typical profile, so titles were carrying the filter alone.
+    /// This is the test that was missing, and the gap is worth recording. There was already a
+    /// test asserting AI, ML and UX survive - but it called TermsFor, and the feed calls
+    /// AboutSubjects. When AboutSubjects was changed to use a word list with a four-character
+    /// floor, "Law" began contributing no clauses at all and "AI" stopped searching for itself,
+    /// while that test went on passing. A test that does not run the path the product runs is
+    /// evidence about nothing.
     /// </remarks>
     [Theory]
-    [InlineData("Nursing", "Nurs")]
-    [InlineData("Marketing", "Market")]
-    [InlineData("Economics", "Economic")]
-    public void ASubjectIsSearchedForByItsStem(string interest, string stem)
+    [InlineData("AI")]
+    [InlineData("Law")]
+    [InlineData("UX")]
+    [InlineData("HR")]
+    public void AShortSubjectIsSearchedForOnThePathTheFeedUses(string interest)
     {
-        Assert.Contains(stem, Render(FeedStrands.AboutSubjects([interest])));
+        var rendered = Render(FeedStrands.AboutSubjects([interest]));
+
+        Assert.Contains(interest, rendered, StringComparison.Ordinal);
+        Assert.Contains("regularExpression", rendered, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
-    /// And in the field's own vocabulary, which shares no letters with what was typed.
+    /// A subject is searched for as the reader wrote it, not reduced to a fragment.
     /// </summary>
+    /// <remarks>
+    /// Stemming was tried and reverted. As word-start prefixes the stems were far too broad:
+    /// "Cultural Studies" became "Stud" and matched student, students, study and studio;
+    /// "Banking" became "Bank" and matched bankruptcy; "Nursing" became "Nurs" and matched
+    /// nursery. Selection is the only control - the page is chosen by recency and then ranked, so
+    /// ranking cannot demote a loose match off a page it has already been admitted to.
+    /// </remarks>
     [Fact]
-    public void AFieldBringsItsOwnWords()
+    public void ASubjectIsNotReducedToAFragment()
     {
-        var rendered = Render(FeedStrands.AboutSubjects(["Cybersecurity"]));
+        var rendered = Render(FeedStrands.AboutSubjects(["Cultural Studies"]));
 
-        Assert.Contains("malware", rendered, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Studies", rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain(@"\bStud""", rendered, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A field's synonyms are not pulled in either, for a quieter reason.
+    /// </summary>
+    /// <remarks>
+    /// The field is chosen by first keyword match and "engineer" belongs to the software field,
+    /// so civil, mechanical, electrical, chemical, aerospace and biomedical engineering all
+    /// acquired "software", "developer" and "backend". Widening this needs whole-word matching
+    /// and a field lookup that does not resolve nine disciplines to one.
+    /// </remarks>
+    [Fact]
+    public void ADisciplineDoesNotAcquireAnotherFieldsVocabulary()
+    {
+        var rendered = Render(FeedStrands.AboutSubjects(["Civil Engineering"]));
+
+        Assert.DoesNotContain("software", rendered, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("backend", rendered, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -297,7 +330,7 @@ public class FeedStrandTests
     [Fact]
     public void AnUnlistedSubjectStillSearches()
     {
-        Assert.Contains("Ethnomusicolog", Render(FeedStrands.AboutSubjects(["Ethnomusicology"])));
+        Assert.Contains("Ethnomusicology", Render(FeedStrands.AboutSubjects(["Ethnomusicology"])));
     }
 
     /// <summary>A subject that reduces to nothing matches nothing, not everything.</summary>

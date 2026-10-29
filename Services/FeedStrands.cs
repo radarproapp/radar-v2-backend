@@ -152,43 +152,59 @@ public static class FeedStrands
     /// Everything that counts as this subject being mentioned, including in the body.
     /// </summary>
     /// <remarks>
-    /// Two things the plain term match cannot do.
+    /// The words are the reader's own, split and matched the same way the goal strand's are. An
+    /// earlier version of this ran them through DomainVocabulary first, to search for stems and
+    /// for each field's synonyms, and that went badly enough to be worth recording here.
     ///
-    /// It searches for the words the corpus uses rather than only the ones the reader typed —
-    /// stems, so "Nursing" finds "Nurse", and the field's other vocabulary, so somebody following
-    /// cybersecurity finds an item about malware. Without that, a typical profile reached four of
-    /// the corpus's 337 topic strings and titles carried the filter alone.
+    /// Stems are too blunt as word-start prefixes. "Cultural Studies" reduced to "Stud", which
+    /// matches student, students, study and studio - near-universal in a corpus about education.
+    /// "Banking" reduced to "Bank" and matched bankruptcy; "Nursing" to "Nurs" and matched
+    /// nursery; "No-code / Low-code" to "code" and matched dress code, tax code and code of
+    /// conduct, and that was the only term it had.
     ///
-    /// And it looks in the written summary, but only for the whole subject as a phrase. A single
-    /// word loose in a body is how a feed fills with near-misses — "product" appears in half the
-    /// business coverage ever written — whereas "product management" appearing in a summary is
-    /// the item being about it. The narrow fields take words; the wide field takes phrases.
+    /// The synonyms were worse in a quieter way. The field is chosen by first keyword match, and
+    /// "engineer" belongs to the software field - so civil, mechanical, electrical, chemical,
+    /// aerospace and biomedical engineering all acquired "software", "developer" and "backend".
+    ///
+    /// Neither could be caught downstream: the page is selected by recency and then ranked, so
+    /// ranking reorders what selection already admitted and can never demote a loose match off
+    /// it. Selection precision is the only control there is.
+    ///
+    /// What survives from that attempt is the body clause below, which is precise, and the
+    /// knowledge that widening this needs whole-word matching rather than prefixes.
     /// </remarks>
     public static FilterDefinition<ContentItem> AboutSubjects(IReadOnlyCollection<string> subjects)
     {
         if (subjects.Count == 0) return Builders<ContentItem>.Filter.Where(_ => false);
 
+        var terms = subjects
+            .SelectMany(Phrase.MeaningfulWords)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(MaxTerms)
+            .ToList();
+
         var clauses = new List<FilterDefinition<ContentItem>>();
 
+        foreach (var term in terms)
+        {
+            var pattern = new BsonRegularExpression(LessonRelevance.WordStartPattern(term), "i");
+
+            clauses.Add(Builders<ContentItem>.Filter.Regex(i => i.Topic, pattern));
+            clauses.Add(Builders<ContentItem>.Filter.Regex(i => i.Title, pattern));
+            clauses.Add(Builders<ContentItem>.Filter.Regex("Tags", pattern));
+        }
+
+        // The whole subject, in the written body, for subjects that are more than one word.
+        //
+        // "product management" appearing in a summary is the item being about it; "product" alone
+        // appears in half the business coverage ever written, which is why a single word is not
+        // asked for here and is already covered against topic, title and tags above.
         foreach (var subject in subjects.Take(MaxTerms))
         {
-            foreach (var term in DomainVocabulary.SearchTerms(subject))
-            {
-                var pattern = new BsonRegularExpression(LessonRelevance.WordStartPattern(term), "i");
-
-                clauses.Add(Builders<ContentItem>.Filter.Regex(i => i.Topic, pattern));
-                clauses.Add(Builders<ContentItem>.Filter.Regex(i => i.Title, pattern));
-                clauses.Add(Builders<ContentItem>.Filter.Regex("Tags", pattern));
-            }
-
-            // The whole subject, in the body. Only worth asking when it is more than one word —
-            // a single word here is the loose match this is trying to avoid, and it is already
-            // covered against topic, title and tags above.
             var phrase = subject.Trim();
             if (!phrase.Contains(' ')) continue;
 
-            var asPhrase = new BsonRegularExpression(
-                LessonRelevance.WordStartPattern(phrase), "i");
+            var asPhrase = new BsonRegularExpression(LessonRelevance.WordStartPattern(phrase), "i");
 
             clauses.Add(Builders<ContentItem>.Filter.Regex(i => i.WhatHappened, asPhrase));
             clauses.Add(Builders<ContentItem>.Filter.Regex(i => i.AiSummary, asPhrase));

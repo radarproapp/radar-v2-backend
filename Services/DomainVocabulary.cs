@@ -121,60 +121,6 @@ public static class DomainVocabulary
     /// </summary>
     private static readonly string[] Endings = ["ing", "ery", "ies", "es", "ed", "s"];
 
-    /// <summary>
-    /// Everything worth searching a corpus for when somebody says they follow this subject.
-    /// </summary>
-    /// <remarks>
-    /// The feed matched a reader's interests against item topics, titles and tags using the words
-    /// they typed, unaltered. For a typical profile that reached four of the corpus's 337 topic
-    /// strings — "Product" matched no topic at all — so titles were carrying the whole filter
-    /// alone. The reader was not wrong and the corpus was not missing the subject; the two were
-    /// using different words for it.
-    ///
-    /// Which is the problem this class already existed to solve, for six other services. Two
-    /// things it knows that a raw term does not:
-    ///
-    /// <list type="bullet">
-    /// <item><b>Stems.</b> "Nursing" does not match "Nurse" as a prefix, and "Marketing" does not
-    /// match "Market". Trimming the ending catches the forms a headline actually uses.</item>
-    /// <item><b>The field's other words.</b> Somebody following cybersecurity means items about
-    /// malware and penetration testing, which share no letters with what they typed.</item>
-    /// </list>
-    ///
-    /// Bounded, because each of these becomes a regex alternation against unindexed fields, and a
-    /// reader who lists many interests should not pay for it twice over.
-    /// </remarks>
-    public static IEnumerable<string> SearchTerms(string? subject, int max = 6)
-    {
-        if (string.IsNullOrWhiteSpace(subject)) yield break;
-
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var given = 0;
-
-        foreach (var word in OwnWords(subject))
-        {
-            var stem = Stem(word);
-            if (!seen.Add(stem)) continue;
-
-            yield return stem;
-            if (++given == max) yield break;
-        }
-
-        var field = FieldOf(subject);
-        if (field is null || !Fields.TryGetValue(field, out var keywords)) yield break;
-
-        foreach (var keyword in keywords)
-        {
-            // Whole-word keywords are the ones that are dangerous as prefixes — "soc" matching
-            // "soccer" and "sociology" is why they are marked. A query cannot carry that
-            // distinction, so they are left out rather than let in as prefixes.
-            if (keyword.WholeWord || !seen.Add(keyword.Text)) continue;
-
-            yield return keyword.Text;
-            if (++given == max) yield break;
-        }
-    }
-
     /// <summary>The subject's own words, long enough to be worth matching on.</summary>
     public static string[] OwnWords(string? subject) =>
         (subject ?? string.Empty)
