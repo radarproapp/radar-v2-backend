@@ -103,6 +103,22 @@ public static class ProjectScore
     public static bool IsAccepted(int? score) => score is >= PassMark;
 
     /// <summary>
+    /// Whether a project that was accepted is still accepted, now that a new attempt has been
+    /// handed in.
+    /// </summary>
+    /// <remarks>
+    /// Acceptance describes the work as it stands, not a thing that happened once. A project
+    /// accepted on one submission and then revised into something that no longer clears the bar
+    /// is not an accepted project: the flag was true of a version that no longer exists, and
+    /// leaving it set means a portfolio can be assembled by passing once and then editing freely.
+    ///
+    /// This only ever withdraws acceptance. Clearing the bar makes a project eligible to be
+    /// accepted; the learner still says when it is finished.
+    /// </remarks>
+    public static bool SurvivesRevision(bool wasAccepted, ProjectAssessment? latest) =>
+        wasAccepted && latest?.IsAccepted == true;
+
+    /// <summary>
     /// What to say about a mark, in the words a learner reads.
     /// </summary>
     /// <remarks>

@@ -119,9 +119,21 @@ public class MongoProjectStudioService : IProjectStudioService
 
         project.Submissions.Add(submission);
 
+        // Acceptance follows the latest attempt, so it is withdrawn here when a revision no
+        // longer clears the bar. Without this the flag was permanent: pass once, then replace the
+        // work with anything at all and the project stayed accepted - including on the public
+        // showcase page, which reads this flag and nothing else.
+        var stillAccepted = ProjectScore.SurvivesRevision(project.IsCompleted, submission.Assessment);
+
+        project.IsCompleted = stillAccepted;
+        if (!stillAccepted) project.CompletedAt = null;
+
         await _db.UserProjects.UpdateOneAsync(
             p => p.Id == project.Id,
-            Builders<StudioProject>.Update.Set(p => p.Submissions, project.Submissions));
+            Builders<StudioProject>.Update
+                .Set(p => p.Submissions, project.Submissions)
+                .Set(p => p.IsCompleted, project.IsCompleted)
+                .Set(p => p.CompletedAt, project.CompletedAt));
 
         return project;
     }

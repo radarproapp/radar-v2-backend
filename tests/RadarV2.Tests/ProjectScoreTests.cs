@@ -230,4 +230,64 @@ public class ProjectScoreTests
         // Three of four met is three quarters of the way up, which is 7.75.
         Assert.Equal(7, ProjectScore.Of(SomeOf("Met", 3, "Unjudged", 1)));
     }
+
+    // ── Acceptance after a revision ─────────────────────────────────────────
+
+    private static ProjectAssessment Scored(int score) => new()
+    {
+        Score = score,
+        IsAccepted = ProjectScore.IsAccepted(score),
+    };
+
+    /// <summary>
+    /// A project revised into something worse is not an accepted project any more.
+    /// </summary>
+    /// <remarks>
+    /// The flag was permanent once set. Pass once, then replace the work with anything at all,
+    /// and the project stayed accepted - on the learner's own list and on the public showcase
+    /// page, which reads that flag and nothing else. So the bar could be cleared once and then
+    /// edited around.
+    /// </remarks>
+    [Fact]
+    public void AcceptanceIsWithdrawnWhenARevisionFallsBelowTheBar()
+    {
+        Assert.False(ProjectScore.SurvivesRevision(wasAccepted: true, Scored(4)));
+    }
+
+    /// <summary>A revision that still clears the bar keeps it.</summary>
+    [Fact]
+    public void AcceptanceSurvivesARevisionThatStillClearsTheBar()
+    {
+        Assert.True(ProjectScore.SurvivesRevision(wasAccepted: true, Scored(ProjectScore.PassMark)));
+        Assert.True(ProjectScore.SurvivesRevision(wasAccepted: true, Scored(10)));
+    }
+
+    /// <summary>
+    /// And handing in work that clears the bar does not accept the project by itself.
+    /// </summary>
+    /// <remarks>
+    /// Clearing the bar makes a project eligible. Marking it finished is still the learner's
+    /// call, which is the whole difference between "this is good enough" and "I am done with it".
+    /// </remarks>
+    [Fact]
+    public void ClearingTheBarDoesNotAcceptAProjectOnItsOwn()
+    {
+        Assert.False(ProjectScore.SurvivesRevision(wasAccepted: false, Scored(10)));
+    }
+
+    /// <summary>
+    /// An attempt that could not be assessed does not hold acceptance open either.
+    /// </summary>
+    /// <remarks>
+    /// A model timing out is not evidence that the new work meets the standard. Withdrawing is
+    /// recoverable - submit again and it is re-judged - where leaving it set is not.
+    /// </remarks>
+    [Fact]
+    public void AnUnassessedRevisionDoesNotKeepAcceptance()
+    {
+        Assert.False(ProjectScore.SurvivesRevision(wasAccepted: true, null));
+        Assert.False(ProjectScore.SurvivesRevision(
+            wasAccepted: true,
+            new ProjectAssessment { Score = null, IsAccepted = false }));
+    }
 }
