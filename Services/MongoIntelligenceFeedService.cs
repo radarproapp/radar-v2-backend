@@ -189,9 +189,16 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
         ContentType? filterType,
         IReadOnlyCollection<string> dismissedIds)
     {
-        var filter = filterType.HasValue
-            ? Builders<ContentItem>.Filter.Eq(i => i.Type, filterType.Value)
-            : Builders<ContentItem>.Filter.Empty;
+        // The feed carries news, podcasts and posts. Papers, policy documents and essays go to
+        // Research Discovery, which is the product built to read them - see ContentSurface.
+        //
+        // Applied whether or not a type was asked for, so the chips narrow within the feed rather
+        // than reaching past its edge: /feed?type=ResearchPaper used to return papers under a
+        // heading that says Intelligence.
+        var filter = ContentSurface.IntelligenceFilter();
+
+        if (filterType.HasValue)
+            filter &= Builders<ContentItem>.Filter.Eq(i => i.Type, filterType.Value);
 
         if (dismissedIds.Count > 0)
             filter &= Builders<ContentItem>.Filter.Nin(i => i.Id, dismissedIds);
