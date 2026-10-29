@@ -88,8 +88,78 @@ public static class DomainVocabulary
         var field = FieldOf(subject);
         if (field is not null && Matches(haystack, field)) return true;
 
-        return OwnWords(subject).Any(w => Mentions(haystack, new Keyword(Stem(w))));
+        return WorthMatching(subject).Any(w => Mentions(haystack, new Keyword(Stem(w))));
     }
+
+    /// <summary>
+    /// Words that describe the level of a course rather than its subject.
+    /// </summary>
+    /// <remarks>
+    /// Measured on production. A learner whose path was "foundations of Mathematics" was shown
+    /// twelve opportunities at 84 per cent, every one of them from a Foundation - the Heinrich
+    /// Böll Foundation, the Jack Kent Cooke Foundation - because "foundations" stems to
+    /// "foundation" and the funder's name contains it. Each one carried the sentence "It is
+    /// foundations of Mathematics work, which is what you are learning", which is a false
+    /// explanation of a false match, stated with a percentage beside it.
+    ///
+    /// None of these words is the thing being studied. "Foundations of Mathematics" is
+    /// mathematics; "Introduction to Law" is law.
+    /// </remarks>
+    private static readonly HashSet<string> CourseScaffolding = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "foundation", "foundations", "introduction", "introductory", "principle", "principles",
+        "fundamental", "fundamentals", "basic", "basics", "essential", "essentials",
+        "advanced", "intermediate", "beginner", "beginners", "overview", "general",
+        "concept", "concepts", "topic", "topics", "studies", "modern", "contemporary", "applied",
+    };
+
+    /// <summary>
+    /// The words of a subject that actually identify it.
+    /// </summary>
+    /// <remarks>
+    /// Scaffolding is dropped only while something else survives. A subject that is nothing but
+    /// these words has to match on them or match on nothing, and matching on nothing would hide
+    /// content from somebody whose stated interest Radar had decided was too vague - a judgement
+    /// it is not entitled to make silently.
+    /// </remarks>
+    public static string[] WorthMatching(string? subject)
+    {
+        var words = OwnWords(subject);
+
+        var distinctive = words
+            .Where(w => !CourseScaffolding.Contains(w) && !CourseScaffolding.Contains(Stem(w)))
+            .ToArray();
+
+        if (distinctive.Length > 0) return distinctive;
+
+        // Nothing of four letters or more survived, which is what happens when the subject of a
+        // course is a short word: "Introduction to Law" is introduction, to, law. Falling back to
+        // the framing word would match that path against any advert mentioning an introduction -
+        // the same failure as a Foundation, one word along.
+        //
+        // Three letters is enough here and two is not. Mentions requires whole words, so "law"
+        // matches law and not lawn; "AI" and "IT" are the pair that genuinely cannot be told from
+        // ordinary text, and OwnWords still drops them.
+        var shortSubject = ShortWords(subject);
+        if (shortSubject.Length > 0) return shortSubject;
+
+        return words;
+    }
+
+    /// <summary>
+    /// Three-letter words in a subject that are the subject rather than grammar.
+    /// </summary>
+    private static readonly HashSet<string> Grammar = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "the", "and", "for", "its", "our", "your", "with", "into", "from",
+    };
+
+    private static string[] ShortWords(string? subject) =>
+        (subject ?? string.Empty)
+            .Split([' ', ',', '/', '-', '&', '(', ')'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(w => w.Length == 3 && !Grammar.Contains(w))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
 
     /// <summary>
     /// The stem of a word, so a subject matches the forms an advert actually uses.

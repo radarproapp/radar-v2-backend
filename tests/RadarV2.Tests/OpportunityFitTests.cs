@@ -216,4 +216,85 @@ public class OpportunityFitTests
     {
         Assert.Single(OpportunityFit.Matching(NursingPost, ["Nursing", "nursing"]));
     }
+
+    // ── Measured on production ──────────────────────────────────────────────
+
+    /// <summary>
+    /// A course-level word does not match a funder with the same word in its name.
+    /// </summary>
+    /// <remarks>
+    /// The exact shape that reached production. A learner whose path was "foundations of
+    /// Mathematics" was shown twelve opportunities at 84 per cent, every one of them from a
+    /// Foundation - the Heinrich Böll Foundation, the Jack Kent Cooke Foundation, the ACMER
+    /// Foundation - because "foundations" stems to "foundation" and that is in the funder's name.
+    ///
+    /// Each one carried the sentence "It is foundations of Mathematics work, which is what you
+    /// are learning." A false match is bad; a false match that explains itself confidently is
+    /// what the reader actually loses trust over.
+    /// </remarks>
+    [Fact]
+    public void AFoundationIsNotTheFoundationsOfAnything()
+    {
+        var fellowship =
+            "Heinrich Böll Foundation Feminist Futures Fellowship. The Foundation invites "
+            + "applications from activists working on gender justice.";
+
+        Assert.Empty(OpportunityFit.Matching(fellowship, ["foundations of Mathematics"]));
+    }
+
+    /// <summary>And the subject itself still matches.</summary>
+    [Fact]
+    public void TheSubjectUnderTheScaffoldingStillMatches()
+    {
+        var post = "Teaching assistant in mathematics, supporting undergraduate tutorials.";
+
+        Assert.Contains(
+            "foundations of Mathematics",
+            OpportunityFit.Matching(post, ["foundations of Mathematics"]));
+    }
+
+    /// <summary>
+    /// The same rule across the words that frame a course rather than name it.
+    /// </summary>
+    [Theory]
+    [InlineData("Introduction to Law", "An introduction to our graduate scheme.")]
+    [InlineData("Principles of Accounting", "We work on first principles here.")]
+    [InlineData("Advanced Nursing Practice", "Advanced applications are open until Friday.")]
+    public void FramingWordsDoNotCarryAMatch(string path, string advert)
+    {
+        Assert.Empty(OpportunityFit.Matching(advert, [path]));
+    }
+
+    /// <summary>
+    /// And a short subject is matched on itself rather than on its framing.
+    /// </summary>
+    /// <remarks>
+    /// "Introduction to Law" has nothing in it of four letters or more except the framing word,
+    /// because the matcher drops short words - so the fallback matched this path against any
+    /// advert mentioning an introduction. Three letters is enough for a whole-word match: "law"
+    /// matches law and not lawn.
+    /// </remarks>
+    [Fact]
+    public void AShortSubjectIsMatchedOnItself()
+    {
+        var post = "Legal intern, commercial law team, Lagos.";
+
+        Assert.Contains("Introduction to Law", OpportunityFit.Matching(post, ["Introduction to Law"]));
+    }
+
+    /// <summary>
+    /// A subject that is nothing but framing words still matches on them.
+    /// </summary>
+    /// <remarks>
+    /// Dropping every word would leave nothing to match, which would hide content from somebody
+    /// whose stated interest Radar had privately decided was too vague. That is not a judgement
+    /// it is entitled to make without saying so.
+    /// </remarks>
+    [Fact]
+    public void ASubjectMadeOnlyOfFramingWordsStillMatches()
+    {
+        Assert.Contains(
+            "Foundations",
+            OpportunityFit.Matching("The Foundations programme opens in March.", ["Foundations"]));
+    }
 }
