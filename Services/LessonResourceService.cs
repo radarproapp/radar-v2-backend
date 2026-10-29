@@ -68,6 +68,26 @@ public class LessonResourceService
             .Where(l => !string.IsNullOrWhiteSpace(l.Title))
             .ToList();
 
+        // Lessons that settled with no videos, before anything had looked for any.
+        //
+        // The wait count used to advance whether or not a lesson's own query had been searched,
+        // and the warm reaches a few lessons per read - so one near the end of a long path could
+        // spend all its waits queueing and then settle as "nothing found". Seven lessons on
+        // production did. A settled lesson is never refilled and the warm skips it, so they would
+        // have stayed empty for the life of the roadmap.
+        //
+        // Fixing the rule does not reach the rows the old rule already wrote, which has been the
+        // shape of most of this week. They are picked back up here, and only them: a lesson that
+        // was genuinely searched for and found nothing stays settled.
+        foreach (var lesson in all.Where(l => l.ResourcesJudgedAt is not null
+                                              && !l.Resources.Any(r => r.Kind == LessonResourceKind.Video)))
+        {
+            if (await VideosSearchedForAsync(lesson, ct)) continue;
+
+            lesson.ResourcesJudgedAt = null;
+            lesson.ResourceAttempts = 0;
+        }
+
         var lessons = all.Where(l => l.ResourcesJudgedAt is null).ToList();
 
 
@@ -112,7 +132,11 @@ public class LessonResourceService
                 .Where(t => !string.Equals(t, lesson.Title, StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
-            return new Pending(lesson, videos, articles, siblings);
+            // Whether anything has ever looked for this lesson's videos, which is not the same
+            // question as whether it has any.
+            var searched = videos.Count > 0 || await VideosSearchedForAsync(lesson, ct);
+
+            return new Pending(lesson, videos, articles, siblings, searched);
         }))).ToList();
 
         await AdmitAllAsync(gathered, goal, ct);
@@ -123,7 +147,8 @@ public class LessonResourceService
         RoadmapLesson Lesson,
         List<LessonResource> Videos,
         List<LessonResource> Articles,
-        IReadOnlyList<string> SiblingTitles);
+        IReadOnlyList<string> SiblingTitles,
+        bool VideosSearched);
 
     /// <summary>
     /// Puts every lesson's candidates to the judge, and keeps only what it admits.
@@ -199,6 +224,17 @@ public class LessonResourceService
     /// lesson whose search genuinely returns nothing — or whose quota is spent — stops asking.
     /// </remarks>
     private const int MaxVideoWaits = 3;
+
+    /// <summary>
+    /// How long a lesson waits when nothing has searched for it yet.
+    /// </summary>
+    /// <remarks>
+    /// Longer than <see cref="MaxVideoWaits"/>, because the thing it is waiting for is a queue
+    /// rather than an answer: the warm covers a few lessons per read, so a twenty-lesson path
+    /// takes several reads to reach the end of itself. Still finite, so a key that has been
+    /// revoked cannot leave every lesson asking for ever.
+    /// </remarks>
+    private const int MaxWaitsUnsearched = 12;
 
     /// <summary>Still collecting, and nothing has arrived yet.</summary>
     public const string StillGatheringNothingYet =
@@ -276,10 +312,20 @@ public class LessonResourceService
         // Videos are read from a cache something else fills in the background, so a cold cache is
         // not an answer about videos — it is an answer that has not arrived. Settling here would
         // mean no lesson built after this ever gets one, because the first pass is the only pass.
+        // A lesson spends a wait only once something has actually looked for its videos.
+        //
+        // The count used to advance on every pass regardless, and the warm reaches a handful of
+        // lessons per read - so a lesson near the end of a long path could spend all three waits
+        // queueing and then settle as "nothing found", having never been searched for. Seven
+        // lessons on production settled that way, and because a settled lesson is never refilled,
+        // they would have stayed empty for the life of the roadmap.
+        //
+        // The ceiling is still there for the case where searching never succeeds at all - a
+        // revoked key, an exhausted quota that never resets - so this cannot wait for ever.
         var waitingForVideos =
             _youtube.IsConfigured
             && pending.Videos.Count == 0
-            && lesson.ResourceAttempts < MaxVideoWaits;
+            && lesson.ResourceAttempts < (pending.VideosSearched ? MaxVideoWaits : MaxWaitsUnsearched);
 
         lesson.ResourceNote =
             waitingForVideos
@@ -552,6 +598,22 @@ public class LessonResourceService
 
     /// <summary>How many corpus scans may run at once.</summary>
     private const int ConcurrentCounts = 4;
+
+    /// <summary>
+    /// Whether anything has searched for this lesson's videos yet.
+    /// </summary>
+    /// <remarks>
+    /// Separate from having any, because an empty result and an absent one look identical from
+    /// the cache and mean opposite things to a lesson deciding whether to keep waiting.
+    /// </remarks>
+    private async Task<bool> VideosSearchedForAsync(RoadmapLesson lesson, CancellationToken ct)
+    {
+        if (!_youtube.IsConfigured) return false;
+
+        var query = !string.IsNullOrWhiteSpace(lesson.SearchHint) ? lesson.SearchHint! : lesson.Title;
+
+        return await _youtube.HasSearchedAsync(query, ct: ct);
+    }
 
     /// <summary>How much there is to be rare within. Cached for the same reason.</summary>
     private async Task<long> CorpusSizeAsync(CancellationToken ct)

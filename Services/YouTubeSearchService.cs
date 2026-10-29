@@ -49,6 +49,30 @@ public class YouTubeSearchService
 
     public bool IsConfigured => !string.IsNullOrWhiteSpace(_config["YouTube:ApiKey"]);
 
+    /// <summary>
+    /// Whether this query has actually been searched for, whatever it found.
+    /// </summary>
+    /// <remarks>
+    /// GetCachedAsync returns an empty list for two different things - a search that found
+    /// nothing, and a search that has never run - and a caller deciding whether to keep waiting
+    /// needs to tell them apart.
+    ///
+    /// Lessons were settling as "nothing found" after three passes, counted whether or not their
+    /// own query had ever been searched. On a long path the warm reaches a handful of lessons per
+    /// read, so one near the end could spend all three waits queueing and settle having never
+    /// been looked for. Seven lessons on production did exactly that.
+    /// </remarks>
+    public async Task<bool> HasSearchedAsync(string query, string? channelId = null, CancellationToken ct = default)
+    {
+        var doc = await _db.YouTubeSearches
+            .Find(d => d.Id == CacheKey(query, channelId))
+            .FirstOrDefaultAsync(ct);
+
+        var ttlDays = _config.GetValue("YouTube:CacheDays", 30);
+
+        return doc is not null && doc.CachedAt >= DateTime.UtcNow.AddDays(-ttlDays);
+    }
+
     /// <summary>Cached results only. Never calls the API, so it is safe on a request path.</summary>
     public async Task<List<YouTubeVideoRef>> GetCachedAsync(string query, string? channelId = null, CancellationToken ct = default)
     {
