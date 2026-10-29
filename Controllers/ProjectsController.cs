@@ -258,6 +258,12 @@ public class ProjectsController : ControllerBase
     public async Task<IActionResult> GetPublicProjectAsync(string projectId)
     {
         var project = await _projects.GetPublicProjectAsync(projectId);
-        return project is null ? NotFound(new { error = "Project not found" }) : Ok(project);
+
+        // Shaped, not the stored document. This returned the whole StudioProject to anybody with
+        // the id and no sign-in - every submission, the extracted text of the uploaded work, and
+        // every assessment with its criteria quoting that work, refused attempts included.
+        return project is null
+            ? NotFound(new { error = "Project not found" })
+            : Ok(PublicProject.From(project));
     }
 }
