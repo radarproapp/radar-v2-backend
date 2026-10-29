@@ -96,23 +96,41 @@ public class MongoResearchService : IResearchService
         return papers;
     }
 
-    public async Task<ContentItem?> GetPaperByIdAsync(string id, UserProfile? profile = null)
+    /// <summary>
+    /// One paper, by its OpenAlex id.
+    /// </summary>
+    /// <param name="withSummary">
+    /// Whether to build the plain-English summary, which is a model call taking seconds.
+    /// </param>
+    /// <remarks>
+    /// The summary used to be built unconditionally, and three callers that never read it went
+    /// through here: the citation formatter, the explainer and the gap finder. So pressing "Cite"
+    /// - the cheapest thing on the card - waited on a 500-word generation and then threw it away.
+    /// </remarks>
+    public async Task<ContentItem?> GetPaperByIdAsync(
+        string id,
+        UserProfile? profile = null,
+        bool withSummary = true)
     {
         ContentItem? paper = null;
+
         if (id.StartsWith("W", StringComparison.OrdinalIgnoreCase))
+        {
             paper = await _openAlex.GetWorkByIdAsync(id);
+        }
         else
         {
-            var results = await _openAlex.SearchAsync(id, pageSize: 1);
-            paper = results.FirstOrDefault();
+            // Not an OpenAlex work id. Searching for it would answer with whatever ranks first
+            // for those characters, so /api/research/foo/citation would format a citation for a
+            // paper nobody asked for - on the one endpoint a reader pastes into a bibliography.
+            return null;
         }
 
-        if (paper != null)
-        {
-            await EnsureAiPaperBreakdownAsync(paper);
-        }
+        if (paper is null) return null;
 
-        if (paper is not null) ExplainForReader([paper], profile);
+        if (withSummary) await EnsureAiPaperBreakdownAsync(paper);
+
+        ExplainForReader([paper], profile);
         return paper;
     }
 
@@ -123,7 +141,7 @@ public class MongoResearchService : IResearchService
 
     public async Task<string> ExplainSimplyAsync(string paperId)
     {
-        var paper = await GetPaperByIdAsync(paperId);
+        var paper = await GetPaperByIdAsync(paperId, withSummary: false);
         if (paper is null)
             return "Paper not found. Please check the ID and try again.";
 
@@ -133,7 +151,7 @@ public class MongoResearchService : IResearchService
             Title: {paper.Title}
             Authors: {string.Join(", ", paper.Authors)}
             Journal: {paper.Journal}
-            Abstract: {paper.AiSummary}
+            Abstract: {paper.WhatHappened}
 
             Explain what the paper is about, why it matters, and what the key findings are — without using jargon.
             """;
@@ -143,7 +161,7 @@ public class MongoResearchService : IResearchService
 
     public async Task<string> FindResearchGapsAsync(string paperId)
     {
-        var paper = await GetPaperByIdAsync(paperId);
+        var paper = await GetPaperByIdAsync(paperId, withSummary: false);
         if (paper is null)
             return "Paper not found. Please check the ID and try again.";
 
@@ -153,7 +171,7 @@ public class MongoResearchService : IResearchService
             Title: {paper.Title}
             Authors: {string.Join(", ", paper.Authors)}
             Journal: {paper.Journal}
-            Abstract: {paper.AiSummary}
+            Abstract: {paper.WhatHappened}
             Key Findings: {paper.WhyItMatters}
 
             What questions remain unanswered? What would be logical next steps for researchers in this area?
@@ -165,7 +183,7 @@ public class MongoResearchService : IResearchService
 
     public async Task<string> GetCitationAsync(string paperId, string style = "APA")
     {
-        var paper = await GetPaperByIdAsync(paperId);
+        var paper = await GetPaperByIdAsync(paperId, withSummary: false);
         if (paper is null)
             return string.Empty;
 
@@ -222,7 +240,7 @@ public class MongoResearchService : IResearchService
                 Journal: {{paper.Journal ?? paper.Source ?? "not recorded"}}
                 Year: {{paper.PublishedAt.Year}}
                 Topic: {{paper.Topic ?? "not recorded"}}
-                Abstract: {{paper.AiSummary ?? paper.WhatHappened ?? ""}}
+                Abstract: {{paper.WhatHappened ?? paper.AiSummary ?? ""}}
 
                 How to write it:
                 - Very simple English. Short sentences. The words somebody would use out loud.
