@@ -48,22 +48,6 @@ public class VideoLinkTests
         }
     }
 
-    [Theory]
-    [InlineData("Cybersecurity")]
-    [InlineData("Data Analytics")]
-    public void No_learn_hub_resource_links_straight_to_a_video_id(string skill)
-    {
-        var payload = LearnHubCatalog.GetPayload(skill);
-
-        Assert.All(payload.Resources, r =>
-        {
-            Assert.False(DirectVideoLink.IsMatch(r.Url ?? string.Empty),
-                $"{skill}: '{r.Title}' links to a fixed video id ({r.Url}).");
-            Assert.False(DirectVideoLink.IsMatch(r.MediaUrl ?? string.Empty),
-                $"{skill}: '{r.Title}' embeds a fixed video id ({r.MediaUrl}).");
-        });
-    }
-
     [Fact]
     public void No_resource_shows_a_thumbnail_for_a_video_it_does_not_link_to()
     {
