@@ -170,7 +170,15 @@ public class MongoProjectStudioService : IProjectStudioService
         if (project.Plan is not null) return project;
 
         project.Plan = await BuildPlanAsync(profile, project, ct);
-        await _db.UserProjects.ReplaceOneAsync(p => p.Id == projectId, project, cancellationToken: ct);
+
+        // Only the plan. Building one is a model call that takes seconds, which is exactly the
+        // window in which a submission can arrive - and writing the whole document back would
+        // put the project as it looked before that submission existed.
+        await _db.UserProjects.UpdateOneAsync(
+            p => p.Id == projectId,
+            Builders<StudioProject>.Update.Set(p => p.Plan, project.Plan),
+            cancellationToken: ct);
+
         return project;
     }
 
@@ -324,7 +332,12 @@ public class MongoProjectStudioService : IProjectStudioService
 
         project.IsCompleted = true;
         project.CompletedAt = DateTime.UtcNow;
-        await _db.UserProjects.ReplaceOneAsync(p => p.Id == projectId, project);
+
+        await _db.UserProjects.UpdateOneAsync(
+            p => p.Id == projectId,
+            Builders<StudioProject>.Update
+                .Set(p => p.IsCompleted, project.IsCompleted)
+                .Set(p => p.CompletedAt, project.CompletedAt));
 
         return null;
     }
@@ -338,7 +351,18 @@ public class MongoProjectStudioService : IProjectStudioService
         if (project is null) return;
 
         project.IsPublic = isPublic;
-        await _db.UserProjects.ReplaceOneAsync(p => p.Id == projectId, project);
+
+        // One field, not the whole document.
+        //
+        // Every writer here used to load the project, change one thing and write all of it back.
+        // Two requests close together - publishing a project while a revision is being assessed,
+        // or a double-tapped button - and whichever finished second wrote its stale copy over the
+        // first. Measured against what it would cost: a submission is appended by one of those
+        // writers, so a lost update there loses the attempt itself, and the acceptance withdrawn
+        // because of it comes back.
+        await _db.UserProjects.UpdateOneAsync(
+            p => p.Id == projectId,
+            Builders<StudioProject>.Update.Set(p => p.IsPublic, isPublic));
     }
 
     public async Task<StudioProject?> GetPublicProjectAsync(string projectId)
