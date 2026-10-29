@@ -341,9 +341,9 @@ public class LessonResourceService
     /// Still cache-only. The warm is the caller's job; this returns what exists, and a cold cache
     /// shows as a lesson without videos rather than a wait on somebody else's API.
     ///
-    /// These carry no summary yet — summaries are written after the judge has chosen, so none is
-    /// paid for on a video that gets dropped. The judge therefore sees a video by its title and
-    /// channel, which is what a learner scrolling a results page sees too.
+    /// They carry YouTube's own description, which is what the judge writes the learner-facing
+    /// summary from. Nothing is written for a video that gets dropped: one call decides what to
+    /// keep and explains only what it kept.
     /// </remarks>
     private async Task<List<LessonResource>> VideoCandidatesAsync(
         RoadmapLesson lesson, CancellationToken ct)
@@ -357,24 +357,45 @@ public class LessonResourceService
         var cached = await _youtube.GetCachedAsync(query, ct: ct);
         if (cached.Count == 0) return [];
 
-        var videos = cached.Select(video => new LessonResource
-        {
-            Kind = LessonResourceKind.Video,
-            Title = video.Title,
-            Url = video.Url,
-            EmbedUrl = video.EmbedUrl,
-            ThumbnailUrl = video.ThumbnailUrl,
-            Source = video.ChannelTitle,
-            PublishedAt = video.PublishedAt,
-            // Set when a summary is written. There are no transcripts — the transcription keys are
-            // not configured — so this is as good as it gets today, and it says so.
-            SummarySource = SummarySource.Description,
-        });
+        var videos = cached.Select(VideoResource);
 
         return LessonRelevance.Distinct(videos, v => v.Url, v => v.Title)
             .Take(CandidatesPerKind)
             .ToList();
     }
+
+    /// <summary>
+    /// A cached YouTube result as a candidate resource.
+    /// </summary>
+    /// <remarks>
+    /// Carries the description. YouTubeSearchService parses it and the cache stores it, and it
+    /// was not being passed on - so the judge was handed a title and a channel name and asked to
+    /// describe the video from them, which is how a summary came out as the headline said back.
+    ///
+    /// Separate from the query so it can be tested. The line that passes the description was
+    /// written once, lost when the edit that contained it aborted, and committed under a message
+    /// saying it was there. Nothing noticed, because the only tests of this went through the
+    /// judge with a candidate built by hand.
+    /// </remarks>
+    public static LessonResource VideoResource(YouTubeVideoRef video) => new()
+    {
+        Kind = LessonResourceKind.Video,
+        Title = video.Title,
+        Url = video.Url,
+        EmbedUrl = video.EmbedUrl,
+        ThumbnailUrl = video.ThumbnailUrl,
+        Source = video.ChannelTitle,
+        PublishedAt = video.PublishedAt,
+
+        // What YouTube says the video is about. Held here until the judge rewrites it into
+        // something a learner reads; if it cannot, this is replaced with nothing rather than
+        // shown raw, because a description is a blurb with links and timestamps in it.
+        Summary = video.Description ?? string.Empty,
+
+        // There are no transcripts - the transcription keys are not configured - so a summary is
+        // written from the description, and the card says so.
+        SummarySource = SummarySource.Description,
+    };
 
     /// <summary>
     /// Articles from Radar's own corpus that could plausibly belong to this lesson.
@@ -450,9 +471,16 @@ public class LessonResourceService
                 Duration = item.EstimatedReadTime,
                 PublishedAt = item.PublishedAt,
 
-                // Already written, when the item was enriched. Re-summarising something that has a
-                // summary is paying twice for the same sentence.
-                Summary = FirstNonEmpty(item.WhatHappened, item.AiSummary, item.WhyItMatters),
+                // Already written, when the item was enriched. Re-summarising something that has
+                // a summary is paying twice for the same sentence.
+                //
+                // WhyItMatters is deliberately not in this chain any more. It is a different
+                // sentence - why the item is worth attention, not what is in it - and for a paper
+                // ingested from OpenAlex without an abstract it is a template: "Cited 0 times in
+                // peer-reviewed scholarship. Published in ." That reached a learner as the
+                // summary of a lesson resource, labelled as the publisher's own words. An empty
+                // summary is better than a filled-in form.
+                Summary = FirstNonEmpty(item.WhatHappened, item.AiSummary),
                 SummarySource = SummarySource.Publisher,
             })
             .ToList();
