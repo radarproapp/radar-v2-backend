@@ -1,6 +1,8 @@
 using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using RadarV2.Helpers;
+using RadarV2.Models;
 using RadarV2.Services.Interfaces;
 
 namespace RadarV2.Controllers;
@@ -121,6 +123,76 @@ public class ProjectsController : ControllerBase
 
         var project = await _projects.GetProjectAsync(profile.Id, projectId);
         return project is null ? NotFound(new { error = "Project not found" }) : Ok(project);
+    }
+
+    /// <summary>
+    /// Hands in an attempt at a project.
+    /// </summary>
+    /// <remarks>
+    /// Five kinds, because what people build is not all one shape. What Radar can read of each
+    /// differs, and the difference is recorded rather than smoothed over:
+    ///
+    /// A document or source file is read as text. A link is stored as a link. An image or a video
+    /// cannot be read at all — the engine takes text and nothing else — so what gets assessed for
+    /// those is the learner's own written account of what they made, and the assessment has to
+    /// say that is what it judged. Scoring an artefact Radar never saw, without saying so, would
+    /// be the same fabrication as a summary written from a headline.
+    ///
+    /// Notes are asked for on every kind, not only the ones that need them. They are what a
+    /// reviewer reads first, and for an image or a video they are the whole of the evidence.
+    /// </remarks>
+    [HttpPost("{projectId}/submit")]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(20_000_000)]
+    public async Task<IActionResult> SubmitAsync(
+        string projectId,
+        [FromForm] SubmissionKind kind,
+        [FromForm] IFormFile? file = null,
+        [FromForm] string? url = null,
+        [FromForm] string? notes = null,
+        CancellationToken ct = default)
+    {
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        if (file is null && string.IsNullOrWhiteSpace(url))
+            return BadRequest(new { error = "Attach a file or give a link to what you built." });
+
+        var submission = new ProjectSubmission
+        {
+            Kind = kind,
+            Url = string.IsNullOrWhiteSpace(url) ? null : url.Trim(),
+            FileName = file?.FileName,
+            Notes = notes?.Trim() ?? string.Empty,
+        };
+
+        // Read what can be read. An image or a video leaves this empty, which is the honest
+        // record of what Radar has rather than a gap for something to guess into later.
+        if (file is not null && file.Length > 0 && kind is SubmissionKind.Document or SubmissionKind.Code)
+        {
+            if (!DocumentTextExtractor.IsSupported(file.FileName, file.ContentType))
+            {
+                return StatusCode(StatusCodes.Status415UnsupportedMediaType, new
+                {
+                    error = "Radar cannot read that format. PDF, Word, Markdown, text, CSV, JSON or HTML.",
+                });
+            }
+
+            try
+            {
+                submission.ExtractedText = await DocumentTextExtractor.ExtractTextAsync(file, ct);
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { error = $"Could not read that file: {ex.Message}" });
+            }
+        }
+
+        var project = await _projects.SubmitAsync(profile.Id, projectId, submission);
+
+        return project is null
+            ? NotFound(new { error = "That project is not one of yours." })
+            : Ok(project);
     }
 
     [HttpPost("{projectId}/complete")]

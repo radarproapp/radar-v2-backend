@@ -24,6 +24,15 @@ public interface IProjectStudioService
     /// Starts one of the suggested projects, or returns the one already under way.
     /// </summary>
     Task<StudioProject?> StartSuggestedAsync(string userId, string projectId);
+
+    /// <summary>
+    /// Records an attempt at a project.
+    /// </summary>
+    /// <remarks>
+    /// Appended rather than replacing the last one. A project under the bar is meant to be
+    /// revised and handed in again, and the earlier attempts are the evidence that it was.
+    /// </remarks>
+    Task<StudioProject?> SubmitAsync(string userId, string projectId, ProjectSubmission submission);
     Task<StudioProject> CreateProjectAsync(string userId, string title, string description, string category);
     Task CompleteProjectAsync(string userId, string projectId);
 

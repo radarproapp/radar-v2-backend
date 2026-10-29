@@ -107,6 +107,25 @@ public class MongoProjectStudioService : IProjectStudioService
         return studioProject;
     }
 
+    public async Task<StudioProject?> SubmitAsync(string userId, string projectId, ProjectSubmission submission)
+    {
+        var project = await _db.UserProjects
+            .Find(p => p.Id == projectId && p.UserId == userId)
+            .FirstOrDefaultAsync();
+
+        // Somebody else's project, or none. Null rather than an exception, so the controller can
+        // say so in terms of this learner.
+        if (project is null) return null;
+
+        project.Submissions.Add(submission);
+
+        await _db.UserProjects.UpdateOneAsync(
+            p => p.Id == project.Id,
+            Builders<StudioProject>.Update.Set(p => p.Submissions, project.Submissions));
+
+        return project;
+    }
+
     public async Task<StudioProject> CreateProjectAsync(string userId, string title, string description, string category)
     {
         var project = new StudioProject

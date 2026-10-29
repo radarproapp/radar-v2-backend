@@ -17,6 +17,16 @@ public class StudioProject
     /// persisted so it stays stable across sessions. Null until the user asks for one.
     /// </summary>
     public ProjectPlan? Plan { get; set; }
+
+    /// <summary>
+    /// Every attempt at handing this in, oldest first.
+    /// </summary>
+    /// <remarks>
+    /// A list rather than one field. A project under the bar is meant to be revised and handed in
+    /// again, and the earlier attempts are the evidence that it was - overwriting them would
+    /// erase the only record of somebody improving.
+    /// </remarks>
+    public List<ProjectSubmission> Submissions { get; set; } = [];
 }
 
 /// <summary>
