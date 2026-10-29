@@ -65,4 +65,13 @@ public class ProjectSubmission
     public string Notes { get; set; } = string.Empty;
 
     public DateTime SubmittedAt { get; set; } = DateTime.UtcNow;
+
+    /// <summary>
+    /// What Radar made of this attempt. Null until it has been assessed.
+    /// </summary>
+    /// <remarks>
+    /// On the submission rather than on the project, because each attempt is judged on its own
+    /// and the previous marks are the record of somebody improving.
+    /// </remarks>
+    public ProjectAssessment? Assessment { get; set; }
 }

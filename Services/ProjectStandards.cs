@@ -134,10 +134,16 @@ public static class ProjectStandards
             + "you built. Does your account say clearly what it is, what you did, and what it "
             + "achieves? This criterion is about the description, not the work itself."),
 
+        // Radar does not fetch the link. Reaching out to an address somebody typed is a request
+        // the server makes on their behalf, and doing that safely means refusing private ranges,
+        // redirects into them, and anything that is not plain https - which is a piece of work in
+        // its own right rather than a line in a rubric. Until then this judges the account, and
+        // says so, rather than implying a page was read.
         SubmissionKind.Link => C(
-            "What is at the link",
-            "Is the thing at the link the work itself, reachable, and in a state somebody could "
-            + "look at without being given instructions first?"),
+            "Your account of it",
+            "Radar does not open links yet, so this judges what you wrote about what is there. "
+            + "Does your account say what the link leads to, what you built, and what it "
+            + "achieves? This criterion is about the description, not the work itself."),
 
         _ => C(
             "It is legible as submitted",

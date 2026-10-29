@@ -275,6 +275,7 @@ builder.Services.AddHostedService<StartupRepairService>();
 builder.Services.AddScoped<PlaybackService>();
 builder.Services.AddScoped<UserGraphService>();
 builder.Services.AddScoped<DocumentAssessmentService>();
+builder.Services.AddScoped<ProjectAssessmentService>();
 builder.Services.AddScoped<LessonResourceJudge>();
 builder.Services.AddScoped<LessonResourceService>();
 

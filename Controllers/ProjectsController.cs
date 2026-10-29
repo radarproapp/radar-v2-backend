@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using RadarV2.Helpers;
 using RadarV2.Models;
+using RadarV2.Services;
 using RadarV2.Services.Interfaces;
 
 namespace RadarV2.Controllers;
@@ -13,12 +14,20 @@ namespace RadarV2.Controllers;
 public class ProjectsController : ControllerBase
 {
     private readonly IProjectStudioService _projects;
+    private readonly ProjectAssessmentService _assessments;
+    private readonly IRoadmapService _roadmaps;
     private readonly IUserProfileService _profiles;
 
-    public ProjectsController(IProjectStudioService projects, IUserProfileService profiles)
+    public ProjectsController(
+        IProjectStudioService projects,
+        IUserProfileService profiles,
+        ProjectAssessmentService assessments,
+        IRoadmapService roadmaps)
     {
         _projects = projects;
         _profiles = profiles;
+        _assessments = assessments;
+        _roadmaps = roadmaps;
     }
 
     /// <summary>
@@ -155,6 +164,11 @@ public class ProjectsController : ControllerBase
         var profile = await _profiles.GetCurrentUserAsync();
         if (profile is null) return NotFound(new { error = "Profile not found" });
 
+        // The stage sets the bar. A first project is judged on finishing; work meant for an
+        // employer is judged on the decisions behind it.
+        var roadmap = await _roadmaps.GetActiveRoadmapAsync(profile.Id);
+        var roadmapStage = roadmap?.CurrentStage ?? "Beginner";
+
         if (file is null && string.IsNullOrWhiteSpace(url))
             return BadRequest(new { error = "Attach a file or give a link to what you built." });
 
@@ -188,6 +202,18 @@ public class ProjectsController : ControllerBase
             }
         }
 
+        // Fetched before assessing, because the assessor needs to know what the project was
+        // meant to produce. Judging work against a blank brief marks somebody down for not doing
+        // a thing nobody stated.
+        var existing = await _projects.GetProjectAsync(profile.Id, projectId);
+        if (existing is null) return NotFound(new { error = "That project is not one of yours." });
+
+        // Assessed on arrival rather than on request. A project that sits unassessed is one a
+        // learner has to remember to chase, and the point of a bar is that handing work in is
+        // the moment it gets judged.
+        submission.Assessment = await _assessments.AssessAsync(
+            existing, submission, roadmapStage, ct);
+
         var project = await _projects.SubmitAsync(profile.Id, projectId, submission);
 
         return project is null
@@ -201,8 +227,14 @@ public class ProjectsController : ControllerBase
         var profile = await _profiles.GetCurrentUserAsync();
         if (profile is null) return NotFound(new { error = "Profile not found" });
 
-        await _projects.CompleteProjectAsync(profile.Id, projectId);
-        return NoContent();
+        // Refused when the work has not earned it, with the reason. A project is accepted on
+        // what was handed in and how it scored, not on being marked done - which is what this
+        // used to mean.
+        var refusal = await _projects.CompleteProjectAsync(profile.Id, projectId);
+
+        return refusal is null
+            ? NoContent()
+            : BadRequest(new { error = refusal });
     }
 
     public sealed class SetVisibilityRequest

@@ -263,17 +263,52 @@ public class MongoProjectStudioService : IProjectStudioService
         ],
     };
 
-    public async Task CompleteProjectAsync(string userId, string projectId)
+    /// <summary>
+    /// Accepts a project, if its latest attempt earned it.
+    /// </summary>
+    /// <remarks>
+    /// This used to set the flag and return. So "I built this" and "this is good enough" were the
+    /// same claim made by the same person, and a portfolio of completed projects meant only that
+    /// somebody had pressed a button several times.
+    ///
+    /// A project is accepted when its most recent submission scored at or above the bar. Not the
+    /// best attempt - the latest, because a revision that went backwards is the state of the work
+    /// now, and marking it accepted on the strength of a previous version would be reporting a
+    /// project that no longer exists.
+    /// </remarks>
+    public async Task<string?> CompleteProjectAsync(string userId, string projectId)
     {
         var project = await _db.UserProjects
             .Find(p => p.Id == projectId && p.UserId == userId)
             .FirstOrDefaultAsync();
 
-        if (project is null) return;
+        if (project is null) return "That project is not one of yours.";
+
+        var latest = project.Submissions.LastOrDefault();
+
+        if (latest is null)
+        {
+            return "Submit the work first. A project is accepted on what was handed in, not on "
+                 + "being marked done.";
+        }
+
+        if (latest.Assessment is null || latest.Assessment.Score is null)
+        {
+            return "This has not been assessed yet. "
+                 + (latest.Assessment?.NotAssessedReason ?? "Submit it again shortly.");
+        }
+
+        if (!latest.Assessment.IsAccepted)
+        {
+            return $"This scored {latest.Assessment.Score} out of 10, and {ProjectScore.PassMark} "
+                 + "is the bar. The criteria say what is missing - revise and submit again.";
+        }
 
         project.IsCompleted = true;
         project.CompletedAt = DateTime.UtcNow;
         await _db.UserProjects.ReplaceOneAsync(p => p.Id == projectId, project);
+
+        return null;
     }
 
     public async Task SetVisibilityAsync(string userId, string projectId, bool isPublic)

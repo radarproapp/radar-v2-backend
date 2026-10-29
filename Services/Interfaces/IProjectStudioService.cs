@@ -34,7 +34,11 @@ public interface IProjectStudioService
     /// </remarks>
     Task<StudioProject?> SubmitAsync(string userId, string projectId, ProjectSubmission submission);
     Task<StudioProject> CreateProjectAsync(string userId, string title, string description, string category);
-    Task CompleteProjectAsync(string userId, string projectId);
+    /// <summary>
+    /// Accepts a project when its latest attempt scored at or above the bar. Returns null when
+    /// accepted, or the reason it was not.
+    /// </summary>
+    Task<string?> CompleteProjectAsync(string userId, string projectId);
 
     /// <summary>One project owned by this user, including its AI plan when one has been generated.</summary>
     Task<StudioProject?> GetProjectAsync(string userId, string projectId);
