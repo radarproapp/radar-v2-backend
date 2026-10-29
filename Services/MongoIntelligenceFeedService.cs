@@ -50,6 +50,43 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
         return items;
     }
 
+    /// <summary>
+    /// What Radar holds for this reader on the research side: papers, policy, essays and the
+    /// long-form analysis that comes from an academic, policy or ideas source.
+    /// </summary>
+    /// <remarks>
+    /// The other half of moving them out of the feed. Taking a type off one surface without
+    /// putting it on another leaves content ingested, stored, ranked and shown to nobody - and
+    /// that is invisible from both screens, because each looks correct on its own terms.
+    ///
+    /// Matched by the same rule as the feed. A paper has to speak to something the reader wrote,
+    /// for the same reason a news item does: a list of everything Radar holds, under a heading
+    /// promising relevance, is the thing this product was built to stop doing.
+    /// </remarks>
+    public async Task<List<ContentItem>> GetResearchLibraryAsync(
+        UserProfile profile,
+        int limit = 20,
+        CancellationToken ct = default)
+    {
+        limit = Math.Clamp(limit, 1, 50);
+
+        if (!profile.IsPersonalised) return [];
+
+        var dismissedIds = !string.IsNullOrEmpty(profile.Id)
+            ? await GetDismissedItemIdsAsync(profile.Id)
+            : [];
+
+        var filter = await BuildFeedFilterAsync(
+            profile, null, dismissedIds, ContentSurface.ResearchFilter());
+
+        return await _db.ContentItems
+            .Find(filter)
+            .SortByDescending(i => i.PublishedAt)
+            .ThenByDescending(i => i.Id)
+            .Limit(limit)
+            .ToListAsync(ct);
+    }
+
     public async Task<PagedResult<ContentItem>> GetFeedPageAsync(UserProfile profile, ContentType? filterType, string? cursor, int limit, CancellationToken ct = default)
     {
         limit = Math.Clamp(limit, 1, 50);
@@ -187,7 +224,8 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
     private async Task<FilterDefinition<ContentItem>> BuildFeedFilterAsync(
         UserProfile profile,
         ContentType? filterType,
-        IReadOnlyCollection<string> dismissedIds)
+        IReadOnlyCollection<string> dismissedIds,
+        FilterDefinition<ContentItem>? surface = null)
     {
         // The feed carries news, podcasts and posts. Papers, policy documents and essays go to
         // Research Discovery, which is the product built to read them - see ContentSurface.
@@ -195,7 +233,7 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
         // Applied whether or not a type was asked for, so the chips narrow within the feed rather
         // than reaching past its edge: /feed?type=ResearchPaper used to return papers under a
         // heading that says Intelligence.
-        var filter = ContentSurface.IntelligenceFilter();
+        var filter = surface ?? ContentSurface.IntelligenceFilter();
 
         if (filterType.HasValue)
             filter &= Builders<ContentItem>.Filter.Eq(i => i.Type, filterType.Value);

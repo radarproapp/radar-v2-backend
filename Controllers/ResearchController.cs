@@ -11,11 +11,16 @@ public class ResearchController : ControllerBase
 {
     private readonly IResearchService _research;
     private readonly IUserProfileService _profiles;
+    private readonly IIntelligenceFeedService _feed;
 
-    public ResearchController(IResearchService research, IUserProfileService profiles)
+    public ResearchController(
+        IResearchService research,
+        IUserProfileService profiles,
+        IIntelligenceFeedService feed)
     {
         _research = research;
         _profiles = profiles;
+        _feed = feed;
     }
 
     [HttpGet("search")]
@@ -32,6 +37,26 @@ public class ResearchController : ControllerBase
         var profile = await _profiles.GetCurrentUserAsync();
         var results = await _research.SearchPapersAsync(q.Trim(), yearFrom, paperType, Math.Max(1, page), Math.Clamp(pageSize, 5, 50), profile);
         return Ok(results);
+    }
+
+    /// <summary>
+    /// What Radar already holds on the research side for this reader.
+    /// </summary>
+    /// <remarks>
+    /// Papers, policy documents, essays and long-form analysis used to arrive in the Intelligence
+    /// feed between news items. They are here now, which is the half of that move that makes it
+    /// a move rather than a deletion.
+    ///
+    /// Distinct from search, which asks OpenAlex. This is Radar's own corpus, already ingested
+    /// and already matched to what the reader said.
+    /// </remarks>
+    [HttpGet("library")]
+    public async Task<IActionResult> GetLibraryAsync([FromQuery] int limit = 20, CancellationToken ct = default)
+    {
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        return Ok(await _feed.GetResearchLibraryAsync(profile, limit, ct));
     }
 
     [HttpGet("{id}")]

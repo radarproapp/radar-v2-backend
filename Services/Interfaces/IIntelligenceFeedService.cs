@@ -16,6 +16,12 @@ public interface IIntelligenceFeedService
     /// </summary>
     Task<PagedResult<ContentItem>> GetFeedPageAsync(UserProfile profile, ContentType? filterType, string? cursor, int limit, CancellationToken ct = default);
 
+    /// <summary>
+    /// The research side of the corpus for this reader: papers, policy, essays and long-form
+    /// analysis, matched by the same rule the feed uses.
+    /// </summary>
+    Task<List<ContentItem>> GetResearchLibraryAsync(UserProfile profile, int limit = 20, CancellationToken ct = default);
+
     Task<ContentItem?> GetByIdAsync(string id);
     Task SaveItemAsync(string userId, string contentItemId);
     Task UnsaveItemAsync(string userId, string contentItemId);
