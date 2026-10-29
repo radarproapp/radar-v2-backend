@@ -133,4 +133,32 @@ public class DomainVocabularyTests
         Assert.True(DomainVocabulary.Matches("CYBERSECURITY", "cyber"));
         Assert.True(DomainVocabulary.Matches("cybersecurity", "cyber"));
     }
+
+    /// <summary>
+    /// An engineering discipline is not software because it says "engineer".
+    /// </summary>
+    /// <remarks>
+    /// "engineer" was a keyword in the software field list, as an open prefix, so civil,
+    /// mechanical, chemical, petroleum and agricultural engineering all resolved to software -
+    /// and a civil engineering student was shown frontend jobs with the sentence "It is civil
+    /// engineering work, which is what you are learning."
+    ///
+    /// A software posting says software, developer, programming, backend or frontend. One that
+    /// only says "engineer" is not evidence of a field, and no field is the honest answer.
+    /// </remarks>
+    [Fact]
+    public void An_engineering_discipline_is_not_relabelled_as_software()
+    {
+        Assert.False(DomainVocabulary.MentionsSubject("Software Engineer, frontend team", "Civil Engineering"));
+        Assert.Null(DomainVocabulary.FieldOf("Civil Engineering"));
+        Assert.Null(DomainVocabulary.FieldOf("Petroleum Engineering"));
+    }
+
+    /// <summary>And a software posting is still software.</summary>
+    [Fact]
+    public void A_software_posting_is_still_software()
+    {
+        Assert.Equal("software", DomainVocabulary.FieldOf("Software Engineering"));
+        Assert.True(DomainVocabulary.MentionsSubject("Backend developer, Node and Postgres", "Software Engineering"));
+    }
 }

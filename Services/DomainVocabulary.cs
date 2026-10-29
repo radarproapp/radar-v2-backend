@@ -48,7 +48,12 @@ public static class DomainVocabulary
         ],
         ["software"] =
         [
-            new("software"), new("engineer"), new("developer"), new("programming"),
+            // "engineer" is not here, and that is the point: it matched civil, mechanical,
+            // chemical, petroleum and agricultural engineering, every one of which was then
+            // relabelled as software. A civil engineering student was shown frontend jobs with
+            // the sentence "It is civil engineering work, which is what you are learning."
+            // Software postings say software, developer, programming, backend or frontend.
+            new("software"), new("developer"), new("programming"),
             new("backend"), new("frontend"),
             new("coding", WholeWord: true),
         ],
@@ -88,7 +93,7 @@ public static class DomainVocabulary
         var field = FieldOf(subject);
         if (field is not null && Matches(haystack, field)) return true;
 
-        return WorthMatching(subject).Any(w => Mentions(haystack, new Keyword(Stem(w))));
+        return WorthMatching(subject).Any(w => MentionsForm(haystack, w));
     }
 
     /// <summary>
@@ -107,10 +112,18 @@ public static class DomainVocabulary
     /// </remarks>
     private static readonly HashSet<string> CourseScaffolding = new(StringComparer.OrdinalIgnoreCase)
     {
+        // How much of a subject, rather than which subject.
         "foundation", "foundations", "introduction", "introductory", "principle", "principles",
         "fundamental", "fundamentals", "basic", "basics", "essential", "essentials",
         "advanced", "intermediate", "beginner", "beginners", "overview", "general",
         "concept", "concepts", "topic", "topics", "studies", "modern", "contemporary", "applied",
+
+        // The broad word a discipline shares with every other discipline under it. "Civil
+        // Engineering" matched "Software Engineer, frontend team" because both say engineer, and
+        // the word that tells them apart - civil - was not required. For a qualified subject the
+        // qualifier is the subject: mechanical engineering is mechanical, computer science is
+        // computer. Alone they still match, because then they are all the learner gave.
+        "engineer", "engineering", "science", "sciences", "technology", "management",
     };
 
     /// <summary>
@@ -174,6 +187,14 @@ public static class DomainVocabulary
     /// </summary>
     private static string Stem(string word)
     {
+        // "ies" means "y": policies/policy, studies/study, bodies/body. Trimmed bare it left
+        // "polic", which matched "police" - a learner interested in public policies was shown
+        // Police Force recruitment. The same hazard the comment below rejects a bare "y" for.
+        if (word.Length > 4 && word.EndsWith("ies", StringComparison.OrdinalIgnoreCase))
+        {
+            return word[..^3] + "y";
+        }
+
         foreach (var ending in Endings)
         {
             if (word.Length - ending.Length < 4) continue;
@@ -189,7 +210,7 @@ public static class DomainVocabulary
     /// "ery" earns its place on midwifery/midwife, surgery/surgeon and nursery/nurse. A bare "y"
     /// does not: it turns "policy" into "polic", which matches "police".
     /// </summary>
-    private static readonly string[] Endings = ["ing", "ery", "ies", "es", "ed", "s"];
+    private static readonly string[] Endings = ["ing", "ery", "es", "ed", "s"];
 
     /// <summary>The subject's own words, long enough to be worth matching on.</summary>
     public static string[] OwnWords(string? subject) =>
@@ -198,6 +219,46 @@ public static class DomainVocabulary
             .Where(w => w.Length >= 4)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
+
+    /// <summary>
+    /// How much a word may grow before it is a different word.
+    /// </summary>
+    /// <remarks>
+    /// Three letters covers the endings an advert actually uses: nurse, nurses, nursing;
+    /// engineer, engineering; mathematic, mathematics. It does not cover bankruptcy, which is
+    /// what "Bank" used to match, or Massachusetts, which is what "mass communication" matched
+    /// through its first word. An open-ended prefix treats every longer word that happens to
+    /// start the same way as the same subject.
+    /// </remarks>
+    private const int MostAWordMayGrow = 3;
+
+    /// <summary>
+    /// Whether the text uses a form of this word.
+    /// </summary>
+    /// <remarks>
+    /// Both the word as the learner typed it and its stem, each allowed to grow by a few letters
+    /// and then required to end. Two forms rather than the stem alone because stemming loses the
+    /// plural it came from: "policies" stems to the lemma "policy", which does not match the word
+    /// "policies" in an advert, so both are tried.
+    ///
+    /// Separate from Mentions, which the curated field keywords use with an open prefix on
+    /// purpose - "cyber" has to reach "cybersecurity", eight letters along. Those lists are
+    /// authored and checked; a word somebody typed about themselves is neither.
+    /// </remarks>
+    private static bool MentionsForm(string text, string word)
+    {
+        if (Bounded(text, word)) return true;
+
+        var stem = Stem(word);
+        return !string.Equals(stem, word, StringComparison.OrdinalIgnoreCase) && Bounded(text, stem);
+    }
+
+    private static bool Bounded(string text, string word) =>
+        Regex.IsMatch(
+            text,
+            $@"\b{Regex.Escape(word)}[a-z]{{0,{MostAWordMayGrow}}}\b",
+            RegexOptions.IgnoreCase,
+            TimeSpan.FromMilliseconds(100));
 
     private static bool Mentions(string text, Keyword keyword)
     {

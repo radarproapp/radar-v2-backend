@@ -297,4 +297,45 @@ public class OpportunityFitTests
             "Foundations",
             OpportunityFit.Matching("The Foundations programme opens in March.", ["Foundations"]));
     }
+
+    // ── A word that merely starts the same way ──────────────────────────────
+
+    /// <summary>
+    /// A longer word that happens to begin with the subject is a different word.
+    /// </summary>
+    /// <remarks>
+    /// The match was an open-ended prefix: a word had to start a word, and then anything could
+    /// follow. So "Bank" matched "bankruptcy", and "mass communication" matched "Massachusetts
+    /// Institute of Technology" through its first word. Both were named as past failures and both
+    /// were still live.
+    ///
+    /// Three letters of growth is the limit now, which covers the endings an advert actually
+    /// uses - nurse, nurses, nursing - and not six more letters of a different noun.
+    /// </remarks>
+    [Theory]
+    [InlineData("Banking", "Insolvency and bankruptcy paralegal, two-year contract.")]
+    [InlineData("mass communication", "Massachusetts Institute of Technology summer school.")]
+    [InlineData("public policies", "Nigeria Police Force recruitment drive, apply by Friday.")]
+    public void AWordThatMerelyStartsTheSameWayIsNotAMatch(string stated, string advert)
+    {
+        Assert.Empty(OpportunityFit.Matching(advert, [stated]));
+    }
+
+    /// <summary>
+    /// The endings an advert does use still match.
+    /// </summary>
+    /// <remarks>
+    /// The learner types one form and the posting uses another: nursing against "nurse",
+    /// engineering against "engineer", policies against "policy". Bounding the growth must not
+    /// cost those, which is the whole reason the stem exists.
+    /// </remarks>
+    [Theory]
+    [InlineData("Nursing", "Graduate Nurse Residency Programme, paediatrics.")]
+    [InlineData("Engineering", "Graduate engineer programme, two rotations.")]
+    [InlineData("public policies", "Public policy analyst, think tank, Abuja.")]
+    [InlineData("Banking", "Retail banking graduate trainee, Lagos.")]
+    public void TheFormsAnAdvertActuallyUsesStillMatch(string stated, string advert)
+    {
+        Assert.Contains(stated, OpportunityFit.Matching(advert, [stated]));
+    }
 }
