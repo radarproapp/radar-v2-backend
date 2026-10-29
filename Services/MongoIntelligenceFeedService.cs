@@ -174,17 +174,36 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
         if (dismissedIds.Count > 0)
             filter &= Builders<ContentItem>.Filter.Nin(i => i.Id, dismissedIds);
 
-        var interestLayers = InterestLayerMapper.MapInterestsToLayers(profile.Interests);
-        if (interestLayers.Count > 0)
-        {
-            var layered = filter & Builders<ContentItem>.Filter.In(i => i.Layer, interestLayers);
-            if (await _db.ContentItems.Find(layered).Limit(1).AnyAsync()) return layered;
-        }
+        var interestTerms = FeedStrands.TermsFor(FeedStrands.Strand.Interest, profile);
+        var goalTerms = FeedStrands.TermsFor(FeedStrands.Strand.Goal, profile);
 
-        return filter;
+        // An item has to mention something the reader wrote. Nothing else is shown.
+        //
+        // What this replaced: the interests were mapped onto content layers, items in those
+        // layers were kept, and when no layer matched the filter was returned untouched - every
+        // item Radar holds, under a heading promising relevance. Both halves failed the same way.
+        // The layers are enormous - Artificial Intelligence maps to Ideas, Science and Skills,
+        // which between them hold most of the corpus - so even the working path barely narrowed
+        // anything, and the fallback narrowed nothing at all. A feed item never had to be about
+        // anything the reader had said.
+        //
+        // The layer mapping is gone from selection rather than kept as an extra way to qualify.
+        // Or-ing it back in would admit everything in those three layers again, which is the
+        // behaviour being removed; it would just have a better comment above it. What it was
+        // genuinely good at - a rough sense of subject area - belongs in ranking, where
+        // InterestPersonalization already uses it.
+        var strands = new List<FilterDefinition<ContentItem>>();
+
+        if (interestTerms.Count > 0) strands.Add(FeedStrands.Mentioning(interestTerms));
+        if (goalTerms.Count > 0) strands.Add(FeedStrands.Mentioning(goalTerms));
+
+        // Unreachable from the feed, which checks IsPersonalised first and so always has both.
+        // It guards the other callers rather than describing a state a reader can be in.
+        if (strands.Count == 0) return filter;
+
+        return filter & Builders<ContentItem>.Filter.Or(strands);
     }
 
-    /// <summary>Cheap in-memory interest ranking, used before paging the fetch window.</summary>
     /// <summary>
     /// Orders the feed by fit. The record is built once and reused: it is derived on read, so
     /// scoring each item separately would rebuild it for every item in the list.
