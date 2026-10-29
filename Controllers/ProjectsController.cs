@@ -19,8 +19,26 @@ public class ProjectsController : ControllerBase
         _profiles = profiles;
     }
 
-    [HttpGet("templates")]
-    public async Task<IActionResult> GetTemplatesAsync() => Ok(await _projects.GetTemplatesAsync());
+    /// <summary>
+    /// What this learner should build next, from their own path.
+    /// </summary>
+    /// <remarks>
+    /// This served six templates to everybody - Product Case Study, Marketing Campaign, Research
+    /// Proposal, Literature Review, Business Model Canvas, Portfolio Project - so a learner
+    /// studying mathematics was offered a Business Model Canvas. A fixed list shown to everyone
+    /// is a catalogue, not a suggestion.
+    ///
+    /// Empty until there is a path to suggest from, which is the honest answer rather than
+    /// falling back to the catalogue.
+    /// </remarks>
+    [HttpGet("suggested")]
+    public async Task<IActionResult> GetSuggestedAsync()
+    {
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        return Ok(await _projects.GetSuggestedProjectsAsync(profile.Id));
+    }
 
     [HttpGet]
     public async Task<IActionResult> GetUserProjectsAsync()
@@ -31,15 +49,18 @@ public class ProjectsController : ControllerBase
         return Ok(await _projects.GetUserProjectsAsync(profile.Id));
     }
 
-    [HttpPost("{templateId}/start")]
-    public async Task<IActionResult> StartProjectAsync(string templateId)
+    [HttpPost("suggested/{projectId}/start")]
+    public async Task<IActionResult> StartSuggestedAsync(string projectId)
     {
         var profile = await _profiles.GetCurrentUserAsync();
         if (profile is null) return NotFound(new { error = "Profile not found" });
 
-        var project = await _projects.StartProjectAsync(profile.Id, templateId);
+        var project = await _projects.StartSuggestedAsync(profile.Id, projectId);
+
+        // Not found rather than a 500, and said in terms of this learner: an id that is not among
+        // their suggestions is not a missing record, it is somebody else's project.
         return project is null
-            ? NotFound(new { error = $"No project template with id '{templateId}'." })
+            ? NotFound(new { error = "That is not one of the projects suggested for your path." })
             : Ok(project);
     }
 

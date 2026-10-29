@@ -15,8 +15,6 @@ public class MongoProjectStudioService : IProjectStudioService
     private readonly RadarDatabase _db;
     private readonly IAiEngine _ai;
     private readonly ILogger<MongoProjectStudioService> _log;
-    private static bool _seeded;
-    private static readonly SemaphoreSlim _seedLock = new(1, 1);
 
     public MongoProjectStudioService(RadarDatabase db, IAiEngine ai, ILogger<MongoProjectStudioService> log)
     {
@@ -25,14 +23,46 @@ public class MongoProjectStudioService : IProjectStudioService
         _log = log;
     }
 
-    public async Task<List<ProjectTemplate>> GetTemplatesAsync()
+    public async Task<List<StageProject>> GetSuggestedProjectsAsync(string userId)
     {
-        await EnsureSeededAsync();
-        return await _db.ProjectTemplates.Find(_ => true)
-            .SortBy(t => t.Category)
-            .ThenBy(t => t.Title)
-            .ToListAsync();
+        var roadmap = await _db.Roadmaps
+            .Find(r => r.UserId == userId && r.IsActive)
+            .FirstOrDefaultAsync();
+
+        // Nothing suggested until there is a path to suggest from. A learner who has not said
+        // what they are learning has no stage and no field, and the six templates that used to
+        // fill this space were a catalogue rather than a suggestion - which is how somebody
+        // studying mathematics came to be offered a Business Model Canvas.
+        if (roadmap is null) return [];
+
+        // The stage they are on first, then the one after it. Two is a choice; the whole path at
+        // once is a backlog, and a project nobody has the skills for yet is discouraging rather
+        // than aspirational.
+        var ordered = roadmap.Modules
+            .Where(m => m.Project is not null)
+            .OrderBy(m => m.Order)
+            .ToList();
+
+        var current = ordered.FindIndex(m =>
+            string.Equals(m.Level, roadmap.CurrentStage, StringComparison.OrdinalIgnoreCase));
+
+        if (current < 0) current = 0;
+
+        return ordered
+            .Skip(current)
+            .Take(SuggestedAtOnce)
+            .Select(m => m.Project!)
+            .ToList();
     }
+
+    /// <summary>
+    /// How many projects are offered at once.
+    /// </summary>
+    /// <remarks>
+    /// Two: the stage they are on, and the one after it. One is an instruction rather than a
+    /// choice, and a list is a backlog.
+    /// </remarks>
+    private const int SuggestedAtOnce = 2;
 
     public async Task<List<StudioProject>> GetUserProjectsAsync(string userId)
     {
@@ -43,36 +73,38 @@ public class MongoProjectStudioService : IProjectStudioService
     }
 
     /// <summary>
-    /// Starts a template project, or returns the one already in progress.
+    /// Starts one of the suggested projects, or returns the one already under way.
     ///
-    /// This used to throw when the template id was unknown, which surfaced as a 500 — the page
-    /// simply failed with no explanation. It also inserted a new project on every call, so clicking
-    /// "start" twice left two identical rows in the studio, which is exactly what users reported.
+    /// Returns null for an id that is not among this learner's suggestions, rather than throwing:
+    /// an unknown id used to surface as a 500 and the page simply failed with no explanation. And
+    /// starting the same one twice returns the project already in progress, because it used to
+    /// insert a second identical row every time the button was pressed.
     /// </summary>
-    public async Task<StudioProject?> StartProjectAsync(string userId, string templateId)
+    public async Task<StudioProject?> StartSuggestedAsync(string userId, string projectId)
     {
-        await EnsureSeededAsync();
-
-        var template = await _db.ProjectTemplates.Find(t => t.Id == templateId).FirstOrDefaultAsync();
-        if (template is null) return null;
+        var suggested = await GetSuggestedProjectsAsync(userId);
+        var project = suggested.FirstOrDefault(p => p.Id == projectId);
+        if (project is null) return null;
 
         var existing = await _db.UserProjects
-            .Find(p => p.UserId == userId && p.TemplateId == templateId && !p.IsCompleted)
+            .Find(p => p.UserId == userId && p.TemplateId == projectId && !p.IsCompleted)
             .FirstOrDefaultAsync();
 
         if (existing is not null) return existing;
 
-        var project = new StudioProject
+        var studioProject = new StudioProject
         {
-            TemplateId = templateId,
-            Title = template.Title,
-            Description = template.Description,
+            // The stage project it came from, so the standards it is judged against can be found
+            // again when it is submitted.
+            TemplateId = projectId,
+            Title = project.Title,
+            Description = project.Deliverable,
             UserId = userId,
             CreatedAt = DateTime.UtcNow,
         };
 
-        await _db.UserProjects.InsertOneAsync(project);
-        return project;
+        await _db.UserProjects.InsertOneAsync(studioProject);
+        return studioProject;
     }
 
     public async Task<StudioProject> CreateProjectAsync(string userId, string title, string description, string category)
@@ -243,34 +275,4 @@ public class MongoProjectStudioService : IProjectStudioService
             .Find(p => p.Id == projectId && p.IsPublic)
             .FirstOrDefaultAsync();
     }
-
-    private async Task EnsureSeededAsync()
-    {
-        if (_seeded) return;
-        await _seedLock.WaitAsync();
-        try
-        {
-            if (_seeded) return;
-            var count = await _db.ProjectTemplates.CountDocumentsAsync(Builders<ProjectTemplate>.Filter.Empty);
-            if (count == 0)
-            {
-                await _db.ProjectTemplates.InsertManyAsync(Templates);
-            }
-            _seeded = true;
-        }
-        finally
-        {
-            _seedLock.Release();
-        }
-    }
-
-    private static readonly List<ProjectTemplate> Templates =
-    [
-        new() { Id = "t1", Title = "Product Case Study", Description = "Document a real product problem, your analysis, and proposed solution.", Category = "Product", EstimatedTime = "3–5 hours", Tags = ["Product", "Portfolio"] },
-        new() { Id = "t2", Title = "Marketing Campaign", Description = "Plan a full campaign for a product or service including channels, messaging, and metrics.", Category = "Marketing", EstimatedTime = "4–6 hours", Tags = ["Marketing", "Strategy"] },
-        new() { Id = "t3", Title = "Research Proposal", Description = "Write a formal research proposal including problem statement, methodology, and expected outcomes.", Category = "Research", EstimatedTime = "6–8 hours", Tags = ["Research", "Academic"] },
-        new() { Id = "t4", Title = "Literature Review", Description = "Synthesise 10–15 papers on a topic into a structured academic review.", Category = "Research", EstimatedTime = "8–12 hours", Tags = ["Research", "Academic"] },
-        new() { Id = "t5", Title = "Business Model Canvas", Description = "Map out the business model for a startup idea using the BMC framework.", Category = "Business", EstimatedTime = "2–3 hours", Tags = ["Entrepreneurship", "Strategy"] },
-        new() { Id = "t6", Title = "Portfolio Project", Description = "Build a small technical project to demonstrate a skill from your roadmap.", Category = "Technical", EstimatedTime = "5–10 hours", Tags = ["Portfolio", "Technical"] },
-    ];
 }

@@ -4,9 +4,26 @@ namespace RadarV2.Services.Interfaces;
 
 public interface IProjectStudioService
 {
-    Task<List<ProjectTemplate>> GetTemplatesAsync();
+    /// <summary>
+    /// Projects worth building next, taken from the learner's own path.
+    /// </summary>
+    /// <remarks>
+    /// This replaced a list of six templates served to everybody: Product Case Study, Marketing
+    /// Campaign, Research Proposal, Literature Review, Business Model Canvas, Portfolio Project.
+    /// A learner studying mathematics was offered a Business Model Canvas, which is not a
+    /// suggestion - it is a catalogue with nobody's name on it.
+    ///
+    /// The real ones already existed. StageProjectCatalog builds a project per domain per stage,
+    /// and the personaliser attaches one to every module of a learner's path - so by the time
+    /// somebody opens the studio, Radar already knows what they should build and why it proves
+    /// something. The studio was the only place not reading it.
+    /// </remarks>
+    Task<List<StageProject>> GetSuggestedProjectsAsync(string userId);
     Task<List<StudioProject>> GetUserProjectsAsync(string userId);
-    Task<StudioProject?> StartProjectAsync(string userId, string templateId);
+    /// <summary>
+    /// Starts one of the suggested projects, or returns the one already under way.
+    /// </summary>
+    Task<StudioProject?> StartSuggestedAsync(string userId, string projectId);
     Task<StudioProject> CreateProjectAsync(string userId, string title, string description, string category);
     Task CompleteProjectAsync(string userId, string projectId);
 
