@@ -301,10 +301,14 @@ public class ProjectScoreTests
 
     // ── Acceptance after a revision ─────────────────────────────────────────
 
-    private static ProjectAssessment Scored(int score) => new()
+    /// <summary>
+    /// An assessment as it is stored: a mark, a flag, and the criteria it came from.
+    /// </summary>
+    private static ProjectAssessment Scored(int score, List<AssessmentCriterion>? criteria = null) => new()
     {
         Score = score,
         IsAccepted = ProjectScore.IsAccepted(score),
+        Criteria = criteria ?? All(score >= 10 ? "Met" : score >= ProjectScore.PassMark ? "Met" : "NotMet", 5),
     };
 
     /// <summary>
@@ -357,5 +361,37 @@ public class ProjectScoreTests
         Assert.False(ProjectScore.SurvivesRevision(
             wasAccepted: true,
             new ProjectAssessment { Score = null, IsAccepted = false }));
+    }
+
+    /// <summary>
+    /// A correction to the bar applies to work already submitted.
+    /// </summary>
+    /// <remarks>
+    /// Acceptance was read from the stored flag. An assessment recorded before the arithmetic was
+    /// fixed carries IsAccepted true on all-partly work, so trusting the flag would have made the
+    /// fix a cut-off date rather than a correction: the same shape refused today stayed accepted
+    /// from yesterday. It is worked out from the criteria instead, which are the record of what
+    /// was actually judged.
+    /// </remarks>
+    [Fact]
+    public void AnOldAcceptanceOnWorkThatNoLongerPassesDoesNotHold()
+    {
+        var recordedUnderTheOldBar = new ProjectAssessment
+        {
+            Score = ProjectScore.PassMark,
+            IsAccepted = true,
+            Criteria = All("Partly", 5),
+        };
+
+        Assert.False(ProjectScore.SurvivesRevision(wasAccepted: true, recordedUnderTheOldBar));
+    }
+
+    /// <summary>And a submission that was never assessed is not evidence either way.</summary>
+    [Fact]
+    public void AnAssessmentWithNoMarkIsNotAnAcceptance()
+    {
+        Assert.False(ProjectScore.SurvivesRevision(
+            wasAccepted: true,
+            new ProjectAssessment { Score = null, IsAccepted = true, Criteria = All("Met", 5) }));
     }
 }

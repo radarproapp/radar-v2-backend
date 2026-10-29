@@ -310,9 +310,15 @@ public class MongoProjectStudioService : IProjectStudioService
                  + (latest.Assessment?.NotAssessedReason ?? "Submit it again shortly.");
         }
 
-        if (!latest.Assessment.IsAccepted)
+        // Worked out from the criteria now rather than read from the stored mark. Assessments
+        // made before the bar was corrected carry a score and an accepted flag from the old
+        // arithmetic - all-partly work recorded as a six - and honouring those would mean the
+        // correction applied to nothing already submitted.
+        var mark = ProjectScore.Of(latest.Assessment.Criteria) ?? latest.Assessment.Score;
+
+        if (!ProjectScore.IsAccepted(mark))
         {
-            return $"This scored {latest.Assessment.Score} out of 10, and {ProjectScore.PassMark} "
+            return $"This scored {mark} out of 10, and {ProjectScore.PassMark} "
                  + "is the bar. The criteria say what is missing - revise and submit again.";
         }
 

@@ -124,9 +124,15 @@ public static class ProjectScore
     ///
     /// This only ever withdraws acceptance. Clearing the bar makes a project eligible to be
     /// accepted; the learner still says when it is finished.
+    ///
+    /// Worked out from the criteria rather than read from the stored flag. An assessment made
+    /// before the bar was corrected has IsAccepted true on a shape that no longer passes, and
+    /// trusting that flag would mean the correction applied only to work submitted after it -
+    /// which is not a correction, it is a cut-off date. A null Score is a submission that was
+    /// never assessed, which is not evidence of anything either way.
     /// </remarks>
     public static bool SurvivesRevision(bool wasAccepted, ProjectAssessment? latest) =>
-        wasAccepted && latest?.IsAccepted == true;
+        wasAccepted && latest?.Score is not null && IsAccepted(Of(latest.Criteria));
 
     /// <summary>
     /// What to say about a mark, in the words a learner reads.
