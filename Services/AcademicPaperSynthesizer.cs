@@ -179,27 +179,37 @@ public static class AcademicPaperSynthesizer
         var doi = paper.Doi?.Replace("https://doi.org/", "").Trim();
         var url = !string.IsNullOrWhiteSpace(paper.Url) ? paper.Url : (!string.IsNullOrEmpty(doi) ? $"https://doi.org/{doi}" : "");
 
+        // The venue and the punctuation that follows it, or neither.
+        //
+        // OpenAlex returns no venue for plenty of records - preprints, dissertations, datasets -
+        // and a reference list should then simply not name one. The gap used to be filled with
+        // "Academic Press", a real Elsevier imprint, so a student pasted a false publisher into
+        // their bibliography. Leaving the segment out is the honest version, and leaving an empty
+        // one in would put two full stops where the publisher should be.
+        string Venue(string separator) =>
+            string.IsNullOrWhiteSpace(journal) ? string.Empty : journal + separator;
+
         return style.ToUpperInvariant() switch
         {
             "APA" or "APA7" =>
-                $"{authors} ({year}). {title}. {journal}. {(string.IsNullOrEmpty(doi) ? url : $"https://doi.org/{doi}")}",
+                $"{authors} ({year}). {title}. {Venue(". ")}{(string.IsNullOrEmpty(doi) ? url : $"https://doi.org/{doi}")}",
 
             "HARVARD" =>
-                $"{authors}, {year}. {title}. {journal}. Available at: <{(string.IsNullOrEmpty(doi) ? url : $"https://doi.org/{doi}")}>.",
+                $"{authors}, {year}. {title}. {Venue(". ")}Available at: <{(string.IsNullOrEmpty(doi) ? url : $"https://doi.org/{doi}")}>.",
 
             "IEEE" =>
-                $"[1] {FormatAuthorsIeee(paper.Authors)}, \"{title},\" {journal}, {year}{(string.IsNullOrEmpty(doi) ? "" : $", doi: {doi}")}.",
+                $"[1] {FormatAuthorsIeee(paper.Authors)}, \"{title},\" {Venue(", ")}{year}{(string.IsNullOrEmpty(doi) ? "" : $", doi: {doi}")}.",
 
             "BIBTEX" =>
                 BuildBibtexCitation(paper, authors, year, title, journal, doi, url),
 
             "MLA" =>
-                $"{authors}. \"{title}.\" {journal}, {year}, {(string.IsNullOrEmpty(doi) ? url : $"doi:{doi}")}.",
+                $"{authors}. \"{title}.\" {Venue(", ")}{year}, {(string.IsNullOrEmpty(doi) ? url : $"doi:{doi}")}.",
 
             "CHICAGO" =>
-                $"{authors}. \"{title}.\" {journal} ({year}). {(string.IsNullOrEmpty(doi) ? url : $"https://doi.org/{doi}")}.",
+                $"{authors}. \"{title}.\" {Venue(" ")}({year}). {(string.IsNullOrEmpty(doi) ? url : $"https://doi.org/{doi}")}.",
 
-            _ => $"{authors} ({year}). {title}. {journal}. https://doi.org/{doi}"
+            _ => $"{authors} ({year}). {title}. {Venue(". ")}https://doi.org/{doi}"
         };
     }
 
@@ -214,13 +224,18 @@ public static class AcademicPaperSynthesizer
         sb.AppendLine($"@article{{{key},");
         sb.AppendLine($"  title = {{{title}}},");
         sb.AppendLine($"  author = {{{string.Join(" and ", paper.Authors)}}},");
-        sb.AppendLine($"  journal = {{{journal}}},");
+        if (!string.IsNullOrWhiteSpace(journal))
+            sb.AppendLine($"  journal = {{{journal}}},");
         sb.AppendLine($"  year = {{{year}}},");
         if (!string.IsNullOrEmpty(doi))
             sb.AppendLine($"  doi = {{{doi}}},");
         if (!string.IsNullOrEmpty(url))
             sb.AppendLine($"  url = {{{url}}},");
-        sb.AppendLine($"  note = {{Sourced via Radar Academic Intelligence (Verifiable Peer-Reviewed Record)}}");
+        // Where the record came from, and nothing about its standing. This asserted a
+        // "Verifiable Peer-Reviewed Record" on every export, including preprints, and a BibTeX
+        // note goes wherever the bibliography goes. Radar does not check peer review and has no
+        // way to.
+        sb.AppendLine($"  note = {{Record from OpenAlex via Radar}}");
         sb.Append('}');
         return sb.ToString();
     }

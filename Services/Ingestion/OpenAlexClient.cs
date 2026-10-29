@@ -228,9 +228,16 @@ public class OpenAlexClient
             Url = paperUrl,
             OpenAccessPdfUrl = pdfUrl,
             DocumentType = docType,
-            DatabaseSource = "OpenAlex / CrossRef",
+            // OpenAlex. CrossRef is never queried, and naming it was a claim about where this
+            // record came from that happened not to be true.
+            DatabaseSource = "OpenAlex",
             Authors = authors,
-            Source = !string.IsNullOrWhiteSpace(journal) ? journal : "Academic Press",
+            // The venue, or nothing. "Academic Press" was the fallback: a real Elsevier imprint,
+            // named as the publisher of any record OpenAlex returns no venue for - preprints,
+            // dissertations, datasets. It flowed into the exported APA, Harvard, MLA and Chicago
+            // citations, so a student pasted a false publisher into a reference list. The same
+            // invented string was removed from the synthesizer and survived here.
+            Source = !string.IsNullOrWhiteSpace(journal) ? journal : string.Empty,
             Journal = journal,
             PublishedAt = publicationDate,
             AiSummary = abstractText.Length > 500 ? abstractText[..500] + "…" : abstractText,
@@ -238,12 +245,25 @@ public class OpenAlexClient
             Signal = title,
             Topic = tags.Count > 0 ? tags[0] : "Academic Research",
             WhatHappened = abstractText,
-            WhyItMatters = $"Cited {citedByCount} times in peer-reviewed scholarship. Published in {journal}.",
+            // Citations, and the venue only when there is one. This read "Cited 0 times in
+            // peer-reviewed scholarship. Published in ." for a preprint with no venue - two
+            // false claims and a dangling sentence, on every research response.
+            WhyItMatters = string.IsNullOrWhiteSpace(journal)
+                ? $"Cited {citedByCount} times."
+                : $"Cited {citedByCount} times. Published in {journal}.",
         };
 
-        // Enrich with strict 5-minute (~500-word) 7-part breakdown
-        AcademicPaperSynthesizer.EnrichPaperWithStrictBreakdown(item);
-
+        // No summary attached here, deliberately.
+        //
+        // Every mapped work used to get the template breakdown - abstract sentences sorted into
+        // headings by keyword - and that is what made the plain-English summary unreachable. The
+        // card only fetched one when the paper did not already carry one, so it never fetched:
+        // search results arrived carrying the template, and the template is what every reader
+        // saw. Measured on production, where the search response had a breakdown on it and the
+        // same paper fetched by id came back in plain English nobody could get to.
+        //
+        // A list row does not render a summary, so building one per result was work nobody read
+        // even when it was right.
         return item;
     }
 
