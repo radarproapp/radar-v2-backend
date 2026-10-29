@@ -175,4 +175,62 @@ public class FeedStrandTests
 
         Assert.NotEqual("{ }", rendered);
     }
+
+    // ── What the review caught ──────────────────────────────────────────────
+
+    /// <summary>
+    /// A contraction must not leak a broad word into the query.
+    /// </summary>
+    /// <remarks>
+    /// Splitting on the apostrophe turned "don't" into "don" and "can't" into "can" — and seven
+    /// of the eighteen suggested challenges contain "don't". On an Africa-focused corpus "don"
+    /// matches Donald, donor and donate; "can" matches Canada, cancer and candidates. A reader
+    /// who wrote that they did not know where to start was shown political news.
+    /// </remarks>
+    [Theory]
+    [InlineData("I don't know where to start", "don")]
+    [InlineData("I can't afford the course", "can")]
+    public void AContractionDoesNotLeakABroadTerm(string challenge, string leaked)
+    {
+        var terms = FeedStrands.TermsFor(FeedStrands.Strand.Goal, Profile(problems: [challenge]));
+
+        Assert.DoesNotContain(leaked, terms, StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Box 3 was the newest box and the first thrown away.
+    /// </summary>
+    /// <remarks>
+    /// The terms were goals and challenges concatenated, then truncated — so a reader who
+    /// answered both boxes generously got twelve terms from their goals and every challenge
+    /// discarded, silently.
+    /// </remarks>
+    [Fact]
+    public void ChallengesSurviveAReaderWithManyGoals()
+    {
+        var manyGoals = Enumerable.Range(0, 20).Select(i => $"Goalword{i}").ToArray();
+
+        var terms = FeedStrands.TermsFor(
+            FeedStrands.Strand.Goal, Profile(goals: manyGoals, problems: ["portfolio"]));
+
+        Assert.Contains("portfolio", terms, StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Personalised is not the same as having something to match on.
+    /// </summary>
+    /// <remarks>
+    /// IsPersonalised only wants one non-blank entry per box, not one that yields a term. Both
+    /// boxes can be answered with scaffolding — interests "New", goals "Learn more" — and that
+    /// profile used to receive the entire corpus, behind a comment asserting it could not happen.
+    /// </remarks>
+    [Fact]
+    public void AProfileOfNothingButFillerYieldsNoTerms()
+    {
+        var profile = Profile(interests: ["New"], goals: ["Learn more"]);
+
+        Assert.Empty(FeedStrands.TermsFor(FeedStrands.Strand.Interest, profile));
+        Assert.Empty(FeedStrands.TermsFor(FeedStrands.Strand.Goal, profile));
+        Assert.True(profile.IsPersonalised);
+    }
 }

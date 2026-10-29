@@ -119,7 +119,12 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
             // worth spending them: the alternative is a blank page and a guess.
             EmptyReason = batch.Count > 0
                 ? FeedEmptyReason.NotEmpty
-                : await DiagnoseEmptyAsync(filterType, dismissedIds),
+                // The same strand filter without the reader's dismissals, so the diagnosis can
+                // tell "nothing matches your words" from "you dismissed it all".
+                : await DiagnoseEmptyAsync(
+                    filterType,
+                    dismissedIds,
+                    await BuildFeedFilterAsync(profile, filterType, [])),
         };
     }
 
@@ -134,7 +139,8 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
     /// </summary>
     private async Task<FeedEmptyReason> DiagnoseEmptyAsync(
         ContentType? filterType,
-        IReadOnlyCollection<string> dismissedIds)
+        IReadOnlyCollection<string> dismissedIds,
+        FilterDefinition<ContentItem>? withoutDismissals = null)
     {
         if (!await _db.ContentItems.Find(Builders<ContentItem>.Filter.Empty).Limit(1).AnyAsync())
             return FeedEmptyReason.NoContentAtAll;
@@ -146,8 +152,24 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
                 return FeedEmptyReason.NoneOfThisType;
         }
 
-        // Content exists and matches the type, so the only thing left standing between the user
-        // and it is their own dismissals.
+        // Whether their own words are what emptied the page.
+        //
+        // This ran before the strand filter existed and knew nothing about it, so when the feed
+        // correctly matched nothing it reported one of two untrue things: that the reader had
+        // dismissed everything — with a "bring them back" button that could not help — or that
+        // they were up to date, while the library held plenty that simply did not mention their
+        // words.
+        //
+        // Asked without their dismissals, so the two causes cannot be confused: if nothing
+        // matches even before dismissals are applied, dismissals are not the reason.
+        if (withoutDismissals is not null
+            && !await _db.ContentItems.Find(withoutDismissals).Limit(1).AnyAsync())
+        {
+            return FeedEmptyReason.NothingMatchesYourTerms;
+        }
+
+        // Content exists, matches the type, and matches their words — so the only thing left
+        // standing between the reader and it is their own dismissals.
         if (dismissedIds.Count > 0) return FeedEmptyReason.EverythingDismissed;
 
         return FeedEmptyReason.NothingNewRightNow;
@@ -197,9 +219,16 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
         if (interestTerms.Count > 0) strands.Add(FeedStrands.Mentioning(interestTerms));
         if (goalTerms.Count > 0) strands.Add(FeedStrands.Mentioning(goalTerms));
 
-        // Unreachable from the feed, which checks IsPersonalised first and so always has both.
-        // It guards the other callers rather than describing a state a reader can be in.
-        if (strands.Count == 0) return filter;
+        // Both strands empty means nothing to match on, and nothing to match on means nothing
+        // shown.
+        //
+        // I wrote this as "return filter" under a comment claiming it was unreachable because
+        // IsPersonalised is checked first. It is not: IsPersonalised only wants one non-blank
+        // entry in each box, not one that yields a term. Interests ["New"] with goals ["Learn
+        // more"] is personalised and reduces to nothing, because all three words are scaffolding
+        // — and that profile got the entire corpus, which is exactly the behaviour this change
+        // exists to remove, preserved behind an assertion that it could not happen.
+        if (strands.Count == 0) return filter & Builders<ContentItem>.Filter.Where(_ => false);
 
         return filter & Builders<ContentItem>.Filter.Or(strands);
     }

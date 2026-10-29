@@ -70,18 +70,50 @@ public static class FeedStrands
     /// </remarks>
     public static List<string> TermsFor(Strand strand, UserProfile profile)
     {
-        var source = strand switch
+        return strand switch
         {
-            Strand.Interest => profile.Interests,
-            Strand.Goal => [.. profile.Goals, .. profile.Problems],
+            Strand.Interest => Bounded([profile.Interests]),
+
+            // Goals and challenges alternate rather than being concatenated. Appending one to the
+            // other and taking the first twelve meant a reader who answered both boxes generously
+            // got twelve terms from their goals and every challenge discarded — box 3 being the
+            // newest box and the first thrown away, silently.
+            Strand.Goal => Bounded([profile.Goals, profile.Problems]),
+
             _ => [],
         };
+    }
 
-        return source
-            .SelectMany(Phrase.MeaningfulWords)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Take(MaxTerms)
+    /// <summary>
+    /// Terms from several answers, taking from each in turn so no answer is dropped wholesale.
+    /// </summary>
+    private static List<string> Bounded(IReadOnlyList<List<string>> sources)
+    {
+        var queues = sources
+            .Select(source => source.SelectMany(Phrase.MeaningfulWords).ToList())
             .ToList();
+
+        var terms = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        for (var depth = 0; terms.Count < MaxTerms; depth++)
+        {
+            var exhausted = true;
+
+            foreach (var queue in queues)
+            {
+                if (depth >= queue.Count) continue;
+
+                exhausted = false;
+                if (seen.Add(queue[depth])) terms.Add(queue[depth]);
+
+                if (terms.Count == MaxTerms) return terms;
+            }
+
+            if (exhausted) break;
+        }
+
+        return terms;
     }
 
     /// <summary>
@@ -165,8 +197,19 @@ public static class Phrase
     {
         if (string.IsNullOrWhiteSpace(phrase)) return [];
 
+        // Apostrophes are removed, not split on.
+        //
+        // Splitting turned "don't" into "don" and "can't" into "can" — and seven of the eighteen
+        // suggested challenges contain "don't". On an Africa-focused corpus "don" matches Donald,
+        // donor and donate, and "can" matches Canada, cancer, candidates and cannabis, so a reader
+        // who wrote "I don't know where to start" would be shown Nigerian political news.
+        //
+        // The same class of mistake as "art" matching "smart", which the word-start rule exists to
+        // prevent — arrived at from the other end.
         return phrase
-            .Split([' ', ',', ';', ':', '-', '—', '/', '(', ')', '.', '\'', '"', '?', '!'],
+            .Replace("'", string.Empty)
+            .Replace("’", string.Empty)
+            .Split([' ', ',', ';', ':', '-', '—', '/', '(', ')', '.', '"', '?', '!'],
                 StringSplitOptions.RemoveEmptyEntries)
             .Select(w => w.Trim())
             // Two letters is a subject here: AI, ML, UX, HR, VC. Requiring three dropped exactly

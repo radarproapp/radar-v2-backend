@@ -50,6 +50,23 @@ public enum FeedEmptyReason
 
     /// <summary>Content exists and nothing is filtered out; there is simply nothing new right now.</summary>
     NothingNewRightNow,
+
+    /// <summary>
+    /// Radar holds plenty, and none of it mentions anything the reader told us.
+    /// </summary>
+    /// <remarks>
+    /// This is the state the strand filter creates and the enum had no word for, so it was
+    /// reported as one of two things that were both untrue: that the reader had dismissed
+    /// everything — offering a "bring them back" button that cannot help — or that they were up
+    /// to date, when the library is full of material that simply does not match their words.
+    ///
+    /// Which is the same dishonesty as the catch-all this replaced, moved into the empty state.
+    /// A feed that shows nothing and says why is honest; one that shows nothing and blames the
+    /// reader for it is not.
+    ///
+    /// The action that fits this is widening what they follow, not checking again.
+    /// </remarks>
+    NothingMatchesYourTerms,
 }
 
 /// <summary>
