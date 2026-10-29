@@ -6,32 +6,20 @@ namespace RadarV2.Tests;
 /// <summary>
 /// No persona may be invisible to opportunity matching.
 ///
-/// Graduate was. It appeared in neither scorer, so a graduate fell to the default and got no
-/// persona matching at all — while <see cref="OpportunityType.GraduateProgramme"/>, the single
-/// most relevant type there is for one, matched nobody. Two gaps that existed only because
-/// nothing had been written for the persona between studying and working.
+/// Graduate was. It appeared in no scorer at all, so a graduate fell to the default and got no
+/// persona matching — while <see cref="OpportunityType.GraduateProgramme"/>, the single most
+/// relevant type there is for one, matched nobody.
+///
+/// These tests used to run against a second scorer that no production code called, so for every
+/// one of them the thing being asserted and the thing shipping were different objects. One of
+/// them asserted a behaviour the live table does not have. A test pointed at dead code is worse
+/// than no test: it reports a guarantee nobody has.
 /// </summary>
 public class PersonaCoverageTests
 {
-    private static UserProfile Profile(PersonaType persona) => new()
-    {
-        Id = "u1",
-        Persona = persona,
-        PrimaryGoal = "Software Engineering",
-        Interests = ["Software Engineering"],
-    };
-
-    private static Opportunity Opp(OpportunityType type) => new()
-    {
-        Id = Guid.NewGuid().ToString(),
-        Title = "Software Engineering opening",
-        Organisation = "Example",
-        Type = type,
-    };
-
-    /// <summary>Scored higher for the right persona than for one it does not suit.</summary>
+    /// <summary>What the live table says, which is what a reader's feed is ordered by.</summary>
     private static int Score(PersonaType persona, OpportunityType type) =>
-        InterestPersonalization.OpportunityScore(Opp(type), Profile(persona));
+        OpportunityFit.PointsFor(persona, type);
 
     [Theory]
     [InlineData(OpportunityType.GraduateProgramme)]
@@ -66,12 +54,17 @@ public class PersonaCoverageTests
         Assert.True(best > unmatched, "No persona is scored for a graduate programme.");
     }
 
+    // The same reasoning as the fellowship above, reached the other way round. This asserted
+    // that a student out-scores a graduate on a scholarship, and the live table scores them
+    // equally - correctly. A final-year student and somebody who graduated in June are both
+    // exactly who a scholarship is for, and ranking one above the other invents a preference
+    // neither of them stated. The test was passing against a scorer nothing called.
     [Fact]
-    public void AStudentStillOutScoresAGraduateOnAScholarship()
+    public void AScholarshipSuitsAStudentAndAGraduateAlike()
     {
-        Assert.True(
-            Score(PersonaType.Student, OpportunityType.Scholarship)
-            > Score(PersonaType.Graduate, OpportunityType.Scholarship));
+        Assert.Equal(
+            Score(PersonaType.Student, OpportunityType.Scholarship),
+            Score(PersonaType.Graduate, OpportunityType.Scholarship));
     }
 
     // The guard against this recurring: every persona Radar offers at signup must be scored for
@@ -84,11 +77,14 @@ public class PersonaCoverageTests
     [InlineData(PersonaType.Researcher)]
     public void EveryPersonaIsScoredForSomething(PersonaType persona)
     {
-        var baseline = Score(persona, OpportunityType.Event);
-
         var best = Enum.GetValues<OpportunityType>()
             .Max(type => Score(persona, type));
 
-        Assert.True(best > baseline, $"{persona} is scored the same for everything.");
+        // Against the no-signal default rather than against a particular type. An event is worth
+        // something to everybody now, so using one as the baseline would have made this pass for
+        // a persona nothing else was written for.
+        Assert.True(
+            best > OpportunityFit.NoSignal,
+            $"{persona} is scored the same for everything.");
     }
 }

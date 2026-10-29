@@ -110,52 +110,6 @@ public static class InterestPersonalization
         ?? item.AiSummary
         ?? item.WhatHappened;
 
-    public static int OpportunityScore(Opportunity opportunity, UserProfile profile)
-    {
-        var text = $"{opportunity.Title} {opportunity.Description} {opportunity.Organisation} {opportunity.Location}";
-        var score = 0;
-
-        foreach (var context in Contexts(profile))
-        {
-            if (ContainsContext(text, context.Interest)) score += 16;
-            if (ContainsContext(text, context.Goal)) score += 12;
-            if (ContainsContext(text, context.Lens)) score += 8;
-            if (InterestPathService.ActiveInterests(profile).Contains(context.Interest, StringComparer.OrdinalIgnoreCase)) score += 14;
-        }
-
-        foreach (var phrase in GoalPhrases(profile).Concat(profile.Capabilities))
-            if (ContainsContext(text, phrase)) score += 10;
-
-        if (profile.Geography.Count > 0 && profile.Geography.Any(g => ContainsContext(text, g))) score += 8;
-
-        var normalizedGoal = profile.PrimaryGoal.ToLowerInvariant();
-        if (normalizedGoal.Contains("intern") && opportunity.Type == OpportunityType.Internship) score += 12;
-        if ((normalizedGoal.Contains("startup") || normalizedGoal.Contains("fund")) && opportunity.Type == OpportunityType.StartupAccelerator) score += 12;
-
-        // Read the outcome rather than hunting for keywords that an outcome goal does not contain.
-        var outcome = LearningIntentReader.Read(profile).Outcome;
-        score += outcome switch
-        {
-            LearningOutcome.NewJob when opportunity.Type is OpportunityType.Job or OpportunityType.Internship => 12,
-            LearningOutcome.StartBusiness when opportunity.Type is OpportunityType.StartupAccelerator or OpportunityType.ResearchGrant => 12,
-            LearningOutcome.Promotion or LearningOutcome.Leadership
-                when opportunity.Type is OpportunityType.Fellowship or OpportunityType.Conference => 10,
-            LearningOutcome.EarnMore when opportunity.Type is OpportunityType.Job => 10,
-            _ => 0,
-        };
-        if (profile.Persona == PersonaType.Researcher && opportunity.Type == OpportunityType.ResearchGrant) score += 10;
-        if (profile.Persona == PersonaType.YoungProfessional && opportunity.Type is OpportunityType.Job or OpportunityType.RemoteJob or OpportunityType.Fellowship) score += 12;
-        if (profile.Persona == PersonaType.Graduate && opportunity.Type is OpportunityType.GraduateProgramme or OpportunityType.Internship or OpportunityType.Fellowship) score += 12;
-        if (profile.Persona == PersonaType.Student && opportunity.Type is OpportunityType.Internship or OpportunityType.Scholarship) score += 8;
-        if (profile.Persona == PersonaType.Entrepreneur && opportunity.Type is OpportunityType.StartupAccelerator or OpportunityType.Competition) score += 8;
-
-        if (profile.OpportunityPreferences.Count > 0 &&
-            profile.OpportunityPreferences.Any(p => p.Equals(opportunity.Type.ToString(), StringComparison.OrdinalIgnoreCase)))
-            score += 10;
-
-        return score;
-    }
-
     public static string PrimaryContext(UserProfile profile)
     {
         var strong = StrongInterests(profile).FirstOrDefault();
