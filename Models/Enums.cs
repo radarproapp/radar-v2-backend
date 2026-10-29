@@ -77,7 +77,16 @@ public enum OpportunityType
     Workshop,
     Training,
     Bootcamp,
-    Funding
+    Funding,
+
+    // Appended rather than filed alphabetically: these are persisted by value, so inserting one
+    // in the middle would silently relabel every opportunity already stored.
+    //
+    // Both are named in the spec and neither existed, so a seminar was filed as an Event and a
+    // job fair had nowhere to go at all - which means nobody could filter for either, and the
+    // persona scoring could not say they suit anybody.
+    Seminar,
+    JobFair
 }
 
 public enum OpportunityTrackingStatus

@@ -619,26 +619,20 @@ public class MongoOpportunityService : IOpportunityService
                 : $"It is open to people in {opp.RegionTag}."));
         }
 
-        var personaPoints = profile.Persona switch
-        {
-            // Graduate appeared in no scoring at all, so a graduate fell to the default and got
-            // no persona matching whatsoever — while OpportunityType.GraduateProgramme, the
-            // single most relevant type there is for one, matched nobody. Two gaps that only
-            // existed because nothing was ever written for the persona in between studying and
-            // working.
-            PersonaType.Graduate when opp.Type is OpportunityType.GraduateProgramme
-                or OpportunityType.Internship or OpportunityType.Fellowship
-                or OpportunityType.Training or OpportunityType.Bootcamp => 10,
-            PersonaType.Student when opp.Type is OpportunityType.Internship or OpportunityType.Scholarship or OpportunityType.Bootcamp => 8,
-            PersonaType.YoungProfessional when opp.Type is OpportunityType.Job or OpportunityType.Fellowship or OpportunityType.RemoteJob => 8,
-            PersonaType.Entrepreneur when opp.Type is OpportunityType.StartupAccelerator or OpportunityType.ResearchGrant or OpportunityType.Funding => 10,
-            PersonaType.Researcher when opp.Type is OpportunityType.ResearchGrant or OpportunityType.Fellowship or OpportunityType.Conference => 10,
-            _ => 4
-        };
+        // What the type of thing says about the fit, as a table rather than a switch buried
+        // here. See OpportunityFit: Graduate was missing from it entirely, and conferences,
+        // seminars, workshops and job fairs scored the no-match default for every persona at
+        // once.
+        var personaPoints = OpportunityFit.PointsFor(profile.Persona, opp.Type);
         score += personaPoints;
-        if (personaPoints > 4)
+
+        if (OpportunityFit.IsASignal(profile.Persona, opp.Type))
         {
-            signals.Add(new MatchSignal(personaPoints, "It is the kind of opening that suits where you are now."));
+            signals.Add(new MatchSignal(
+                personaPoints,
+                OpportunityFit.OpenToAnyone.Contains(opp.Type)
+                    ? "It is open to anyone who wants to turn up."
+                    : "It is the kind of opening that suits where you are now."));
         }
 
         var days = opp.DaysUntilDeadline;
