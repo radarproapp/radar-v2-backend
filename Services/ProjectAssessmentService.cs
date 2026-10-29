@@ -166,13 +166,40 @@ public class ProjectAssessmentService
 
     private const string SystemPrompt =
         "You assess a learner's project against a fixed rubric, one criterion at a time. Answer " +
-        "only the criteria you are given, by name. For each, give a verdict of exactly \"Met\", " +
-        "\"Partly\" or \"NotMet\", the evidence in the work that led to it, and - when it is not " +
-        "met - the one specific change that would move it. Evidence means something quoted or " +
-        "pointed at in what you were given, never an adjective. Do not give a score, a grade or " +
-        "an overall opinion: the mark is worked out from your verdicts. Judge the work in front " +
-        "of you at the stage stated, not against what a professional would produce. Return only " +
-        "valid JSON matching the requested schema.";
+        "only the criteria you are given, by name. For each, give a verdict, the evidence in the " +
+        "work that led to it, and - when it is not met - the one specific change that would move " +
+        "it. Evidence means something quoted or pointed at in what you were given, never an " +
+        "adjective. Do not give a score, a grade or an overall opinion: the mark is worked out " +
+        "from your verdicts.\n\n" +
+        MetMeans +
+        "\n\nThe stage decides which criteria apply, which has already been done for you. It does " +
+        "not lower what any of them require: a beginner's project is held to the beginner " +
+        "criteria in full, not to a softened version of them. Return only valid JSON matching " +
+        "the requested schema.";
+
+    /// <summary>
+    /// What the three verdicts cost, stated once and shared.
+    /// </summary>
+    /// <remarks>
+    /// Written after a two-line file reading "2 + 2 = 4" was assessed on production, scored nine
+    /// out of ten and accepted. Four criteria came back Met. Nothing was broken: the arithmetic
+    /// was right and the evidence quoted the work. The bar was simply never defined, so "does
+    /// what it says" was satisfied by a document that said almost nothing.
+    ///
+    /// An assessment that accepts anything teaches a learner that the mark is decoration, and the
+    /// first time they rely on it with real work is the time it costs them something.
+    /// </remarks>
+    internal const string MetMeans =
+        "Met means the criterion is fully and clearly satisfied by what is in front of you, and " +
+        "you can quote the part that satisfies it. Partly means it was attempted, or is present " +
+        "but thin. NotMet means it is absent or inadequate.\n\n" +
+        "Hold the line. Where you are uncertain between two verdicts, give the lower one - a " +
+        "learner can argue a verdict up with evidence, and nobody can argue one down. Work that " +
+        "is trivially short, that does the minimum, or that states a result without the working " +
+        "behind it is not Met on any criterion about substance, however correct it is. Being " +
+        "right is not the same as being enough.\n\n" +
+        "You are not here to encourage. The encouragement is in telling somebody exactly what " +
+        "would make their work good, which requires first saying that it is not yet.";
 
     private static string BuildPrompt(
         StudioProject project,

@@ -44,47 +44,81 @@ public class DocumentsController : ControllerBase
     /// review takes a reviewType from a dropdown, so a CV submitted with the default selected
     /// comes back criticised as an essay.
     /// </remarks>
+    /// <summary>
+    /// The least that can be assessed.
+    /// </summary>
+    /// <remarks>
+    /// Four hundred characters. Below that there is not enough to judge against a rubric, and an
+    /// assessment of it would be confident nonsense about something nobody read - which is the
+    /// same failure as a scanned PDF yielding stray characters, arrived at from the other end.
+    /// </remarks>
+    private const int MinimumPastedLength = 400;
+
     [HttpPost("assess")]
     [Consumes("multipart/form-data")]
     [RequestSizeLimit(20_000_000)]
     /// <param name="kind">
     /// Optional. What the reader says the document is, which skips detection entirely.
     /// </param>
+    /// <param name="text">
+    /// The work pasted directly, for somebody who has it in a window rather than a file.
+    /// </param>
     public async Task<IActionResult> AssessAsync(
         [FromForm] IFormFile? file,
         [FromForm] DocumentKind? kind = null,
+        [FromForm] string? text = null,
         CancellationToken ct = default)
     {
         var profile = await _profiles.GetCurrentUserAsync();
         if (profile is null) return NotFound(new { error = "Profile not found" });
 
-        if (file is null || file.Length == 0)
-            return BadRequest(new { error = "No file uploaded." });
+        // Pasted or attached. Most writing being assessed is open in another window, and making
+        // somebody export it to a file first is a step that exists only because the endpoint
+        // wanted one.
+        string body;
 
-        if (!DocumentTextExtractor.IsSupported(file.FileName, file.ContentType))
+        if (!string.IsNullOrWhiteSpace(text))
         {
-            return StatusCode(StatusCodes.Status415UnsupportedMediaType, new
+            body = text.Trim();
+
+            if (body.Length < MinimumPastedLength)
             {
-                error = "Unsupported format. PDF, Word, Markdown, text, CSV, JSON or HTML.",
-            });
+                return BadRequest(new
+                {
+                    error = "There is not enough here to assess. Paste the whole piece of work.",
+                });
+            }
         }
-
-        string text;
-        try
+        else if (file is not null && file.Length > 0)
         {
-            text = await DocumentTextExtractor.ExtractTextAsync(file, ct);
-        }
-        catch (Exception ex)
-        {
-            return BadRequest(new { error = $"Could not read this document: {ex.Message}" });
-        }
+            if (!DocumentTextExtractor.IsSupported(file.FileName, file.ContentType))
+            {
+                return StatusCode(StatusCodes.Status415UnsupportedMediaType, new
+                {
+                    error = "Unsupported format. PDF, Word, Markdown, text, CSV, JSON or HTML.",
+                });
+            }
 
-        if (string.IsNullOrWhiteSpace(text))
-            return BadRequest(new { error = "That file contained no readable text." });
+            try
+            {
+                body = await DocumentTextExtractor.ExtractTextAsync(file, ct);
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { error = $"Could not read this document: {ex.Message}" });
+            }
+        }
+        else
+        {
+            return BadRequest(new { error = "Paste your work, or attach a file." });
+        }
 
         // Scanned PDFs extract a handful of stray characters, and assessing those produces
         // confident nonsense about a document nobody read. There is no OCR here, so say so.
-        if (text.Trim().Length < 400)
+        //
+        // Only for files: pasted text short enough to trip this was already refused above, with a
+        // message about pasting the whole piece rather than one about scanning.
+        if (file is not null && body.Trim().Length < MinimumPastedLength)
         {
             return StatusCode(StatusCodes.Status422UnprocessableEntity, new
             {
@@ -93,7 +127,7 @@ public class DocumentsController : ControllerBase
             });
         }
 
-        return Ok(await _assessments.AssessAsync(profile, file.FileName, text, kind, ct));
+        return Ok(await _assessments.AssessAsync(profile, file?.FileName ?? "Pasted text", body, kind, ct));
     }
 
     /// <summary>Past assessments, newest first, so a revision can be compared with what it fixed.</summary>

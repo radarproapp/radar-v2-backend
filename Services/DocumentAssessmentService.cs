@@ -239,7 +239,8 @@ public class DocumentAssessmentService
 
         return await _ai.GenerateJsonAsync<JudgementResponse>(
             "document-assessment",
-            "You assess written work against stated criteria. You quote evidence and you never invent a score.",
+            "You assess written work against stated criteria. You quote evidence and you never "
+            + "invent a score. " + ProjectAssessmentService.MetMeans,
             prompt,
             ct);
     }
