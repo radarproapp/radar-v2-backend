@@ -25,10 +25,16 @@ public class MongoCompareService : ICompareService
         _ai = ai;
     }
 
-    public async Task<PolicyComparison?> GetComparisonAsync(string comparisonId)
+    /// <summary>One comparison, by id, belonging to the person asking.</summary>
+    /// <remarks>
+    /// The owner is part of the query. This took an id alone, so any signed-in account could read
+    /// any comparison in the database - and a comparison carries whatever the reader asked to
+    /// have compared.
+    /// </remarks>
+    public async Task<PolicyComparison?> GetComparisonAsync(string userId, string comparisonId)
     {
         return await _db.Comparisons
-            .Find(c => c.Id == comparisonId)
+            .Find(c => c.Id == comparisonId && c.UserId == userId)
             .FirstOrDefaultAsync();
     }
 

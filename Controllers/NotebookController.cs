@@ -29,10 +29,21 @@ public class NotebookController : ControllerBase
         return Ok(await _notebook.GetNotesAsync(profile.Id, archived));
     }
 
+    /// <summary>
+    /// One note, which has to be one of yours.
+    /// </summary>
+    /// <remarks>
+    /// This took an id and nothing else, as did the update and the delete below it, so any
+    /// signed-in account could read, rewrite or delete any note in the database. Somebody else's
+    /// note answers as a note that does not exist.
+    /// </remarks>
     [HttpGet("{id}")]
     public async Task<IActionResult> GetByIdAsync(string id)
     {
-        var note = await _notebook.GetNoteByIdAsync(id);
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        var note = await _notebook.GetNoteByIdAsync(profile.Id, id);
         return note is null ? NotFound(new { error = "Note not found" }) : Ok(note);
     }
 
@@ -73,8 +84,11 @@ public class NotebookController : ControllerBase
     {
         if (!ModelState.IsValid) return ValidationProblem();
 
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
         var note = await _notebook.UpdateNoteAsync(
-            id, request.Title, request.Body, request.Tags,
+            profile.Id, id, request.Title, request.Body, request.Tags,
             request.IsPinned, request.IsArchived, request.Color, request.Checklist);
 
         // Returns the saved note so the grid can reconcile without a second round trip.
@@ -84,7 +98,10 @@ public class NotebookController : ControllerBase
     [HttpDelete("{id}")]
     public async Task<IActionResult> DeleteAsync(string id)
     {
-        await _notebook.DeleteNoteAsync(id);
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        await _notebook.DeleteNoteAsync(profile.Id, id);
         return NoContent();
     }
 }

@@ -31,7 +31,10 @@ public class CompareController : ControllerBase
     [HttpGet("{id}")]
     public async Task<IActionResult> GetByIdAsync(string id)
     {
-        var comparison = await _compare.GetComparisonAsync(id);
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        var comparison = await _compare.GetComparisonAsync(profile.Id, id);
         return comparison is null
             ? NotFound(new { error = "Comparison not found" })
             : Ok(comparison);

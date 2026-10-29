@@ -27,10 +27,26 @@ public class MongoNotebookService : INotebookService
             .ToList();
     }
 
-    public async Task<Note?> GetNoteByIdAsync(string noteId)
+    /// <summary>
+    /// One note, by id, belonging to the person asking.
+    /// </summary>
+    /// <remarks>
+    /// Every read and write here took a note id and nothing else, so any signed-in account could
+    /// fetch, rewrite or delete any note in the database by id. The ids are GUIDs, which makes
+    /// them hard to guess and is not an authorisation check: they travel in URLs somebody shares,
+    /// in logs, and in the response to creating a note.
+    ///
+    /// The owner is part of the query rather than checked after the fact, so a note belonging to
+    /// somebody else reads as a note that does not exist - which is both the honest answer and
+    /// the one that says least.
+    /// </remarks>
+    public static FilterDefinition<Note> OwnedBy(string noteId, string userId) =>
+        Builders<Note>.Filter.Where(n => n.Id == noteId && n.UserId == userId);
+
+    public async Task<Note?> GetNoteByIdAsync(string userId, string noteId)
     {
         return await _db.Notes
-            .Find(n => n.Id == noteId)
+            .Find(OwnedBy(noteId, userId))
             .FirstOrDefaultAsync();
     }
 
@@ -54,6 +70,7 @@ public class MongoNotebookService : INotebookService
     /// those clobber whatever else had changed since the page loaded.
     /// </summary>
     public async Task<Note?> UpdateNoteAsync(
+        string userId,
         string noteId,
         string? title = null,
         string? body = null,
@@ -63,7 +80,7 @@ public class MongoNotebookService : INotebookService
         string? color = null,
         List<NoteChecklistItem>? checklist = null)
     {
-        var note = await _db.Notes.Find(n => n.Id == noteId).FirstOrDefaultAsync();
+        var note = await _db.Notes.Find(OwnedBy(noteId, userId)).FirstOrDefaultAsync();
         if (note is null) return null;
 
         if (title is not null) note.Title = title;
@@ -79,12 +96,12 @@ public class MongoNotebookService : INotebookService
         if (title is not null || body is not null || checklist is not null)
             note.EditedAt = DateTime.UtcNow;
 
-        await _db.Notes.ReplaceOneAsync(n => n.Id == noteId, note);
+        await _db.Notes.ReplaceOneAsync(OwnedBy(noteId, userId), note);
         return note;
     }
 
-    public async Task DeleteNoteAsync(string noteId)
+    public async Task DeleteNoteAsync(string userId, string noteId)
     {
-        await _db.Notes.DeleteOneAsync(n => n.Id == noteId);
+        await _db.Notes.DeleteOneAsync(OwnedBy(noteId, userId));
     }
 }
