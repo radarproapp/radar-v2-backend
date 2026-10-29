@@ -65,8 +65,16 @@ public class AssessmentCriterion
     /// <summary>What this criterion asks of the document, in a sentence.</summary>
     public string Asks { get; set; } = string.Empty;
 
-    /// <summary>Met, Partly, or NotMet. Deliberately three, not a percentage.</summary>
-    public string Verdict { get; set; } = "Partly";
+    /// <summary>
+    /// Met, Partly, NotMet — or Unjudged. Deliberately four words, not a percentage.
+    /// </summary>
+    /// <remarks>
+    /// Unjudged by default, because an unanswered criterion is the state every one of these
+    /// starts in. It defaulted to Partly, so a rubric returned without a judgement - nothing to
+    /// read, a provider outage - was stored with every line reading "Partly" beside the sentence
+    /// saying nothing was assessed. A default that reads as a verdict is a verdict nobody made.
+    /// </remarks>
+    public string Verdict { get; set; } = "Unjudged";
 
     /// <summary>What in the document led to that verdict. Quotes or locations, not adjectives.</summary>
     public string Evidence { get; set; } = string.Empty;

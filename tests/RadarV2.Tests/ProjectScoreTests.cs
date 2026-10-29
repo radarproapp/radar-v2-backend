@@ -227,8 +227,76 @@ public class ProjectScoreTests
     [Fact]
     public void AMarkIsNeverRoundedUp()
     {
-        // Three of four met is three quarters of the way up, which is 7.75.
-        Assert.Equal(7, ProjectScore.Of(SomeOf("Met", 3, "Unjudged", 1)));
+        // Two met and one partly is five sixths of the way up, which is 8.5.
+        Assert.Equal(8, ProjectScore.Of(SomeOf("Met", 2, "Partly", 1)));
+    }
+
+    /// <summary>
+    /// A criterion nobody judged cannot carry the work over the bar either.
+    /// </summary>
+    /// <remarks>
+    /// Measured: six met and one unmet scored five and was refused, while six met and one never
+    /// looked at scored eight and was accepted. So an unanswered criterion was worth more than a
+    /// failed one, and "we did not check" outranked "we checked and it failed".
+    ///
+    /// The service refuses to record a mark at all for a half-answered rubric, which is the
+    /// better place to catch this. The cap stays because the invariant belongs with the
+    /// arithmetic: nothing out of here clears the bar unless every criterion was judged.
+    /// </remarks>
+    [Fact]
+    public void AnUnjudgedCriterionCannotCarryTheWorkOverTheBar()
+    {
+        var mostlyAnswered = SomeOf("Met", 6, "Unjudged", 1);
+        var oneFailed = SomeOf("Met", 6, "NotMet", 1);
+
+        Assert.False(
+            ProjectScore.IsAccepted(ProjectScore.Of(mostlyAnswered)),
+            $"Six met and one unjudged scored {ProjectScore.Of(mostlyAnswered)}.");
+
+        // And no better than the same work with that criterion judged and failed.
+        Assert.Equal(ProjectScore.Of(oneFailed), ProjectScore.Of(mostlyAnswered));
+    }
+
+    /// <summary>
+    /// Checked at the rubric sizes that actually ship, not only at a convenient eight.
+    /// </summary>
+    /// <remarks>
+    /// ProjectStandards hands out five criteria at Beginner, six at Intermediate and seven at
+    /// Advanced, counting the evidence criterion for the kind of submission. A scale that behaves
+    /// at eight and not at six is a scale nobody is using.
+    /// </remarks>
+    [Theory]
+    [InlineData(5)]
+    [InlineData(6)]
+    [InlineData(7)]
+    public void TheBarHoldsAtEveryRubricSizeThatShips(int size)
+    {
+        Assert.Equal(10, ProjectScore.Of(All("Met", size)));
+        Assert.Equal(1, ProjectScore.Of(All("NotMet", size)));
+
+        // Nothing fully met does not pass, whatever the rubric length.
+        Assert.False(ProjectScore.IsAccepted(ProjectScore.Of(All("Partly", size))));
+
+        // One gap holds the work back, and the mark still says it is close.
+        var oneGap = SomeOf("Met", size - 1, "NotMet", 1);
+        Assert.Equal(ProjectScore.PassMark - 1, ProjectScore.Of(oneGap));
+    }
+
+    /// <summary>The mark stays on the scale a learner was told about, whatever the shape.</summary>
+    [Theory]
+    [InlineData("Met")]
+    [InlineData("Partly")]
+    [InlineData("NotMet")]
+    [InlineData("Unjudged")]
+    public void TheMarkIsAlwaysBetweenOneAndTen(string verdict)
+    {
+        for (var size = 1; size <= 9; size++)
+        {
+            var mark = ProjectScore.Of(All(verdict, size));
+
+            Assert.NotNull(mark);
+            Assert.InRange(mark!.Value, 1, 10);
+        }
     }
 
     // ── Acceptance after a revision ─────────────────────────────────────────

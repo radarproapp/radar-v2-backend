@@ -114,12 +114,42 @@ public class ProjectAssessmentService
 
         foreach (var criterion in rubric)
         {
-            var match = judged.Criteria.FirstOrDefault(c =>
-                string.Equals(c.Name, criterion.Name, StringComparison.OrdinalIgnoreCase));
+            var match = Matching(judged.Criteria, criterion.Name);
 
             criterion.Verdict = NormaliseVerdict(match?.Verdict);
             criterion.Evidence = Blank(match?.Evidence) ?? "Not assessed.";
             criterion.Fix = criterion.Verdict == "Met" ? null : Blank(match?.Fix);
+        }
+
+        // A rubric that came back half answered is not an assessment.
+        //
+        // Every criterion the model skipped, or renamed past recognition, became "Unjudged" and
+        // was then scored as earning nothing - which read as a judgement about the work. Two ways
+        // that went wrong. An answer of {"criteria": []} marked good work 1 out of 10 and told it
+        // the criteria were "mostly unmet", with nothing saying the fault was Radar's. And four
+        // answered of seven could still clear the bar, so a project was accepted with three of
+        // its standards never looked at.
+        //
+        // So an incomplete answer is a failure to assess, said in those words, and the learner
+        // submits again. The rubric still goes back with the lines that were answered marked, so
+        // it is visible which parts were reached rather than a flat "try again".
+        var unjudged = rubric.Count(c => c.Verdict is "Unjudged");
+
+        if (unjudged > 0)
+        {
+            _log.LogWarning(
+                "A project assessment answered {Judged} of {Total} criteria; not recording a mark.",
+                rubric.Count - unjudged, rubric.Count);
+
+            return new ProjectAssessment
+            {
+                Criteria = rubric,
+                JudgedFrom = judgedFrom,
+                NotAssessedReason =
+                    $"Radar reached {rubric.Count - unjudged} of the {rubric.Count} standards for "
+                    + "this stage and could not judge the rest, so there is no mark. Nothing is "
+                    + "wrong with your work — submit it again shortly.",
+            };
         }
 
         var score = ProjectScore.Of(rubric);
@@ -235,6 +265,39 @@ public class ProjectAssessmentService
             }
             """;
     }
+
+    /// <summary>
+    /// The model's answer for one rubric line, found by name.
+    /// </summary>
+    /// <remarks>
+    /// Matched on the words rather than the exact string. The prompt asks for the name exactly as
+    /// given and models mostly comply, but a trailing full stop, a parenthetical gloss or
+    /// different capitalisation all used to count as no answer at all — and an unanswered
+    /// criterion is now a refusal to mark, so near-misses are worth catching rather than
+    /// punishing somebody for.
+    ///
+    /// Containment is accepted only when exactly one candidate contains the name or is contained
+    /// by it. Two plausible matches means guessing which standard was judged, and attributing a
+    /// verdict to the wrong criterion is worse than admitting the line went unanswered.
+    /// </remarks>
+    private static JudgedCriterion? Matching(List<JudgedCriterion> judged, string name)
+    {
+        var wanted = Words(name);
+
+        var exact = judged.FirstOrDefault(c => Words(c.Name) == wanted);
+        if (exact is not null) return exact;
+
+        var near = judged
+            .Where(c => Words(c.Name) is { Length: > 3 } other
+                && (other.Contains(wanted) || wanted.Contains(other)))
+            .ToList();
+
+        return near.Count == 1 ? near[0] : null;
+    }
+
+    /// <summary>A name reduced to its letters and digits, for comparing two of them.</summary>
+    private static string Words(string? name) =>
+        new(( name ?? string.Empty).ToLowerInvariant().Where(char.IsLetterOrDigit).ToArray());
 
     private static string NormaliseVerdict(string? verdict) => verdict?.Trim().ToLowerInvariant() switch
     {

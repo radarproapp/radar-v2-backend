@@ -94,9 +94,19 @@ public static class ProjectScore
         // pass they cannot learn from.
         //
         // The mark still shows how far off it is: a project with one gap scores five, not one.
-        var unmet = criteria.Any(c => c.Verdict is "NotMet");
+        //
+        // Anything that is not a judgement in favour counts here, not only NotMet. A criterion
+        // nobody judged was treated as better than one that was judged and failed: six met and
+        // one unmet scored five and was refused, while six met and one never looked at scored
+        // eight and was accepted. "We did not check" cannot outrank "we checked and it failed".
+        //
+        // The service upstream now refuses to call an incompletely answered rubric an assessment
+        // at all, which is the better place to catch it. This stays because the invariant belongs
+        // with the arithmetic: no mark out of this function clears the bar unless every criterion
+        // was actually judged.
+        var unproven = criteria.Any(c => c.Verdict is not ("Met" or "Partly"));
 
-        return unmet ? Math.Min(mark, PassMark - 1) : mark;
+        return unproven ? Math.Min(mark, PassMark - 1) : mark;
     }
 
     /// <summary>Whether this mark clears the bar.</summary>
