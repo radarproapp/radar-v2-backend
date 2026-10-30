@@ -48,6 +48,10 @@ public static class OpportunityFit
             OpportunityType.Scholarship,
             OpportunityType.Bootcamp,
             OpportunityType.Competition,
+            // "Fellowships and exchange programmes", in the spec's list for this stage. It was
+            // here for a graduate and not for a student, so an undergraduate exchange scored the
+            // no-signal four.
+            OpportunityType.Fellowship,
         ],
 
         // Between studying and working, which is the stage with the most types of its own: the
@@ -60,6 +64,9 @@ public static class OpportunityFit
             OpportunityType.Job,
             OpportunityType.Scholarship,
             OpportunityType.Bootcamp,
+            // "Competitions and entrepreneurship opportunities", in the spec's list for this
+            // stage, and scored for a student but not for the graduate a year later.
+            OpportunityType.Competition,
         ],
 
         [PersonaType.YoungProfessional] =

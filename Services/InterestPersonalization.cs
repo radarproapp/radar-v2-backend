@@ -63,6 +63,13 @@ public static class InterestPersonalization
         AddDimension(matches, text, "Interest", GeneralInterests(profile), 5);
         AddDimension(matches, text, "Context", ContextPhrases(profile), 5);
 
+        // What the category is for, as opposed to what this reader typed.
+        //
+        // The spec asks for a feed prioritised by category, and persona reached this scorer only
+        // through PersonaImpact - written by the AI enricher and by nothing else. Two readers
+        // with the same interests and different stages got the same ranking. See PersonaPriorities.
+        AddDimension(matches, text, PersonaPriorities.Dimension, PersonaPriorities.For(profile.Persona), PersonaPriorities.Weight);
+
         // What the record knows and the profile does not. Weighted below Goal, because a stated
         // goal is a decision and a derived topic is an inference - but above Interest, because
         // what someone is actually working through beats a box they ticked at signup.
@@ -274,6 +281,7 @@ public static class InterestPersonalization
         "Gap" => 12,
         "Intent" => 15,
         "Capability" => 15,
+        "Category" => PersonaPriorities.Weight,
         "Interest" => 10,
         "Context" => 5,
         _ => 0,

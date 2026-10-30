@@ -338,4 +338,27 @@ public class OpportunityFitTests
     {
         Assert.Contains(stated, OpportunityFit.Matching(advert, [stated]));
     }
+
+    /// <summary>
+    /// Every type the spec names for a stage scores for that stage.
+    /// </summary>
+    /// <remarks>
+    /// Both of these were in the written list and absent from the table, and the absence is
+    /// invisible by inspection: the default is four points rather than an error, so the type
+    /// simply ranked as though it said nothing about the reader. A student's exchange fellowship
+    /// and a graduate's pitch competition are both named in the spec for those stages.
+    /// </remarks>
+    [Theory]
+    [InlineData(PersonaType.Student, OpportunityType.Fellowship)]
+    [InlineData(PersonaType.Student, OpportunityType.Scholarship)]
+    [InlineData(PersonaType.Student, OpportunityType.Internship)]
+    [InlineData(PersonaType.Student, OpportunityType.Competition)]
+    [InlineData(PersonaType.Graduate, OpportunityType.Competition)]
+    [InlineData(PersonaType.Graduate, OpportunityType.GraduateProgramme)]
+    [InlineData(PersonaType.Graduate, OpportunityType.Job)]
+    [InlineData(PersonaType.Graduate, OpportunityType.Scholarship)]
+    public void TheTypesTheSpecNamesForAStageScoreForIt(PersonaType persona, OpportunityType type)
+    {
+        Assert.Equal(OpportunityFit.Stage, OpportunityFit.PointsFor(persona, type));
+    }
 }

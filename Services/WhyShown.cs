@@ -47,6 +47,9 @@ public static class WhyShown
                     "Learning" => $"what you're learning next ({phrase})",
                     "Role" => $"the role you're aiming for ({phrase})",
                     "Gap" => $"something you're still building ({phrase})",
+                    // Named as what the stage is for, not as the reader's own words - they
+                    // ticked a category, they did not type "scholarship".
+                    "Category" => $"a priority at your stage ({phrase})",
                     _ => phrase,
                 };
             })
