@@ -7,11 +7,16 @@ namespace RadarV2.Services;
 /// Deterministic relevance rules that run before (and as a fallback to) optional AI enrichment, so
 /// personalization stays useful with no model/API key configured.
 ///
-/// Ranking follows the product's priority hierarchy:
-///   Goal (30) &gt; Problem (20) &gt; Intent (15) &gt; Capability (15) &gt; Strong interest (10)
-///   &gt; General interest (5) &gt; Context (5)
+/// Ranking follows the product's priority hierarchy, which is WeightFor and nothing else:
+///   Goal (30) &gt; Learning (25) &gt; Role (22) &gt; Problem (20) &gt; Intent (15)
+///   &gt; Capability (15) &gt; Category (12) &gt; Gap (12) &gt; Interest (10) &gt; Context (5)
 /// Each dimension contributes at most its weight, scaled by how much of the phrase matched, so a
 /// single keyword cannot dominate and multiple weak signals still add up.
+///
+/// Two details this used to state wrongly, both worth knowing before changing a number. A strong
+/// interest and a general one are the same dimension at the same weight - the old comment
+/// promised 10 against 5, and the call site passed 5, but nothing read it. And they are added
+/// separately, so a reader whose dominant and general interests both match scores both.
 /// </summary>
 public static class InterestPersonalization
 {
@@ -55,13 +60,13 @@ public static class InterestPersonalization
         var text = Text(item);
         var matches = new List<DimensionMatch>();
 
-        AddDimension(matches, text, "Goal", GoalPhrases(profile), 30);
-        AddDimension(matches, text, "Problem", profile.Problems, 20);
-        AddDimension(matches, text, "Intent", IntentPhrases(profile), 15);
-        AddDimension(matches, text, "Capability", profile.Capabilities, 15);
-        AddDimension(matches, text, "Interest", StrongInterests(profile), 10);
-        AddDimension(matches, text, "Interest", GeneralInterests(profile), 5);
-        AddDimension(matches, text, "Context", ContextPhrases(profile), 5);
+        AddDimension(matches, text, "Goal", GoalPhrases(profile));
+        AddDimension(matches, text, "Problem", profile.Problems);
+        AddDimension(matches, text, "Intent", IntentPhrases(profile));
+        AddDimension(matches, text, "Capability", profile.Capabilities);
+        AddDimension(matches, text, "Interest", StrongInterests(profile));
+        AddDimension(matches, text, "Interest", GeneralInterests(profile));
+        AddDimension(matches, text, "Context", ContextPhrases(profile));
 
         // What the category is for, as opposed to what this reader typed.
         //
@@ -73,7 +78,11 @@ public static class InterestPersonalization
         // typed by a user, so they can be required to appear as whole words - which the keyword
         // path does not do, and which is the difference between "graduate job" and "undergraduate
         // enrolment".
-        var category = PersonaPriorities.Matched(text, profile.Persona);
+        // Only a category they chose. PersonaType's default is a real value - Student - and
+        // signing up writes a profile without touching it, so every new account read as a
+        // student. Ranking on that is a guess; printing "a priority at your stage" beside it is
+        // the guess stated as fact. See UserProfile.PersonaChosenAt.
+        var category = profile.HasChosenCategory ? PersonaPriorities.Matched(text, profile.Persona) : null;
         if (category is not null)
             matches.Add(new DimensionMatch(PersonaPriorities.Dimension, category, 1));
 
@@ -82,9 +91,9 @@ public static class InterestPersonalization
         // what someone is actually working through beats a box they ticked at signup.
         if (record is not null && record.Confidence >= MinConfidenceToUseRecord)
         {
-            AddDimension(matches, text, "Role", [record.TargetRole], 22);
-            AddDimension(matches, text, "Learning", record.PriorityTopics, 25);
-            AddDimension(matches, text, "Gap", record.WeakAreas, 12);
+            AddDimension(matches, text, "Role", [record.TargetRole]);
+            AddDimension(matches, text, "Learning", record.PriorityTopics);
+            AddDimension(matches, text, "Gap", record.WeakAreas);
         }
 
         if (item.PersonaImpact.ContainsKey(profile.Persona.ToString()))
@@ -299,7 +308,21 @@ public static class InterestPersonalization
         _ => 0,
     };
 
-    private static void AddDimension(List<DimensionMatch> matches, string text, string dimension, IEnumerable<string> phrases, double weight)
+    /// <summary>
+    /// Records the best-matching phrase for a dimension, if any of them match at all.
+    /// </summary>
+    /// <remarks>
+    /// There used to be a weight parameter here, and every call site passed one - 30 for a goal,
+    /// 20 for a problem - so the list read like the hierarchy it was documenting. The body never
+    /// read it. Scoring went through WeightFor and only ever through WeightFor, which meant the
+    /// numbers at the call sites could say anything at all and two of them did: the general
+    /// interest call passed 5 and scored 10.
+    ///
+    /// Removed rather than honoured. Honouring it would have halved what a general interest is
+    /// worth, which is a change to how the feed ranks and not a tidy-up. WeightFor is the one
+    /// place a weight lives; this now makes that obvious instead of implying a second one.
+    /// </remarks>
+    private static void AddDimension(List<DimensionMatch> matches, string text, string dimension, IEnumerable<string> phrases)
     {
         var bestCoverage = 0.0;
         string? bestPhrase = null;

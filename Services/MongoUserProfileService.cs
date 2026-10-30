@@ -72,6 +72,8 @@ public class MongoUserProfileService : IUserProfileService
         {
             UserId = user.Id,
             Persona = persona,
+            // Named in order to create the profile, so this one is theirs rather than the default.
+            PersonaChosenAt = DateTime.UtcNow,
             Label = string.IsNullOrWhiteSpace(label) ? PersonaLabel(persona) : label.Trim(),
             // The name follows the person, not the profile; everything else starts empty, because
             // a graduate profile that inherited a student's interests would be the same guessing

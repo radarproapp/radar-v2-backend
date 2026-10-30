@@ -17,6 +17,9 @@ public class PersonaPrioritiesTests
     private static UserProfile Reader(PersonaType persona) => new()
     {
         Persona = persona,
+        // Chosen, not defaulted. Without this the category does not score at all, which is the
+        // point of the test below.
+        PersonaChosenAt = new DateTime(2026, 10, 30, 0, 0, 0, DateTimeKind.Utc),
         Interests = ["Mathematics"],
         Goals = ["Get better at mathematics"],
         PrimaryGoal = "Get better at mathematics",
@@ -61,6 +64,39 @@ public class PersonaPrioritiesTests
         var student = InterestPersonalization.ContentScore(scheme, Reader(PersonaType.Student));
 
         Assert.True(graduate > student, $"graduate {graduate}, student {student}");
+    }
+
+    /// <summary>
+    /// A category nobody chose does not rank, and does not get named as a reason.
+    /// </summary>
+    /// <remarks>
+    /// PersonaType's default is a real value - Student - and signing up writes a profile without
+    /// touching the field. So every new account read as a student, and once the category started
+    /// shaping the ranking it also started saying "a priority at your stage" about a stage nobody
+    /// had stated. Radar asks; it does not decide on somebody's behalf and then tell them it was
+    /// their answer.
+    /// </remarks>
+    [Fact]
+    public void ACategoryNobodyChoseDoesNotRank()
+    {
+        var scholarship = Item("NNPC scholarship applications open for undergraduates");
+
+        var neverAsked = new UserProfile
+        {
+            // Persona left at its default, as signing up leaves it.
+            Interests = ["Mathematics"],
+            Goals = ["Get better at mathematics"],
+            PrimaryGoal = "Get better at mathematics",
+        };
+
+        Assert.False(neverAsked.HasChosenCategory);
+
+        var explained = InterestPersonalization.Explain(neverAsked, scholarship);
+
+        Assert.DoesNotContain(explained.MatchedSignals, s => s.StartsWith($"{PersonaPriorities.Dimension}:", StringComparison.Ordinal));
+        Assert.True(
+            explained.Score < InterestPersonalization.ContentScore(scholarship, Reader(PersonaType.Student)),
+            "a chosen category should rank above one that was never stated");
     }
 
     /// What the reader typed still wins. The category is a box they ticked; the goal is a

@@ -25,6 +25,29 @@ public class UserProfile
     public string Email { get; set; } = string.Empty;
     public string Role { get; set; } = "User";
     public PersonaType Persona { get; set; }
+
+    /// <summary>
+    /// When the reader actually chose their category, or null if there is no record of it.
+    /// </summary>
+    /// <remarks>
+    /// Persona is an enum, so its default is a real value: Student. Signing up writes a profile
+    /// without touching the field, which means every new account reads as a Student until it says
+    /// otherwise - and nothing asked. That was invisible while persona only reached the feed
+    /// through an enricher-written dictionary; it stopped being invisible when the category
+    /// started shaping the ranking and naming itself as the reason ("a priority at your stage"),
+    /// which is a claim about a stage nobody stated.
+    ///
+    /// Stored as the moment rather than as a flag. A bool here would be false for the accounts
+    /// that did choose before this field existed; a date is simply the record we have, and its
+    /// absence is accurate - we genuinely never wrote one down. The spec says to ask for the
+    /// category "if they have not already done so", so the honest answer to not knowing is the
+    /// behaviour it already calls for.
+    /// </remarks>
+    public DateTime? PersonaChosenAt { get; set; }
+
+    /// <summary>Whether the category is theirs or merely the enum's default.</summary>
+    [BsonIgnore]
+    public bool HasChosenCategory => PersonaChosenAt is not null;
     public string PrimaryGoal { get; set; } = string.Empty;
     public List<string> Interests { get; set; } = [];
     public string Region { get; set; } = string.Empty;

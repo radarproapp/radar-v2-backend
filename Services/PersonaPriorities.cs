@@ -134,33 +134,44 @@ public static class PersonaPriorities
             "entrepreneurship",
         ],
 
-        // Established and moving. The spec's part on professionals was not to hand when this was
-        // written, so this stage and the two below it are read the same way as the two that were
-        // specified: what the category is for rather than what the person happens to follow.
-        // Worth checking against the written list.
+        // Established and working. The spec's list: industry developments, market and business
+        // intelligence, relevant funding, grants, contracts and tenders, professional
+        // certifications, leadership and career advancement, new technologies and industry
+        // practices, research findings and emerging trends, conferences and professional events,
+        // and strategic partnerships.
         //
-        // "promotion" is deliberately absent. Bounded growth still reaches "promotional", so
-        // every festive-season advertising story would have scored as career news. What the term
-        // was there for is covered by career advancement and career progression.
+        // "promotion" is deliberately absent, though career advancement is the spec's own
+        // wording for it. Bounded growth still reaches "promotional", so every festive-season
+        // advertising story would have scored as career news.
         [PersonaType.YoungProfessional] =
         [
-            "professional certification",
-            "career advancement",
-            "career progression",
-            "leadership programme",
-            "leadership program",
-            "management training",
-            "executive education",
+            "industry development",
             "industry trend",
             "industry outlook",
-            "salary",
-            "salaries",
-            "remuneration",
-            "pay rise",
-            "remote work",
-            "professional networking",
-            "upskilling",
-            "mentorship",
+            "industry practice",
+            "market intelligence",
+            "business intelligence",
+            "market outlook",
+            "grant funding",
+            "grant application",
+            "funding opportunity",
+            "call for tender",
+            "tender notice",
+            "procurement notice",
+            "contract award",
+            "request for proposal",
+            "professional certification",
+            "leadership development",
+            "leadership programme",
+            "leadership program",
+            "career advancement",
+            "career progression",
+            "emerging technology",
+            "emerging trend",
+            "research finding",
+            "professional conference",
+            "industry conference",
+            "strategic partnership",
         ],
 
         [PersonaType.Entrepreneur] =

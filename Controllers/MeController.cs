@@ -265,7 +265,11 @@ public class MeController : ControllerBase
         // otherwise. The list drives the feed; this one drives Learn.
         if (string.IsNullOrWhiteSpace(profile.PrimaryGoal)) profile.PrimaryGoal = goals[0];
 
-        if (request.Persona.HasValue) profile.Persona = request.Persona.Value;
+        if (request.Persona.HasValue)
+        {
+            profile.Persona = request.Persona.Value;
+            profile.PersonaChosenAt = DateTime.UtcNow;
+        }
         profile.OnboardingComplete = true;
 
         await _profiles.SaveProfileAsync(profile);
@@ -412,6 +416,7 @@ public class MeController : ControllerBase
             // and nothing changed, because OnboardingComplete stayed true and the router never
             // re-gated them.
             profile.Persona = persona;
+            profile.PersonaChosenAt = DateTime.UtcNow;
             profile.OnboardingComplete = false;
 
             // Only discard the old persona's answers when this request is not itself supplying new
@@ -423,6 +428,7 @@ public class MeController : ControllerBase
         else if (Enum.TryParse<PersonaType>(request.Persona, ignoreCase: true, out var samePersona))
         {
             profile.Persona = samePersona;
+            profile.PersonaChosenAt = DateTime.UtcNow;
         }
     }
 
