@@ -1,3 +1,5 @@
+using RadarV2.Services;
+using Microsoft.AspNetCore.RateLimiting;
 using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -56,6 +58,7 @@ public class RoadmapsController : ControllerBase
     /// without being asked a single question. This endpoint only ever adds what was asked for.
     /// </remarks>
     [HttpPost("sections")]
+    [EnableRateLimiting(RequestLimits.Thinking)]
     public async Task<IActionResult> AddSectionAsync([FromBody] AddSectionRequest request, CancellationToken ct = default)
     {
         if (!ModelState.IsValid) return ValidationProblem();
@@ -85,6 +88,7 @@ public class RoadmapsController : ControllerBase
     [HttpPost("sections/from-document")]
     [Consumes("multipart/form-data")]
     [RequestSizeLimit(20_000_000)]
+    [EnableRateLimiting(RequestLimits.Thinking)]
     public async Task<IActionResult> AddSectionFromDocumentAsync(
         [FromForm] IFormFile? file,
         CancellationToken ct = default)
@@ -138,6 +142,7 @@ public class RoadmapsController : ControllerBase
     }
 
     [HttpPost("active/topics")]
+    [EnableRateLimiting(RequestLimits.Thinking)]
     public async Task<IActionResult> AddTopicToActiveAsync([FromBody] AddTopicRequest request)
     {
         if (!ModelState.IsValid) return ValidationProblem();
@@ -158,6 +163,7 @@ public class RoadmapsController : ControllerBase
     /// engine is unavailable, so this always returns a usable roadmap.
     /// </summary>
     [HttpPost("generate")]
+    [EnableRateLimiting(RequestLimits.Thinking)]
     public async Task<IActionResult> GenerateAsync()
     {
         var profile = await _profiles.GetCurrentUserAsync();

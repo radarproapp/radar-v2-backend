@@ -20,7 +20,26 @@ public class RadarDatabase
     {
         var connectionString = config["MongoDB:ConnectionString"] ?? "mongodb://localhost:27017";
         var databaseName     = config["MongoDB:DatabaseName"] ?? "radar";
-        var client = new MongoClient(connectionString);
+
+        // A pool with a ceiling, and a wait rather than a hang.
+        //
+        // The driver's default pool is a hundred connections per process and it will open them
+        // all under load. Atlas caps connections per cluster - on the shared tiers that cap is
+        // low - so one busy instance can take the whole allowance, and the next instance, the
+        // cron job and the admin console all get refused. The failure does not look like load:
+        // it looks like the database being down.
+        //
+        // The wait timeout matters as much as the size. Without one, a request that cannot get a
+        // connection blocks until something else finishes, which turns a slow database into a
+        // hung web server; with one it fails in five seconds and says so.
+        var settings = MongoClientSettings.FromConnectionString(connectionString);
+        settings.MaxConnectionPoolSize = config.GetValue("MongoDB:MaxPoolSize", 40);
+        settings.MinConnectionPoolSize = config.GetValue("MongoDB:MinPoolSize", 2);
+        settings.WaitQueueTimeout = TimeSpan.FromSeconds(5);
+        settings.ConnectTimeout = TimeSpan.FromSeconds(10);
+        settings.ServerSelectionTimeout = TimeSpan.FromSeconds(10);
+
+        var client = new MongoClient(settings);
         _db = client.GetDatabase(databaseName);
 
         // Run index creation in background so cold boot and the first HTTP request are instantaneous

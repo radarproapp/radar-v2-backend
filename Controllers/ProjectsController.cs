@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.RateLimiting;
 using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -100,6 +101,7 @@ public class ProjectsController : ControllerBase
     /// returns the stored plan rather than regenerating (and re-billing) one.
     /// </summary>
     [HttpPost("{projectId}/plan")]
+    [EnableRateLimiting(RequestLimits.Thinking)]
     public async Task<IActionResult> GeneratePlanAsync(string projectId)
     {
         var profile = await _profiles.GetCurrentUserAsync();
@@ -153,6 +155,7 @@ public class ProjectsController : ControllerBase
     [HttpPost("{projectId}/submit")]
     [Consumes("multipart/form-data")]
     [RequestSizeLimit(20_000_000)]
+    [EnableRateLimiting(RequestLimits.Thinking)]
     public async Task<IActionResult> SubmitAsync(
         string projectId,
         [FromForm] SubmissionKind kind,

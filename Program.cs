@@ -125,6 +125,15 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 
 builder.Services.AddAuthorization();
+// No SizeLimit, deliberately.
+//
+// Setting one makes every entry that does not declare a Size throw on write, and six of the
+// seven writers here do not - the lesson corpus counts, the model response cache, the session
+// version. It would have compiled, passed the suite, and thrown on the first request in
+// production.
+//
+// Each cache is bounded by its own expiry instead, which is what was missing: the navigator's
+// focus was in a static Dictionary with no expiry at all.
 builder.Services.AddMemoryCache();
 
 // Singleton so the cached versions are shared by the whole process: the request that ends an
@@ -347,6 +356,11 @@ builder.Services.AddScoped<IHomeBriefService, HomeBriefService>();
 builder.Services.AddScoped<AiRelevanceService>();
 builder.Services.AddScoped<AiOpportunityMatchService>();
 
+// How much of Radar one caller may use at once. There was no limit of any kind, and the
+// expensive things here are model calls and a metered quota rather than CPU - so a client in a
+// retry loop could spend the month's budget before anybody noticed. See RequestLimits.
+builder.Services.AddRadarRateLimiting();
+
 var app = builder.Build();
 
 // Surfaces variables that are set but misnamed, which otherwise present as the feature simply
@@ -487,6 +501,10 @@ app.Use(async (context, next) =>
     await next(context);
 });
 app.UseAuthorization();
+
+// After authentication, so a signed-in caller is limited by account rather than by address.
+// Several learners behind one mobile network share an address and should not share a budget.
+app.UseRateLimiter();
 
 app.MapStaticAssets();
 app.MapControllers();

@@ -1,3 +1,5 @@
+using RadarV2.Services;
+using Microsoft.AspNetCore.RateLimiting;
 using System.ComponentModel.DataAnnotations;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -58,6 +60,7 @@ public class AskRadarController : ControllerBase
     [HttpPost("transcribe")]
     [Consumes("multipart/form-data")]
     [RequestSizeLimit(25_000_000)]
+    [EnableRateLimiting(RequestLimits.Thinking)]
     public async Task<IActionResult> TranscribeAsync([FromForm] IFormFile? audio, CancellationToken ct = default)
     {
         var profile = await _profiles.GetCurrentUserAsync();
@@ -90,6 +93,7 @@ public class AskRadarController : ControllerBase
     }
 
     [HttpPost("chat")]
+    [EnableRateLimiting(RequestLimits.Thinking)]
     public async Task<IActionResult> ChatAsync([FromBody] ChatRequest request)
     {
         if (!ModelState.IsValid) return ValidationProblem();

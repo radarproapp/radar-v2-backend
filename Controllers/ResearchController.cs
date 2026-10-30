@@ -1,3 +1,5 @@
+using RadarV2.Services;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using RadarV2.Services.Interfaces;
@@ -60,6 +62,7 @@ public class ResearchController : ControllerBase
     }
 
     [HttpGet("{id}")]
+    [EnableRateLimiting(RequestLimits.Thinking)]
     public async Task<IActionResult> GetByIdAsync(string id)
     {
         var profile = await _profiles.GetCurrentUserAsync();
@@ -81,6 +84,7 @@ public class ResearchController : ControllerBase
     }
 
     [HttpPost("{id}/explain")]
+    [EnableRateLimiting(RequestLimits.Thinking)]
     public async Task<IActionResult> ExplainSimplyAsync(string id)
     {
         var explanation = await _research.ExplainSimplyAsync(id);
@@ -88,6 +92,7 @@ public class ResearchController : ControllerBase
     }
 
     [HttpPost("{id}/gaps")]
+    [EnableRateLimiting(RequestLimits.Thinking)]
     public async Task<IActionResult> FindResearchGapsAsync(string id)
     {
         var gaps = await _research.FindResearchGapsAsync(id);

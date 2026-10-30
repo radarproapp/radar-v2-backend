@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Caching.Memory;
 using MongoDB.Driver;
 using RadarV2.Data;
 using RadarV2.Models;
@@ -9,30 +10,58 @@ public class MongoNavigatorService : INavigatorService
 {
     private readonly RadarDatabase _db;
     private readonly IOpportunityService _opportunities;
+    private readonly IMemoryCache _cache;
 
-    // Per-user per-day cache so page refreshes don't re-query MongoDB
-    private static readonly Dictionary<string, NavigatorFocus> _cache = new();
+    /// <summary>
+    /// How long a day's focus is kept, and how much of the cache one entry is worth.
+    /// </summary>
+    /// <remarks>
+    /// This was a plain static Dictionary, keyed per user per day and never emptied. Three
+    /// problems, all of which only appear with users on the system.
+    ///
+    /// It grew without limit: one entry per active user per day, held until the process
+    /// restarted. At ten thousand learners that is ten thousand objects a day that nothing ever
+    /// removes.
+    ///
+    /// A Dictionary is not safe to write from several threads, and this is a web server. Two
+    /// requests for two different users arriving together can corrupt its internal state - which
+    /// does not throw tidily, it can spin a thread inside a lookup for ever.
+    ///
+    /// And it was per process, so a second instance would hold its own and the two would
+    /// disagree about the same user's day. That alone makes the service impossible to run more
+    /// than one copy of, which is the first thing anybody does to serve more people.
+    /// </remarks>
+    private static readonly TimeSpan FocusKeptFor = TimeSpan.FromHours(6);
 
-    public MongoNavigatorService(RadarDatabase db, IOpportunityService opportunities)
+    public MongoNavigatorService(RadarDatabase db, IOpportunityService opportunities, IMemoryCache cache)
     {
         _db           = db;
         _opportunities = opportunities;
+        _cache        = cache;
     }
+
+    private static string CacheKey(string userId) =>
+        $"navigator-focus:{userId}:{DateTime.UtcNow:yyyy-MM-dd}";
 
     public async Task<NavigatorFocus> GetTodaysFocusAsync(UserProfile profile)
     {
-        var key = $"{profile.Id}:{DateTime.UtcNow:yyyy-MM-dd}";
-        if (_cache.TryGetValue(key, out var hit)) return hit;
+        var key = CacheKey(profile.Id);
+
+        if (_cache.TryGetValue(key, out NavigatorFocus? hit) && hit is not null) return hit;
 
         var focus = await BuildFocusAsync(profile);
-        _cache[key] = focus;
+
+        // Expiry rather than a size cap: a size cap only works if every writer in the process
+        // declares one, and most here do not. Six hours bounds this to the people who actually
+        // read Radar in a window, rather than to everyone who ever has.
+        _cache.Set(key, focus, FocusKeptFor);
+
         return focus;
     }
 
     public Task<NavigatorFocus> RefreshAsync(UserProfile profile)
     {
-        var key = $"{profile.Id}:{DateTime.UtcNow:yyyy-MM-dd}";
-        _cache.Remove(key);
+        _cache.Remove(CacheKey(profile.Id));
         return GetTodaysFocusAsync(profile);
     }
 

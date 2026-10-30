@@ -1,3 +1,4 @@
+using RadarV2.Models;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.Authorization;
@@ -47,6 +48,16 @@ public class JobsController : ControllerBase
     }
 
     /// <summary>
+    /// How many learners' batches are built at once.
+    /// </summary>
+    /// <remarks>
+    /// Serial wastes all the waiting - each build is several database round trips. Unbounded
+    /// parallel is worse: it opens a connection per profile and takes the whole Atlas allowance
+    /// for a background job, so the website starts being refused by its own database.
+    /// </remarks>
+    private const int AtOnce = 8;
+
+    /// <summary>
     /// Builds every user's opportunity batch for today.
     ///
     /// This is what makes the daily batch daily. Computing it on read meant ranking a static set
@@ -63,28 +74,58 @@ public class JobsController : ControllerBase
     {
         if (!TryAuthorizeCron(out var failure)) return failure!;
 
-        var profiles = await _db.Profiles.Find(_ => true).ToListAsync(ct);
+        // Streamed and batched, rather than every profile in memory and one at a time.
+        //
+        // This loaded the whole profile collection into a list and then built one batch per
+        // profile, serially. At a few hundred learners that is a slow job; at ten thousand it is
+        // one that does not finish inside its window, and a batch nobody built reads to the
+        // learner as a day with no opportunities in it.
+        //
+        // Only personalised profiles are worth the work: the matching needs something stated to
+        // match against, and for everybody else the build would do the scan and then correctly
+        // produce nothing.
         var built = 0;
         var failed = 0;
+        var seen = 0;
 
-        foreach (var profile in profiles)
+        using var cursor = await _db.Profiles
+            .Find(Builders<UserProfile>.Filter.Eq(p => p.IsPersonalised, true))
+            .ToCursorAsync(ct);
+
+        while (await cursor.MoveNextAsync(ct))
         {
             if (ct.IsCancellationRequested) break;
-            try
+
+            foreach (var batch in cursor.Current.Chunk(AtOnce))
             {
-                await _opportunities.BuildDailyFeedAsync(profile);
-                built++;
-            }
-            catch (Exception ex)
-            {
-                // One bad profile must not stop everyone else's batch from being built.
-                failed++;
-                _log.LogWarning(ex, "Daily opportunity batch failed for profile {ProfileId}", profile.Id);
+                if (ct.IsCancellationRequested) break;
+
+                seen += batch.Length;
+
+                // A handful at a time. Serial wastes the waiting; unbounded parallel would open
+                // a connection per profile and take the whole Atlas allowance for the cron.
+                var results = await Task.WhenAll(batch.Select(async profile =>
+                {
+                    try
+                    {
+                        await _opportunities.BuildDailyFeedAsync(profile);
+                        return true;
+                    }
+                    catch (Exception ex)
+                    {
+                        // One bad profile must not stop everyone else's batch from being built.
+                        _log.LogWarning(ex, "Daily opportunity batch failed for profile {ProfileId}", profile.Id);
+                        return false;
+                    }
+                }));
+
+                built += results.Count(ok => ok);
+                failed += results.Count(ok => !ok);
             }
         }
 
         _log.LogInformation("Daily opportunity batch complete: {Built} built, {Failed} failed.", built, failed);
-        return Ok(new { built, failed, total = profiles.Count });
+        return Ok(new { built, failed, total = seen });
     }
 
     /// <summary>

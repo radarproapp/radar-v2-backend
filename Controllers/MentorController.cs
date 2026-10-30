@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.RateLimiting;
 using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -61,6 +62,7 @@ public class MentorController : ControllerBase
     }
 
     [HttpPost("quiz")]
+    [EnableRateLimiting(RequestLimits.Thinking)]
     public async Task<IActionResult> GenerateQuizAsync([FromBody] GenerateQuizRequest request)
     {
         if (!ModelState.IsValid) return ValidationProblem();
@@ -118,6 +120,7 @@ public class MentorController : ControllerBase
     }
 
     [HttpPost("study-plan")]
+    [EnableRateLimiting(RequestLimits.Thinking)]
     public async Task<IActionResult> CreateStudyPlanAsync([FromBody] CreateStudyPlanRequest request)
     {
         if (!ModelState.IsValid) return ValidationProblem();
