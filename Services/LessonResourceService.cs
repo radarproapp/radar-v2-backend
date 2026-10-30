@@ -4,6 +4,8 @@ using RadarV2.Data;
 using RadarV2.Models;
 using RadarV2.Services.Interfaces;
 
+using RadarV2.Services.Ingestion;
+
 namespace RadarV2.Services;
 
 /// <summary>
@@ -30,6 +32,7 @@ public class LessonResourceService
 {
     private readonly RadarDatabase _db;
     private readonly YouTubeSearchService _youtube;
+    private readonly PeerTubeClient _peerTube;
     private readonly IAiEngine _ai;
     private readonly LessonResourceJudge _judge;
     private readonly IMemoryCache _cache;
@@ -38,6 +41,7 @@ public class LessonResourceService
     public LessonResourceService(
         RadarDatabase db,
         YouTubeSearchService youtube,
+        PeerTubeClient peerTube,
         IAiEngine ai,
         LessonResourceJudge judge,
         IMemoryCache cache,
@@ -45,6 +49,7 @@ public class LessonResourceService
     {
         _db = db;
         _youtube = youtube;
+        _peerTube = peerTube;
         _ai = ai;
         _judge = judge;
         _cache = cache;
@@ -394,16 +399,31 @@ public class LessonResourceService
     private async Task<List<LessonResource>> VideoCandidatesAsync(
         RoadmapLesson lesson, CancellationToken ct)
     {
-        if (!_youtube.IsConfigured) return [];
-
         // The hint exists because a readable lesson title makes a poor query: "What hospital nurse
         // manager actually involves day to day" finds nothing.
         var query = !string.IsNullOrWhiteSpace(lesson.SearchHint) ? lesson.SearchHint! : lesson.Title;
 
-        var cached = await _youtube.GetCachedAsync(query, ct: ct);
-        if (cached.Count == 0) return [];
+        var videos = new List<LessonResource>();
 
-        var videos = cached.Select(VideoResource);
+        if (_youtube.IsConfigured)
+        {
+            var cached = await _youtube.GetCachedAsync(query, ct: ct);
+            videos.AddRange(cached.Select(VideoResource));
+        }
+
+        // A second place to look, with no key and no quota.
+        //
+        // Everything a lesson showed came from one source, so a subject YouTube ranks poorly for
+        // had no videos at all - and a lesson with no videos is the complaint this whole path
+        // exists to answer. The open network holds hundreds to thousands per subject, and states
+        // each video's licence, which is the only route Radar has to a real transcript.
+        //
+        // Asked for fewer than YouTube: it is the second source, and the judge ranks what comes
+        // back from both together.
+        var open = await _peerTube.SearchAsync(query, count: CandidatesPerKind, ct: ct);
+        videos.AddRange(open.Select(VideoResource));
+
+        if (videos.Count == 0) return [];
 
         return LessonRelevance.Distinct(videos, v => v.Url, v => v.Title)
             .Take(CandidatesPerKind)
@@ -423,6 +443,28 @@ public class LessonResourceService
     /// saying it was there. Nothing noticed, because the only tests of this went through the
     /// judge with a candidate built by hand.
     /// </remarks>
+    /// <summary>
+    /// A video from an open platform as a candidate resource.
+    /// </summary>
+    /// <remarks>
+    /// The licence is carried because it decides what Radar may do next: a Creative Commons
+    /// video can have its captions read and a real summary written from them, and one with no
+    /// licence set cannot. The summary still starts as the description either way - the judge
+    /// rewrites it, and SummarySource says which it was written from.
+    /// </remarks>
+    public static LessonResource VideoResource(OpenVideoRef video) => new()
+    {
+        Kind = LessonResourceKind.Video,
+        Title = video.Title,
+        Url = video.Url,
+        EmbedUrl = video.EmbedUrl,
+        ThumbnailUrl = video.ThumbnailUrl,
+        Source = video.ChannelTitle,
+        PublishedAt = video.PublishedAt,
+        Summary = video.Description,
+        SummarySource = SummarySource.Description,
+    };
+
     public static LessonResource VideoResource(YouTubeVideoRef video) => new()
     {
         Kind = LessonResourceKind.Video,

@@ -341,6 +341,7 @@ builder.Services.AddScoped<IContentReportService, MongoContentReportService>();
 builder.Services.AddScoped<IBehavioralSignalService, BehavioralSignalService>();
 builder.Services.AddScoped<IUserLearningRecordService, UserLearningRecordService>();
 builder.Services.AddScoped<YouTubeSearchService>();
+builder.Services.AddScoped<PeerTubeClient>();
 builder.Services.AddScoped<LearnerFootprint>();
 builder.Services.AddScoped<IHomeBriefService, HomeBriefService>();
 builder.Services.AddScoped<AiRelevanceService>();
