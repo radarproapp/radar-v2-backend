@@ -59,7 +59,7 @@ public static class UseCaseRunner
         var learner = useCase.Learner();
 
         var theirs = Item(useCase.Career.OnTopic, useCase.Career.Interest);
-        var somebodyElses = Item(useCase.Career.OffTopic, "Software Engineering");
+        var somebodyElses = Foil(useCase);
 
         var mine = InterestPersonalization.ContentScore(theirs, learner);
         var other = InterestPersonalization.ContentScore(somebodyElses, learner);
@@ -82,7 +82,7 @@ public static class UseCaseRunner
         var learner = useCase.Learner();
 
         var theirs = Item(useCase.Career.OnTopic, useCase.Career.Interest);
-        var stageBait = Item("Scholarship applications open for software engineering students", "Software Engineering");
+        var stageBait = Item("Scholarship applications open for software engineering students", NotTheirs(useCase));
 
         var mine = InterestPersonalization.ContentScore(theirs, learner);
         var bait = InterestPersonalization.ContentScore(stageBait, learner);
@@ -103,7 +103,7 @@ public static class UseCaseRunner
     private static Outcome WhyShown(UseCase useCase)
     {
         var learner = useCase.Learner();
-        var somebodyElses = Item(useCase.Career.OffTopic, "Software Engineering");
+        var somebodyElses = Foil(useCase);
 
         var explained = InterestPersonalization.Explain(learner, somebodyElses);
         var why = RadarV2.Services.WhyShown.Build(somebodyElses, explained.MatchedSignals);
@@ -229,6 +229,25 @@ public static class UseCaseRunner
     }
 
     // ── fixtures ─────────────────────────────────────────────────────────────
+
+    /// <summary>Somebody else's card, and reliably somebody else's.</summary>
+    /// <remarks>
+    /// The foil's topic was hard-coded to "Software Engineering", which is fine for forty-nine
+    /// careers and a lie for the fiftieth: the scorer reads Title and Topic together, so for a
+    /// software engineering learner the card meant to be another field's was tagged with their
+    /// own. All three feed checks failed for those ten people, and WhyShown truthfully printed
+    /// "Matches your interest in Software Engineering" about a card titled "Clinical nurse
+    /// specialist, intensive care" - the explanation was right and the fixture was lying to it.
+    ///
+    /// It was the only career failing four features, and none of it was a product defect.
+    /// </remarks>
+    private static ContentItem Foil(UseCase useCase) => Item(useCase.Career.OffTopic, NotTheirs(useCase));
+
+    /// <summary>A topic that is never the learner's own.</summary>
+    private static string NotTheirs(UseCase useCase) =>
+        useCase.Career.Interest.Equals("Software Engineering", StringComparison.OrdinalIgnoreCase)
+            ? "Nursing"
+            : "Software Engineering";
 
     private static ContentItem Item(string title, string topic) => new()
     {

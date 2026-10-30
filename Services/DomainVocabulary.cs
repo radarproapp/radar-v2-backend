@@ -92,6 +92,68 @@ public static class DomainVocabulary
             // "microbial" inside it, so a prefix rule can never reach it.
             new("microbiolog"), new("microbial"), new("antimicrobial"), new("pathogen"),
         ],
+
+        // Reached through Aliases rather than by their own spelling, which is what lets them be
+        // written in the advert's vocabulary. Each one exists because somebody was not shown the
+        // most obvious job in their profession.
+        ["civil engineering"] =
+        [
+            new("civil engineer"), new("site engineer"), new("structural engineer"),
+            new("highway"), new("construction"), new("geotechnical"),
+        ],
+        ["mechanical engineering"] =
+        [
+            new("mechanical engineer"), new("maintenance engineer"), new("plant engineer"),
+            new("hvac", WholeWord: true), new("thermodynamic"),
+        ],
+        ["electrical engineering"] =
+        [
+            new("electrical engineer"), new("power distribution"), new("power engineer"),
+            new("substation"), new("switchgear"),
+        ],
+        ["chemical engineering"] =
+        [
+            new("chemical engineer"), new("process engineer"), new("refinery"),
+            new("petrochemical"), new("fertiliser plant"),
+        ],
+        ["architecture"] =
+        [
+            new("architect"), new("architectural"), new("building design"), new("draughtsman"),
+        ],
+        ["agriculture"] =
+        [
+            new("agricultur"), new("agronom"), new("smallholder"), new("crop"),
+            new("livestock"), new("extension programme"),
+        ],
+        ["mass communication"] =
+        [
+            new("journalis"), new("broadcast"), new("newsroom"), new("current affairs"),
+            new("editorial desk"),
+        ],
+        ["hospitality"] =
+        [
+            new("hospitality"), new("hotel"), new("front office"), new("concierge"),
+            new("guest relations"),
+        ],
+        ["fashion"] =
+        [
+            // Bounded, because an unbounded "fashion" reaches "Fashionable theories of
+            // economics" - measured, not guessed.
+            new("fashion", WholeWord: true), new("ready-to-wear"), new("atelier"),
+            new("textile"), new("garment"),
+        ],
+        ["human resources"] =
+        [
+            new("human resource"), new("recruitment"), new("talent acquisition"),
+            new("people operations"), new("hr business partner"),
+            new("hr", WholeWord: true),
+        ],
+        ["taxation"] =
+        [
+            // Whole word, because an unbounded "tax" reaches "Taxi operators protest".
+            new("tax", WholeWord: true), new("taxation"), new("transfer pricing"),
+            new("vat", WholeWord: true), new("fiscal policy"),
+        ],
     };
 
     /// <summary>Does this text name the given field?</summary>
@@ -125,10 +187,55 @@ public static class DomainVocabulary
     {
         if (string.IsNullOrWhiteSpace(haystack) || string.IsNullOrWhiteSpace(subject)) return false;
 
-        var field = FieldOf(subject);
+        // Named first, identified second.
+        //
+        // The field a subject belongs to used to be worked out by running the field's own
+        // keyword list against the subject string - so a list was reachable only if one of its
+        // keywords happened to prefix the field's name. "accounting" works purely because
+        // "account" prefixes "Accounting". A list for Agriculture keyed on agronomist and
+        // smallholder could never fire, because the word "Agriculture" contains neither.
+        //
+        // That left eleven fields unable to have a list at all, and they are exactly the ones
+        // that need one: a civil engineering graduate was not shown "Site engineer, highway
+        // construction, Federal Ministry of Works", because the advert never writes "civil".
+        var field = AliasOf(subject) ?? FieldOf(subject);
         if (field is not null && Matches(haystack, field)) return true;
 
         return WorthMatching(subject).Any(w => MentionsForm(haystack, w));
+    }
+
+    /// <summary>
+    /// What a learner calls their subject, against the field it belongs to.
+    /// </summary>
+    /// <remarks>
+    /// Only needed where the subject's own name shares no word with the adverts in it. Written
+    /// as the learner would type it, matched on a prefix so "Civil Engineering", "civil
+    /// engineering" and "Civil Eng" all land in the same place.
+    /// </remarks>
+    private static readonly (string Subject, string Field)[] Aliases =
+    [
+        ("civil engineer", "civil engineering"),
+        ("mechanical engineer", "mechanical engineering"),
+        ("electrical engineer", "electrical engineering"),
+        ("chemical engineer", "chemical engineering"),
+        ("architect", "architecture"),
+        ("agricultur", "agriculture"),
+        ("agronom", "agriculture"),
+        ("mass communication", "mass communication"),
+        ("hospitality", "hospitality"),
+        ("fashion", "fashion"),
+        ("human resource", "human resources"),
+        ("taxation", "taxation"),
+    ];
+
+    private static string? AliasOf(string subject)
+    {
+        foreach (var (name, field) in Aliases)
+        {
+            if (subject.Contains(name, StringComparison.OrdinalIgnoreCase)) return field;
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -344,6 +451,12 @@ public static class DomainVocabulary
         // Economics reaches "economist" and "economic", and one letter further to "economy" -
         // which is an aeroplane seat and a newspaper section before it is anybody's subject.
         ["econom"] = ["economy"],
+
+        // Marketing stems to "market", which is a place people sell yams. A marketing graduate
+        // was shown "Market women protest levy increases in Aba" as news in her field. Her own
+        // advert says "Brand marketing executive", which matches the typed word before any
+        // stemming happens, so nothing is lost.
+        ["market"] = ["market", "markets"],
     };
 
     private static string[] NotGrownFrom(string stem) =>
@@ -358,9 +471,18 @@ public static class DomainVocabulary
     /// </remarks>
     private static bool Bounded(string text, string word, string[]? notThese = null)
     {
+        // A three-letter word may not grow at all.
+        //
+        // The budget was sized for nurse/nursing, and a three-letter word allowed to double is
+        // a different word: "law" reached "lawn", so a law student was shown a lawn tennis
+        // championship. Three-letter subjects only arrive here through the short-word escape
+        // hatch, where they are the whole subject - and the comment there already promises
+        // "law matches law and not lawn". This is the line that makes it true.
+        var mayGrow = word.Length <= 3 ? 0 : MostAWordMayGrow;
+
         var matches = Regex.Matches(
             text,
-            $@"\b{Regex.Escape(word)}[a-z]{{0,{MostAWordMayGrow}}}\b",
+            $@"\b{Regex.Escape(word)}[a-z]{{0,{mayGrow}}}\b",
             RegexOptions.IgnoreCase,
             TimeSpan.FromMilliseconds(100));
 

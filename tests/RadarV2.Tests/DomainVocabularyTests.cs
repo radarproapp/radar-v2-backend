@@ -149,8 +149,19 @@ public class DomainVocabularyTests
     [Fact]
     public void An_engineering_discipline_is_not_relabelled_as_software()
     {
+        // The assertion that matters, and the one the bug was: a civil engineering learner is
+        // not matched to a frontend job.
         Assert.False(DomainVocabulary.MentionsSubject("Software Engineer, frontend team", "Civil Engineering"));
-        Assert.Null(DomainVocabulary.FieldOf("Civil Engineering"));
+        Assert.False(DomainVocabulary.MentionsSubject("Senior backend developer, Go microservices", "Mechanical Engineering"));
+
+        // Civil engineering has its own field now, which is the point rather than a problem -
+        // it is how "Site engineer, highway construction" became visible to the person studying
+        // it. What must never happen is it resolving to somebody else's field.
+        Assert.NotEqual("software", DomainVocabulary.FieldOf("Civil Engineering"));
+        Assert.NotEqual("software", DomainVocabulary.FieldOf("Petroleum Engineering"));
+
+        // And a discipline with no list of its own still names no field at all, rather than
+        // being swept into the nearest one.
         Assert.Null(DomainVocabulary.FieldOf("Petroleum Engineering"));
     }
 
