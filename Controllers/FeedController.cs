@@ -403,6 +403,22 @@ public class FeedController : ControllerBase
 
     private async Task<UserProfile?> RequireProfileAsync() => await _profiles.GetCurrentUserAsync();
 
+    /// <summary>
+    /// The type a caller asked for, or nothing.
+    /// </summary>
+    /// <remarks>
+    /// Only types the feed carries. The feed is news and podcasts; papers, policy and essays are
+    /// Research Discovery's. Asking this endpoint for a research type used to answer with
+    /// research under a heading that says Intelligence, and the fix for that belongs here rather
+    /// than inside the query - where it contradicted the explicit type and silently emptied the
+    /// weekly brief, which asks the same service for Essay and Video by name.
+    ///
+    /// An unrecognised or out-of-surface type reads as no filter, which is what a mistyped link
+    /// has always done: show the feed rather than an empty page.
+    /// </remarks>
     private static ContentType? ParseType(string? type) =>
-        Enum.TryParse<ContentType>(type, ignoreCase: true, out var parsed) ? parsed : null;
+        Enum.TryParse<ContentType>(type, ignoreCase: true, out var parsed)
+        && ContentSurface.Intelligence.Contains(parsed)
+            ? parsed
+            : null;
 }

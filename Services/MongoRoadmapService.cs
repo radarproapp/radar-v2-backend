@@ -244,6 +244,23 @@ public class MongoRoadmapService : IRoadmapService
     /// Scoped to the owner, so a path id belonging to somebody else reads as a path that is not
     /// there. Only one is active, which is why the others are cleared first.
     /// </remarks>
+    /// <summary>
+    /// The paths a learner can actually switch to.
+    /// </summary>
+    /// <remarks>
+    /// The stored list includes paths generated before anybody was asked, which
+    /// GetActiveRoadmapAsync treats as absent. Offering one of those in a switcher is offering a
+    /// path that disappears the moment it is chosen.
+    /// </remarks>
+    public async Task<List<GrowthRoadmap>> GetSwitchableRoadmapsAsync(string userId)
+    {
+        var all = await GetUserRoadmapsAsync(userId);
+
+        foreach (var roadmap in all) Normalise(roadmap);
+
+        return [.. all.Where(WasAskedFor)];
+    }
+
     public async Task<GrowthRoadmap?> ActivateRoadmapAsync(string userId, string roadmapId)
     {
         var wanted = await _db.Roadmaps
@@ -252,16 +269,34 @@ public class MongoRoadmapService : IRoadmapService
 
         if (wanted is null) return null;
 
-        await _db.Roadmaps.UpdateManyAsync(
-            r => r.UserId == userId && r.IsActive,
-            Builders<GrowthRoadmap>.Update.Set(r => r.IsActive, false));
+        Normalise(wanted);
 
+        // A path the reader cannot load is not a path to switch to.
+        //
+        // GetActiveRoadmapAsync treats a generated path with no work on it as absent, so
+        // activating one would deactivate the path the learner was using and then answer every
+        // later read with "no active roadmap" - an empty Radar Learn, a blank Today focus, and
+        // no way back, because the empty screen is the one that does not offer the switcher.
+        //
+        // Refused rather than silently repaired: the path exists, it is theirs, and it is not
+        // one they ever asked for. Saying so is better than quietly making it the one they are
+        // on.
+        if (!WasAskedFor(wanted)) return null;
+
+        // Set before cleared. Two writes with no transaction between them, so the order decides
+        // what a read landing in the middle sees: this way it finds two active paths for an
+        // instant and picks one of them, rather than none and showing an empty product. If the
+        // second write never happens, the learner has the path they just chose plus a stale flag
+        // on the old one - recoverable by switching again, which the other order is not.
         await _db.Roadmaps.UpdateOneAsync(
             r => r.Id == roadmapId && r.UserId == userId,
             Builders<GrowthRoadmap>.Update.Set(r => r.IsActive, true));
 
+        await _db.Roadmaps.UpdateManyAsync(
+            r => r.UserId == userId && r.IsActive && r.Id != roadmapId,
+            Builders<GrowthRoadmap>.Update.Set(r => r.IsActive, false));
+
         wanted.IsActive = true;
-        Normalise(wanted);
         return wanted;
     }
 

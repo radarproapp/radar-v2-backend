@@ -421,7 +421,24 @@ public class LessonResourceService
         // Asked for fewer than YouTube: it is the second source, and the judge ranks what comes
         // back from both together.
         var open = await _peerTube.SearchAsync(query, count: CandidatesPerKind, ct: ct);
-        videos.AddRange(open.Select(VideoResource));
+
+        // Counted here rather than on the service: lessons are built concurrently, so a field
+        // would be a budget shared between whichever lessons happened to overlap.
+        var transcriptsRead = 0;
+
+        foreach (var video in open)
+        {
+            var mayRead = transcriptsRead < TranscriptsPerLesson
+                          && OpenVideoLicence.PermitsReading(video.LicenceId);
+
+            var resource = mayRead
+                ? await WithTranscriptAsync(video, ct)
+                : VideoResource(video);
+
+            if (resource.SummarySource == SummarySource.Transcript) transcriptsRead++;
+
+            videos.Add(resource);
+        }
 
         if (videos.Count == 0) return [];
 
@@ -443,6 +460,50 @@ public class LessonResourceService
     /// saying it was there. Nothing noticed, because the only tests of this went through the
     /// judge with a candidate built by hand.
     /// </remarks>
+    /// <summary>
+    /// How many videos in one lesson are worth fetching captions for.
+    /// </summary>
+    /// <remarks>
+    /// Each is two requests to somebody else's server, and a lesson shows five videos. Two is
+    /// enough that a lesson with any openly licensed material gets at least one summary written
+    /// from what was actually said, without making a lesson build wait on a queue of downloads.
+    /// </remarks>
+    private const int TranscriptsPerLesson = 2;
+
+    /// <summary>
+    /// A candidate whose summary is written from the video's own words, where that is allowed.
+    /// </summary>
+    /// <remarks>
+    /// The difference this makes is the one the SummarySource enum was added to record: a
+    /// summary written from a forty-minute transcript and one written from a two-line description
+    /// read identically on screen, and only one of them describes the thing you are about to
+    /// watch.
+    ///
+    /// The licence is checked by the caller, which is also where the per-lesson budget is kept.
+    /// Falls back to the description silently - a video without a readable transcript is still
+    /// worth watching, and the card already says which the summary came from.
+    /// </remarks>
+    private async Task<LessonResource> WithTranscriptAsync(OpenVideoRef video, CancellationToken ct)
+    {
+        var resource = VideoResource(video);
+
+        var spoken = await _peerTube.TranscriptAsync(video, ct);
+        if (string.IsNullOrWhiteSpace(spoken)) return resource;
+
+        // Bounded before it reaches the judge. A long talk runs to tens of thousands of
+        // characters, and the judge is being asked what the video covers rather than to read it
+        // all back.
+        resource.Summary = spoken.Length <= MostTranscriptForAJudge
+            ? spoken
+            : spoken[..MostTranscriptForAJudge];
+
+        resource.SummarySource = SummarySource.Transcript;
+        return resource;
+    }
+
+    /// <summary>How much of a transcript the judge is given.</summary>
+    private const int MostTranscriptForAJudge = 6000;
+
     /// <summary>
     /// A video from an open platform as a candidate resource.
     /// </summary>

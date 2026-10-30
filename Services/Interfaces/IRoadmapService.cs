@@ -16,6 +16,9 @@ public interface IRoadmapService
     /// </summary>
     Task<GrowthRoadmap> CreateAiRoadmapAsync(string userId, UserProfile profile, CancellationToken ct = default);
 
+    /// <summary>The paths a learner can actually switch to, which is not all of them.</summary>
+    Task<List<GrowthRoadmap>> GetSwitchableRoadmapsAsync(string userId);
+
     /// <summary>Makes one of this learner's paths the one they are on.</summary>
     Task<GrowthRoadmap?> ActivateRoadmapAsync(string userId, string roadmapId);
 

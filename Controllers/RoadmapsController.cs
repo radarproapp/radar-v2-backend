@@ -172,7 +172,10 @@ public class RoadmapsController : ControllerBase
         var profile = await _profiles.GetCurrentUserAsync();
         if (profile is null) return NotFound(new { error = "Profile not found" });
 
-        return Ok(await _roadmaps.GetUserRoadmapsAsync(profile.Id));
+        // The ones that will still be there after they are chosen. A path generated before
+        // anybody was asked reads as absent, so offering it in a switcher offers a path that
+        // disappears the moment somebody picks it.
+        return Ok(await _roadmaps.GetSwitchableRoadmapsAsync(profile.Id));
     }
 
     /// <summary>

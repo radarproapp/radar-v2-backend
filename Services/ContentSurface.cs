@@ -78,10 +78,26 @@ public static class ContentSurface
         Research.Contains(item.Type)
         || (Intelligence.Contains(item.Type) && ResearchLayers.Contains(item.Layer));
 
+    /// <summary>
+    /// Every layer that is not a research one, named rather than excluded.
+    /// </summary>
+    /// <remarks>
+    /// $nin matches a document that has no Layer field at all, and production holds documents
+    /// that predate fields. So the query admitted a layerless article to the feed while the
+    /// predicate, reading the model's default of Ideas, called the same document research.
+    /// Inverted, on the one case nobody writes a fixture for.
+    ///
+    /// Listing what is admitted means a missing field matches neither surface - which is still
+    /// wrong, but it is the same wrong on both sides, and the test that every type lands on
+    /// exactly one surface is then telling the truth about the queries too.
+    /// </remarks>
+    private static readonly ContentLayer[] FeedLayers =
+        [.. Enum.GetValues<ContentLayer>().Where(layer => !ResearchLayers.Contains(layer))];
+
     /// <summary>The feed's half of the split, as a query.</summary>
     public static FilterDefinition<ContentItem> IntelligenceFilter() =>
         Builders<ContentItem>.Filter.In(i => i.Type, Intelligence)
-        & Builders<ContentItem>.Filter.Nin(i => i.Layer, ResearchLayers);
+        & Builders<ContentItem>.Filter.In(i => i.Layer, FeedLayers);
 
     /// <summary>Research Discovery's half, as a query.</summary>
     public static FilterDefinition<ContentItem> ResearchFilter() =>

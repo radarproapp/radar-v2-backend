@@ -108,4 +108,54 @@ public class ContentSurfaceTests
         Assert.False(ContentSurface.IsIntelligence(video));
         Assert.False(ContentSurface.IsResearch(video));
     }
+
+    // ── The queries that actually run ───────────────────────────────────────
+
+    /// <summary>
+    /// The query and the predicate agree about a document missing its layer.
+    /// </summary>
+    /// <remarks>
+    /// Production holds documents that predate fields — the suite asserts that elsewhere, and
+    /// IgnoreExtraElements is registered for exactly that reason. The two halves of this split
+    /// disagreed on one: Mongo's $nin matches a missing field, so the query called a layerless
+    /// article feed content, while the model defaults Layer to Ideas, so the predicate called the
+    /// same document research. Inverted, on the one case nobody writes a fixture for.
+    ///
+    /// Fixed by giving the feed filter the same shape as the predicate: an explicit list of the
+    /// layers that are not research, so a missing layer matches neither and the document cannot
+    /// be claimed by a query that the predicate would deny.
+    /// </remarks>
+    [Fact]
+    public void AMissingLayerIsNotClaimedByAQueryThePredicateWouldDeny()
+    {
+        var rendered = Render(ContentSurface.IntelligenceFilter());
+
+        // $nin matches a document with no Layer at all; $in does not.
+        Assert.DoesNotContain("$nin", rendered);
+    }
+
+    private static string Render(MongoDB.Driver.FilterDefinition<ContentItem> filter)
+    {
+        var registry = MongoDB.Bson.Serialization.BsonSerializer.SerializerRegistry;
+        return filter
+            .Render(new MongoDB.Driver.RenderArgs<ContentItem>(registry.GetSerializer<ContentItem>(), registry))
+            .ToString();
+    }
+
+    /// <summary>
+    /// Both queries name a type and a layer, so neither can admit a document by omission.
+    /// </summary>
+    [Fact]
+    public void BothQueriesAreExplicitAboutWhatTheyAdmit()
+    {
+        foreach (var rendered in new[]
+                 {
+                     Render(ContentSurface.IntelligenceFilter()),
+                     Render(ContentSurface.ResearchFilter()),
+                 })
+        {
+            Assert.Contains("Type", rendered);
+            Assert.Contains("Layer", rendered);
+        }
+    }
 }

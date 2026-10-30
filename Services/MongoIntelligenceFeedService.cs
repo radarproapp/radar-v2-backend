@@ -230,13 +230,18 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
         // The feed carries news, podcasts and posts. Papers, policy documents and essays go to
         // Research Discovery, which is the product built to read them - see ContentSurface.
         //
-        // Applied whether or not a type was asked for, so the chips narrow within the feed rather
-        // than reaching past its edge: /feed?type=ResearchPaper used to return papers under a
-        // heading that says Intelligence.
-        var filter = surface ?? ContentSurface.IntelligenceFilter();
-
-        if (filterType.HasValue)
-            filter &= Builders<ContentItem>.Filter.Eq(i => i.Type, filterType.Value);
+        // Only when no type was asked for. Applying it on top of an explicit type produced an
+        // impossible query - In(Type, [Article, Podcast]) and Eq(Type, Essay) matches nothing -
+        // and the weekly brief asks this service for Essay and for Video by name to fill its
+        // sections. Both came back empty for every personalised reader, silently, because an
+        // empty rescue list looks exactly like a week with no blog posts in it.
+        //
+        // The surface is enforced at the edge instead: FeedController refuses a type that is not
+        // in the feed, so /api/feed?type=ResearchPaper is a bad request rather than papers under
+        // a heading that says Intelligence. Callers inside the process ask for what they need.
+        var filter = filterType.HasValue
+            ? Builders<ContentItem>.Filter.Eq(i => i.Type, filterType.Value)
+            : surface ?? ContentSurface.IntelligenceFilter();
 
         if (dismissedIds.Count > 0)
             filter &= Builders<ContentItem>.Filter.Nin(i => i.Id, dismissedIds);
@@ -298,6 +303,13 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
     /// </remarks>
     private async Task<List<ContentItem>> GeneralSampleAsync(ContentType? filterType)
     {
+        // The same rule as the feed proper. Without it the two items a brand-new reader meets
+        // could both be policy papers, under a heading that says Intelligence - which is the
+        // behaviour the split was made to end, surviving on the one path nobody filtered.
+        var surface = filterType.HasValue
+            ? Builders<ContentItem>.Filter.Eq(i => i.Type, filterType.Value)
+            : ContentSurface.IntelligenceFilter();
+
         const int sample = 2;
 
         var tierOneSources = SourceRegistry.All
@@ -308,9 +320,7 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
         // The one thing the sample does honour. Picking Podcasts in the sidebar and being handed
         // two blog posts is a small lie, and it is the kind that reads as a broken filter rather
         // than as a sample.
-        var ofType = filterType.HasValue
-            ? Builders<ContentItem>.Filter.Eq(i => i.Type, filterType.Value)
-            : FilterDefinition<ContentItem>.Empty;
+        var ofType = surface;
 
         var items = await _db.ContentItems
             .Find(Builders<ContentItem>.Filter.In(i => i.IngestionSourceId, tierOneSources) & ofType)
