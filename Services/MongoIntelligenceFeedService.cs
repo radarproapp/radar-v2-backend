@@ -20,7 +20,7 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
         _records = records;
     }
 
-    public async Task<List<ContentItem>> GetFeedAsync(UserProfile profile, ContentType? filterType = null, int page = 1, int pageSize = 20)
+    public async Task<List<ContentItem>> GetFeedAsync(UserProfile profile, ContentType? filterType = null, int page = 1, int pageSize = 20, bool acrossSurfaces = false)
     {
         // Nothing is theirs until they have said what theirs means.
         //
@@ -35,7 +35,11 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
             ? await GetDismissedItemIdsAsync(profile.Id)
             : [];
 
-        var filter = await BuildFeedFilterAsync(profile, filterType, dismissedIds);
+        var filter = await BuildFeedFilterAsync(
+            profile,
+            filterType,
+            dismissedIds,
+            acrossSurfaces ? FilterDefinition<ContentItem>.Empty : null);
 
         var items = await _db.ContentItems
             .Find(filter)
@@ -239,9 +243,19 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
         // The surface is enforced at the edge instead: FeedController refuses a type that is not
         // in the feed, so /api/feed?type=ResearchPaper is a bad request rather than papers under
         // a heading that says Intelligence. Callers inside the process ask for what they need.
-        var filter = filterType.HasValue
-            ? Builders<ContentItem>.Filter.Eq(i => i.Type, filterType.Value)
-            : surface ?? ContentSurface.IntelligenceFilter();
+        // The surface is two conditions, and an explicit type replaced both of them.
+        //
+        // Intelligence means "a news type AND not a research layer". Narrowing by type dropped
+        // the layer half, so /api/feed?type=Article handed back a think tank's working paper
+        // under a heading that says Intelligence - the behaviour the split exists to end,
+        // surviving one layer down from where I thought I had closed it.
+        //
+        // A caller that wants to reach past the surface passes its own, which is what the weekly
+        // brief does to fetch essays and video for its rescue sections.
+        var filter = surface ?? ContentSurface.IntelligenceFilter();
+
+        if (filterType.HasValue)
+            filter &= Builders<ContentItem>.Filter.Eq(i => i.Type, filterType.Value);
 
         if (dismissedIds.Count > 0)
             filter &= Builders<ContentItem>.Filter.Nin(i => i.Id, dismissedIds);

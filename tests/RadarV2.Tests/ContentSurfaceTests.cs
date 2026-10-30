@@ -158,4 +158,35 @@ public class ContentSurfaceTests
             Assert.Contains("Layer", rendered);
         }
     }
+
+    /// <summary>
+    /// Narrowing by type does not reach past the surface.
+    /// </summary>
+    /// <remarks>
+    /// Intelligence is two conditions - a news type AND not a research layer - and asking for a
+    /// type replaced both of them. So /api/feed?type=Article handed back a think tank's working
+    /// paper under a heading that says Intelligence: the behaviour the split exists to end,
+    /// surviving one layer below where it was first closed.
+    ///
+    /// Checked against the source because the filter is assembled inside a private method with
+    /// no host to query here, and the shape of the composition is the thing that was wrong.
+    /// </remarks>
+    [Fact]
+    public void AskingForATypeKeepsTheSurface()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "RadarV2.csproj")))
+        {
+            dir = dir.Parent;
+        }
+
+        Assert.NotNull(dir);
+
+        var source = File.ReadAllText(
+            Path.Combine(dir!.FullName, "Services", "MongoIntelligenceFeedService.cs"));
+
+        // The surface first, then the type narrowed within it - never the type instead of it.
+        Assert.Contains("var filter = surface ?? ContentSurface.IntelligenceFilter();", source);
+        Assert.Contains("filter &= Builders<ContentItem>.Filter.Eq(i => i.Type, filterType.Value)", source);
+    }
 }

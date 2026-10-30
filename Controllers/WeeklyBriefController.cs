@@ -38,14 +38,14 @@ public class WeeklyBriefController : ControllerBase
         // (those belong to Opportunities and Learn Hub/Library respectively, not the brief).
         if (brief.TopArticles.Count == 0)
         {
-            var articles = await _feed.GetFeedAsync(profile, ContentType.Article, pageSize: 3);
-            var blogPosts = await _feed.GetFeedAsync(profile, ContentType.Essay, pageSize: 2);
+            var articles = await _feed.GetFeedAsync(profile, ContentType.Article, acrossSurfaces: true, pageSize: 3);
+            var blogPosts = await _feed.GetFeedAsync(profile, ContentType.Essay, acrossSurfaces: true, pageSize: 2);
             brief.TopArticles = [.. articles, .. blogPosts];
         }
         if (brief.TopVideos.Count == 0)
-            brief.TopVideos = await _feed.GetFeedAsync(profile, ContentType.Video, pageSize: 2);
+            brief.TopVideos = await _feed.GetFeedAsync(profile, ContentType.Video, acrossSurfaces: true, pageSize: 2);
         if (brief.TopPodcasts.Count == 0)
-            brief.TopPodcasts = await _feed.GetFeedAsync(profile, ContentType.Podcast, pageSize: 2);
+            brief.TopPodcasts = await _feed.GetFeedAsync(profile, ContentType.Podcast, acrossSurfaces: true, pageSize: 2);
 
         return Ok(brief);
     }

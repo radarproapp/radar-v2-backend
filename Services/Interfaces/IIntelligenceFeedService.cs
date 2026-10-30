@@ -8,7 +8,15 @@ public interface IIntelligenceFeedService
     /// Offset-paginated feed. Kept for callers that jump to a numbered page; new callers should use
     /// <see cref="GetFeedPageAsync"/>, which does not shift when items are ingested mid-paging.
     /// </summary>
-    Task<List<ContentItem>> GetFeedAsync(UserProfile profile, ContentType? filterType = null, int page = 1, int pageSize = 20);
+    /// <param name="acrossSurfaces">
+    /// Whether to look past the Intelligence feed into everything Radar holds.
+    /// </param>
+    /// <remarks>
+    /// The feed is news and podcasts; papers, policy and essays belong to Research Discovery.
+    /// The weekly brief is neither - it is a summary of the week across both - so it is the one
+    /// caller that asks for content the feed itself would not show.
+    /// </remarks>
+    Task<List<ContentItem>> GetFeedAsync(UserProfile profile, ContentType? filterType = null, int page = 1, int pageSize = 20, bool acrossSurfaces = false);
 
     /// <summary>
     /// One keyset-paginated page of the feed. Ordering is by publish time (descending, id as the
