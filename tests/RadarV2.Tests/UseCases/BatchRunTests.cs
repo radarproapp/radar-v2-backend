@@ -19,8 +19,20 @@ public class BatchRunTests
 
         var failed = outcomes.Where(o => !o.Passed).ToList();
 
-        Console.WriteLine($"=== batch {batch}: {outcomes.Count - failed.Count} of {outcomes.Count} passed ===");
-        foreach (var outcome in outcomes) Console.WriteLine(outcome.Report);
+        var people = UseCaseLibrary.Batch(batch).Count;
+
+        Console.WriteLine($"=== batch {batch}: {people} people, {outcomes.Count} checks, {outcomes.Count - failed.Count} passed, {failed.Count} failed ===");
+
+        // Failures first and in full, then the roll-up. A report read at three in the morning
+        // should put the findings where they are seen.
+        foreach (var outcome in failed) Console.WriteLine(outcome.Report);
+
+        Console.WriteLine("--- by feature ---");
+        foreach (var byFeature in outcomes.GroupBy(o => o.Feature).OrderBy(g => g.Key.ToString()))
+        {
+            var bad = byFeature.Count(o => !o.Passed);
+            Console.WriteLine($"{byFeature.Key,-18} {byFeature.Count() - bad}/{byFeature.Count()} passed{(bad > 0 ? $"  ({bad} FAILED)" : "")}");
+        }
 
         Assert.NotEmpty(outcomes);
     }

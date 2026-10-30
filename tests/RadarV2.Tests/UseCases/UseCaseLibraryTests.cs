@@ -17,6 +17,25 @@ public class UseCaseLibraryTests
         Assert.Equal(500, UseCaseLibrary.All.Count);
     }
 
+    /// <summary>Every use case goes through every feature, which is what using Radar is.</summary>
+    /// <remarks>
+    /// A nurse matched correctly in opportunities and shown nursery school news in her feed has
+    /// been failed, however well either half scores alone - and a suite asking one question per
+    /// person could not see it.
+    /// </remarks>
+    [Fact]
+    public void EveryUseCaseGoesThroughEveryFeature()
+    {
+        var features = Enum.GetValues<Feature>();
+
+        foreach (var useCase in UseCaseLibrary.Batch(1, 5))
+        {
+            var covered = UseCaseRunner.Run(useCase).Select(o => o.Feature).ToHashSet();
+
+            Assert.Equal(features.Length, covered.Count);
+        }
+    }
+
     /// <summary>All three kinds of user, and enough of each to mean something.</summary>
     [Theory]
     [InlineData(PersonaType.Student)]

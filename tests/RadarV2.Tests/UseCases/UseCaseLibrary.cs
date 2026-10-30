@@ -2,77 +2,84 @@ using RadarV2.Models;
 
 namespace RadarV2.Tests.UseCases;
 
-/// <summary>What a use case is asking Radar to get right.</summary>
-public enum Asks
+/// <summary>Which part of Radar a result came from.</summary>
+/// <remarks>
+/// Every use case goes through all of them. A learner does not use one feature - they sign up,
+/// read the feed, look at opportunities, build a path, search research - and a product that
+/// matches a nurse correctly in opportunities and shows her nursery school news in the feed has
+/// failed her, however well either half scores on its own.
+/// </remarks>
+public enum Feature
 {
-    /// <summary>An item in their field outranks one that is not.</summary>
-    TheirFieldOutranksAnother,
+    /// <summary>The Intelligence feed: does their field outrank somebody else's?</summary>
+    Feed,
 
-    /// <summary>A posting in their field reads as theirs; one in another field does not.</summary>
-    AnAdvertInTheirFieldIsTheirs,
+    /// <summary>Category priorities: do they apply without overriding what the reader follows?</summary>
+    FeedCategory,
 
-    /// <summary>A headline that merely shares letters with their subject is not a match.</summary>
-    LettersAreNotAMatch,
+    /// <summary>Why a card says it is in front of them, which has to be true.</summary>
+    WhyShown,
 
-    /// <summary>A posting is filed as the kind of thing it says it is.</summary>
-    APostingIsFiledCorrectly,
+    /// <summary>Opportunities: is an advert in their field theirs, and another's not?</summary>
+    Opportunities,
 
-    /// <summary>A paper in their field comes before one that is not.</summary>
-    TheirResearchComesFirst,
+    /// <summary>Whether the kinds of opening that suit their stage actually score for it.</summary>
+    OpportunityStage,
 
-    /// <summary>Their field, not their goal, is what Radar matches on.</summary>
-    TheirFieldIsNotTheirGoal,
+    /// <summary>The subject vocabulary: letters in common are not a subject in common.</summary>
+    Vocabulary,
+
+    /// <summary>Radar Learn: the field is what they follow, never the outcome they typed.</summary>
+    LearnIntent,
+
+    /// <summary>Research Discovery: does their own field come first?</summary>
+    Research,
+
+    /// <summary>The nightly filing audit: is a posting classified at all?</summary>
+    Filing,
 }
 
 /// <summary>
-/// One concrete person, wanting one concrete thing, and what Radar owes them.
-/// </summary>
-public sealed record UseCase(int Id, Career Career, PersonaType Persona, Asks Asks)
-{
-    public string Title => $"#{Id} {Persona} in {Career.Name}: {Asks}";
-}
-
-/// <summary>
-/// Five hundred use cases: fifty careers, ten each, across all three kinds of user.
+/// One person, with a career, a stage and something they are trying to do.
 /// </summary>
 /// <remarks>
-/// Expanded from the career corpus rather than typed out, so adding a career adds its ten and
-/// the set cannot drift out of step with itself. Every one is a real shape of person - a nursing
-/// graduate looking for work, a law student after a scholarship, a working accountant reading
-/// the feed - and every one has an answer that is checkable without a model, an account, or a
-/// penny of credit.
-///
-/// They run against the deterministic surfaces that actually decide what somebody sees: the
-/// content scorer, the opportunity matcher, the subject vocabulary, the intent reader, the
-/// research ranking and the filing audit. That is deliberate. The bug that prompted all of this
-/// - an International Relations student shown three senior AI engineering roles at ninety per
-/// cent - was in a scorer, not in a model, and a thousand model calls would not have found it
-/// while one profile and one advert do.
+/// A use case is a learner, not a question. Running one puts them through every feature in
+/// <see cref="Feature"/> and reports what each gave them - because that is what using Radar is,
+/// and because the failures that matter are the ones where one feature serves somebody well and
+/// the next one does not.
 /// </remarks>
+public sealed record UseCase(int Id, Career Career, PersonaType Persona, string Goal)
+{
+    public string Who => $"#{Id} {Persona} in {Career.Name}, wanting to {Goal}";
+}
+
+/// <summary>
+/// Five hundred people, each put through the whole product.
+/// </summary>
 public static class UseCaseLibrary
 {
     /// <summary>
-    /// The ten questions asked of every career, spread across the three kinds of user.
+    /// Ten learners per career, spread across the three kinds of user.
     /// </summary>
     /// <remarks>
-    /// Students, graduates and professionals each get the questions that matter to them, and
-    /// each career is asked all three - because a matcher that works for a graduate and fails
-    /// for a student has failed for a third of the people who signed up.
+    /// The goals are the words people actually type, and they are outcomes rather than subjects
+    /// on purpose: "find a job" is what a graduate writes, and it is the exact wording that was
+    /// being read as a field and matching every job advert ever written.
     /// </remarks>
-    private static readonly (PersonaType Persona, Asks Asks)[] PerCareer =
+    private static readonly (PersonaType Persona, string Goal)[] PerCareer =
     [
-        (PersonaType.Student, Asks.TheirFieldOutranksAnother),
-        (PersonaType.Student, Asks.AnAdvertInTheirFieldIsTheirs),
-        (PersonaType.Student, Asks.LettersAreNotAMatch),
-        (PersonaType.Student, Asks.TheirFieldIsNotTheirGoal),
+        (PersonaType.Student, "get a scholarship"),
+        (PersonaType.Student, "improve academically"),
+        (PersonaType.Student, "find an internship"),
 
-        (PersonaType.Graduate, Asks.TheirFieldOutranksAnother),
-        (PersonaType.Graduate, Asks.AnAdvertInTheirFieldIsTheirs),
-        (PersonaType.Graduate, Asks.APostingIsFiledCorrectly),
+        (PersonaType.Graduate, "find a job"),
+        (PersonaType.Graduate, "get onto a graduate trainee programme"),
+        (PersonaType.Graduate, "fund a masters"),
 
-        (PersonaType.YoungProfessional, Asks.TheirFieldOutranksAnother),
-        (PersonaType.YoungProfessional, Asks.AnAdvertInTheirFieldIsTheirs),
-        (PersonaType.YoungProfessional, Asks.TheirResearchComesFirst),
+        (PersonaType.YoungProfessional, "advance my career"),
+        (PersonaType.YoungProfessional, "earn more"),
+        (PersonaType.YoungProfessional, "move into leadership"),
+        (PersonaType.YoungProfessional, "win a contract"),
     ];
 
     /// <summary>Every use case, numbered so a report can name one.</summary>
@@ -85,9 +92,9 @@ public static class UseCaseLibrary
 
         foreach (var career in CareerCorpus.All)
         {
-            foreach (var (persona, asks) in PerCareer)
+            foreach (var (persona, goal) in PerCareer)
             {
-                cases.Add(new UseCase(id++, career, persona, asks));
+                cases.Add(new UseCase(id++, career, persona, goal));
             }
         }
 
@@ -98,28 +105,14 @@ public static class UseCaseLibrary
     public static IReadOnlyList<UseCase> Batch(int number, int size = 25) =>
         [.. All.Skip((number - 1) * size).Take(size)];
 
-    /// <summary>
-    /// The person this use case is about.
-    /// </summary>
-    /// <remarks>
-    /// Goals are the ones people actually write, and they are outcomes rather than subjects on
-    /// purpose: "find a job" is what a graduate types, and it is the exact wording that was
-    /// being read as a field and matching every job advert ever written.
-    /// </remarks>
+    /// <summary>The person, as Radar would hold them after they personalised.</summary>
     public static UserProfile Learner(this UseCase useCase) => new()
     {
         Id = $"use-case-{useCase.Id}",
         Persona = useCase.Persona,
         PersonaChosenAt = new DateTime(2026, 10, 30, 0, 0, 0, DateTimeKind.Utc),
         Interests = [useCase.Career.Interest],
-        Goals = [GoalFor(useCase.Persona)],
-        PrimaryGoal = GoalFor(useCase.Persona),
-    };
-
-    private static string GoalFor(PersonaType persona) => persona switch
-    {
-        PersonaType.Student => "get a scholarship",
-        PersonaType.Graduate => "find a job",
-        _ => "advance my career",
+        Goals = [useCase.Goal],
+        PrimaryGoal = useCase.Goal,
     };
 }
