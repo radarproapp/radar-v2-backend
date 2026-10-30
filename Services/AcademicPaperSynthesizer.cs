@@ -192,13 +192,31 @@ public static class AcademicPaperSynthesizer
         string Venue(string separator) =>
             string.IsNullOrWhiteSpace(journal) ? string.Empty : journal + separator;
 
+        // Harvard's locator: a DOI where there is one, and otherwise the link with the date it
+        // was read, which is what "Accessed" is for. Neither is invented - a record with no DOI
+        // and no URL simply ends after the source.
+        string Access()
+        {
+            if (!string.IsNullOrEmpty(doi)) return $"doi: {doi}";
+            if (string.IsNullOrWhiteSpace(url)) return string.Empty;
+
+            return $"Available at: {url} (Accessed: {DateTime.UtcNow:d MMMM yyyy})";
+        }
+
         return style.ToUpperInvariant() switch
         {
+            // APA 7th. Author list inverted, year in brackets, sentence-case title, the source,
+            // then the DOI as a link - which is the seventh edition's form. The sixth wrote
+            // "doi:10.xxxx" and put "Retrieved from" before a URL; neither survives into 7.
             "APA" or "APA7" =>
-                $"{authors} ({year}). {title}. {Venue(". ")}{(string.IsNullOrEmpty(doi) ? url : $"https://doi.org/{doi}")}",
+                $"{authors} ({year}). {title}. {Venue(". ")}{(string.IsNullOrEmpty(doi) ? url : $"https://doi.org/{doi}")}".TrimEnd(),
 
+            // Harvard, as Cite Them Right sets it out: year in brackets after the authors, the
+            // article title in single quotes, then the source. This read "Vaswani, 2017. Title."
+            // - the year loose after a comma and the title bare - which is neither Harvard nor
+            // APA but a half-remembered blend of the two.
             "HARVARD" =>
-                $"{authors}, {year}. {title}. {Venue(". ")}Available at: <{(string.IsNullOrEmpty(doi) ? url : $"https://doi.org/{doi}")}>.",
+                $"{authors} ({year}) '{title}', {Venue(". ")}{Access()}".TrimEnd(),
 
             "IEEE" =>
                 $"[1] {FormatAuthorsIeee(paper.Authors)}, \"{title},\" {Venue(", ")}{year}{(string.IsNullOrEmpty(doi) ? "" : $", doi: {doi}")}.",
@@ -243,12 +261,60 @@ public static class AcademicPaperSynthesizer
         return sb.ToString();
     }
 
+    /// <summary>
+    /// The author list for a reference entry, in the style asked for.
+    /// </summary>
+    /// <remarks>
+    /// Three things were wrong with the version this replaces, and all three show up in a
+    /// marked bibliography. It used the display name as the source gave it - "Ashish Vaswani"
+    /// where a reference list wants "Vaswani, A." It collapsed to "et al." at three authors,
+    /// which is the rule for an in-text citation and not for a reference entry: APA 7 lists up
+    /// to twenty, Harvard lists up to three and then uses et al. And it used the APA ampersand
+    /// for every style, including Harvard, which uses "and".
+    /// </remarks>
     private static string FormatAuthorsForStyle(List<string> authors, string style)
     {
         if (authors.Count == 0) return "Unknown";
-        if (authors.Count == 1) return authors[0];
-        if (authors.Count == 2) return $"{authors[0]} & {authors[1]}";
-        return $"{authors[0]} et al.";
+
+        var named = authors.Select(AuthorName.Inverted).Where(a => a.Length > 0).ToList();
+        if (named.Count == 0) return "Unknown";
+
+        return style.ToUpperInvariant() switch
+        {
+            "HARVARD" => Harvard(named),
+            _ => Apa(named),
+        };
+    }
+
+    /// <summary>
+    /// APA 7th: every author up to twenty, an ampersand before the last.
+    /// </summary>
+    /// <remarks>
+    /// Past twenty, APA 7 lists the first nineteen, then an ellipsis, then the final author -
+    /// and never "et al." in the reference list. The sixth edition stopped at seven, which is
+    /// the rule most sources still repeat.
+    /// </remarks>
+    private static string Apa(List<string> named)
+    {
+        if (named.Count == 1) return named[0];
+        if (named.Count == 2) return $"{named[0]}, & {named[1]}";
+
+        if (named.Count <= 20)
+            return $"{string.Join(", ", named[..^1])}, & {named[^1]}";
+
+        return $"{string.Join(", ", named[..19])}, ... {named[^1]}";
+    }
+
+    /// <summary>
+    /// Harvard: up to three authors joined with "and", et al. beyond that.
+    /// </summary>
+    private static string Harvard(List<string> named)
+    {
+        if (named.Count == 1) return named[0];
+        if (named.Count == 2) return $"{named[0]} and {named[1]}";
+        if (named.Count == 3) return $"{named[0]}, {named[1]} and {named[2]}";
+
+        return $"{named[0]} et al.";
     }
 
     private static string FormatAuthorsIeee(List<string> authors)

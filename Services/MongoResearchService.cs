@@ -262,8 +262,13 @@ public class MongoResearchService : IResearchService
                 - Say what the paper says, not what you think of it.
 
                 How long:
-                - About 500 words across all sections together. Aim for 60 words in each section
-                  you can write, and no fewer than 40.
+                - The introduction is 30 to 50 words. It is the orientation, not the summary:
+                  what the paper is about and what field it sits in, and nothing else.
+                - The five sections after it - problem statement, objective of the research,
+                  methodology, analysis and findings, conclusion - carry the rest: about 90 words
+                  each and no fewer than 70, so the six together come to about 500 words.
+                - The remaining sections are supplementary. One or two sentences each, and only
+                  where the abstract supports them.
                 - Reach that by explaining, not by padding. Say what the technical words mean,
                   what the field is, and why the problem is hard for somebody meeting it for the
                   first time. A reader who does not know the field needs those sentences, and
@@ -279,15 +284,15 @@ public class MongoResearchService : IResearchService
 
                 Respond ONLY with valid JSON:
                 {
-                  "introduction": "what this paper is about and what field it sits in",
-                  "problem": "the problem the researchers set out to solve, and why it mattered",
-                  "aimAndObjectives": "what they were trying to find out",
-                  "methodology": "how they did the study, as far as the abstract says",
-                  "keyArguments": "the main points the authors make",
-                  "findings": "what they found, including any numbers the abstract gives",
+                  "introduction": "30-50 words: what this paper is about and what field it sits in",
+                  "problem": "the problem statement - what the researchers set out to solve, and why it mattered",
+                  "aimAndObjectives": "the objective of the research - what they were trying to find out",
+                  "methodology": "the methodology that was used, as far as the abstract says",
+                  "findings": "the analysis and the findings, including any numbers the abstract gives",
                   "conclusion": "what the authors conclude from it",
-                  "contribution": "what this adds that was not there before",
-                  "whyItMatters": "what somebody outside the field could do with this"
+                  "keyArguments": "supplementary, one or two sentences: the main points the authors make",
+                  "contribution": "supplementary, one or two sentences: what this adds that was not there before",
+                  "whyItMatters": "supplementary, one or two sentences: what somebody outside the field could do with this"
                 }
                 """;
 

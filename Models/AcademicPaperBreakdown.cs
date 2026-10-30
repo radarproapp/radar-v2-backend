@@ -58,14 +58,26 @@ public class AcademicPaperBreakdown
     /// How long the summary runs, which the 500-word target is measured against.
     /// </summary>
     /// <remarks>
-    /// Every narrative section counts. Conclusion was added after this was written and would
-    /// have been left out of it, the same way Era, Limitations and FutureWork each had to be
-    /// backfilled after being added.
+    /// The six sections the summary is specified as: introduction, problem statement, objective
+    /// of the research, methodology, analysis and findings, conclusion. Those are what the 500
+    /// words are for.
+    ///
+    /// KeyArguments and Contribution used to be counted here. They are supplementary - a
+    /// sentence or two each - so counting them let a summary reach its length while the six
+    /// sections a reader actually came for were still short.
     /// </remarks>
-    public int TotalWordCount =>
-        string.Join(
-            " ",
-            Introduction, Problem, AimAndObjectives, Methodology,
-            KeyArguments, Findings, Contribution, Conclusion)
-        .Split(new[] { ' ', '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries).Length;
+    public int TotalWordCount => Words(
+        Introduction, Problem, AimAndObjectives, Methodology, Findings, Conclusion);
+
+    /// <summary>
+    /// How long the introduction runs, which is specified at 30 to 50 words.
+    /// </summary>
+    /// <remarks>
+    /// It is the orientation, not the summary. Left unbounded it grows into a precis of the
+    /// whole paper, and the reader then meets the same ground twice.
+    /// </remarks>
+    public int IntroductionWordCount => Words(Introduction);
+
+    private static int Words(params string[] sections) =>
+        string.Join(" ", sections).Split(new[] { ' ', '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries).Length;
 }

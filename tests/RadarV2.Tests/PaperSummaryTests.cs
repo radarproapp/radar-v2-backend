@@ -59,8 +59,13 @@ public class PaperSummaryTests
         // Measured on production: the first summary came back at 185 words against a 500-word
         // target, about 20 a section. A target with no floor and no account of how to reach it
         // honestly is a target the model rounds down to whatever the abstract already said.
-        Assert.Contains("no fewer than 40", prompt);
+        Assert.Contains("no fewer than 70", prompt);
         Assert.Contains("by explaining, not by padding", prompt);
+
+        // The introduction is specified separately, and is the orientation rather than the
+        // summary - left on the same budget as the rest it grows into a precis of the whole
+        // paper, and the reader meets the same ground twice.
+        Assert.Contains("30 to 50 words", prompt);
     }
 
     /// <summary>
