@@ -97,7 +97,13 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
             .Limit(limit * CandidatesPerPlace)
             .ToListAsync(ct);
 
-        return ResearchRanking.Ordered(candidates, profile).Take(limit).ToList();
+        var ranked = ResearchRanking.Ordered(candidates, profile).Take(limit).ToList();
+
+        // Where each one sits in time, said on the card rather than left to be worked out from
+        // a year. Costs nothing and needs no model, unlike the breakdown it used to live inside.
+        foreach (var paper in ranked) paper.PaperEra = ResearchRanking.EraOf(paper);
+
+        return ranked;
     }
 
     /// <summary>
@@ -105,7 +111,12 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
     /// </summary>
     /// <remarks>
     /// Enough that ranking has something to choose between, and small enough that the query
-    /// still uses the DiscoveredAt index rather than reading the collection.
+    /// is still served by the PublishedAt index rather than reading the collection.
+    ///
+    /// It moves the cliff rather than removing it. The candidates are still the newest N, so on
+    /// a corpus larger than this a genuinely old paper cannot be reached however well cited it
+    /// is. Worth fixing with a second candidate pull when the research corpus is big enough for
+    /// it to matter, and worth not claiming until then.
     /// </remarks>
     private const int CandidatesPerPlace = 4;
 

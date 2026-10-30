@@ -38,13 +38,18 @@ public class OpenAlexClient
 
             var response = await _http.GetAsync(url);
             if (!response.IsSuccessStatusCode)
-                return [];
+                throw new ResearchUnavailableException(
+                    $"The research index answered {(int)response.StatusCode}. Your search is fine - try it again shortly.");
 
             var json = await response.Content.ReadAsStringAsync();
             using var doc = JsonDocument.Parse(json);
 
+            // No "results" key at all is a malformed answer, not an empty one. An empty array
+            // is an empty answer, and falls through to the loop and an empty list - which is
+            // the one case where "nothing matches your search" is the truth.
             if (ArrayProperty(doc.RootElement, "results") is not { } results)
-                return [];
+                throw new ResearchUnavailableException(
+                    "The research index answered with something Radar could not read. Try again shortly.");
 
             var items = new List<ContentItem>();
             foreach (var work in results.EnumerateArray())
@@ -54,9 +59,19 @@ public class OpenAlexClient
             }
             return items;
         }
-        catch
+        catch (Exception e) when (e is not ResearchUnavailableException)
         {
-            return [];
+            // Said, not swallowed.
+            //
+            // This caught everything and returned an empty list, so a timeout, a 429 and a
+            // rate-limited 503 all arrived at the reader as "nothing matches your search" -
+            // an outage reported as a fact about their topic, with no retry offered because
+            // nothing had failed as far as the screen knew. It also made the whole
+            // ResearchUnavailableException path above it unreachable: the exception could not
+            // be thrown, so the controller could not return 503, so the dead code sat there
+            // looking like a fix.
+            throw new ResearchUnavailableException(
+                "Radar could not reach the research index just now. Your search is fine - try it again shortly.", e);
         }
     }
 
@@ -136,9 +151,14 @@ public class OpenAlexClient
             ? citeEl.GetInt32()
             : 0;
 
+        // default, not today. A work whose date OpenAlex does not report was being stamped with
+        // the moment Radar happened to read it - so a paper of unknown age rendered as this
+        // morning, which is an invented publication date, and the spec forbids exactly that.
+        // Everything downstream now has a value it can recognise as "not recorded".
         var publicationDate = work.TryGetProperty("publication_date", out var dateEl)
-            ? DateTime.TryParse(dateEl.GetString(), out var dt) ? dt : DateTime.UtcNow
-            : DateTime.UtcNow;
+            && DateTime.TryParse(dateEl.GetString(), out var dt)
+            ? dt
+            : default;
 
         var journal = "";
         string? landingPageUrl = null;

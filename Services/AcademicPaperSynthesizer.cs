@@ -72,7 +72,7 @@ public static class AcademicPaperSynthesizer
             var journal = !string.IsNullOrWhiteSpace(paper.Journal)
                 ? paper.Journal
                 : (!string.IsNullOrWhiteSpace(paper.Source) ? paper.Source : "Source not recorded");
-            var year = paper.PublishedAt.Year > 1900 ? paper.PublishedAt.Year : DateTime.UtcNow.Year;
+            var year = paper.PublishedAt.Year > 1900 ? paper.PublishedAt.Year.ToString() : "date not recorded";
 
             paper.PaperBreakdown.WhyItMatters = string.IsNullOrWhiteSpace(paper.Doi)
                 ? $"Published in {journal} ({year}). No DOI on record."
@@ -101,7 +101,7 @@ public static class AcademicPaperSynthesizer
         // "Peer-Reviewed Academic Press" was invented, and asserted peer review that nothing checked.
         var journal = !string.IsNullOrWhiteSpace(paper.Journal) ? paper.Journal : (!string.IsNullOrWhiteSpace(paper.Source) ? paper.Source : "Source not recorded");
         var authorsList = paper.Authors.Count > 0 ? string.Join(", ", paper.Authors.Take(3)) + (paper.Authors.Count > 3 ? " et al." : "") : "The authors";
-        var year = paper.PublishedAt.Year > 1900 ? paper.PublishedAt.Year : DateTime.UtcNow.Year;
+        var year = paper.PublishedAt.Year > 1900 ? paper.PublishedAt.Year.ToString() : "date not recorded";
         var abstractText = !string.IsNullOrWhiteSpace(paper.WhatHappened) ? paper.WhatHappened : (!string.IsNullOrWhiteSpace(paper.AiSummary) ? paper.AiSummary : string.Empty);
         var topic = paper.Tags.Count > 0 ? paper.Tags[0] : (!string.IsNullOrWhiteSpace(paper.Topic) ? paper.Topic : string.Empty);
 
@@ -173,7 +173,10 @@ public static class AcademicPaperSynthesizer
             ? FormatAuthorsForStyle(paper.Authors, style)
             : "Unknown Author";
 
-        var year = paper.PublishedAt.Year > 1900 ? paper.PublishedAt.Year : DateTime.UtcNow.Year;
+        // "n.d." - no date - which is what APA, Harvard and MLA all use for a work whose date
+        // is unknown. This printed the current year instead, so a paper of unrecorded age was
+        // cited as published this year, in a reference list a student hands in.
+        var year = paper.PublishedAt.Year > 1900 ? paper.PublishedAt.Year.ToString() : "n.d.";
         var title = paper.Title.TrimEnd('.');
         var journal = !string.IsNullOrWhiteSpace(paper.Journal) ? paper.Journal : paper.Source;
         var doi = paper.Doi?.Replace("https://doi.org/", "").Trim();
@@ -213,7 +216,7 @@ public static class AcademicPaperSynthesizer
         };
     }
 
-    private static string BuildBibtexCitation(ContentItem paper, string authors, int year, string title, string journal, string? doi, string url)
+    private static string BuildBibtexCitation(ContentItem paper, string authors, string year, string title, string journal, string? doi, string url)
     {
         var cleanId = Regex.Replace(paper.Id, @"[^a-zA-Z0-9_]", "_");
         if (cleanId.Length > 20) cleanId = cleanId[..20];
@@ -292,7 +295,7 @@ public static class AcademicPaperSynthesizer
         return matching.Count > 0 ? string.Join(" ", matching).Trim() : NotStated;
     }
 
-    private static string GenerateIntroduction(string title, string topic, string journal, int year, string abstractText)
+    private static string GenerateIntroduction(string title, string topic, string journal, string year, string abstractText)
     {
         // The one section that can be written from metadata alone, because the metadata is fact:
         // this paper, this journal, this year. Everything beyond that comes from the abstract.
@@ -341,7 +344,8 @@ public static class AcademicPaperSynthesizer
     /// </summary>
     private static string EraFor(ContentItem paper)
     {
-        if (paper.PublishedAt.Year <= 0) return "Publication date not recorded";
+        // Year <= 0 is unreachable - default(DateTime) is year 1 - so this guard never fired.
+        if (paper.PublishedAt == default) return "Publication date not recorded";
 
         // One definition, shared with the ranking that uses it. This one read the year alone,
         // so anything older than fifteen years was "Foundational" whether or not a soul had
@@ -350,6 +354,7 @@ public static class AcademicPaperSynthesizer
         // claim this product exists not to make.
         return ResearchRanking.EraOf(paper) switch
         {
+            null => "Publication date not recorded",
             ResearchRanking.Recent => "Recent",
             ResearchRanking.Foundational => "Foundational - predates current practice by design",
             _ => "Established",

@@ -52,8 +52,14 @@ public static class ResearchRanking
     /// text its whole field rests on and still be the wrong thing to copy as current practice;
     /// a 2024 preprint can be neither. Both facts are useful and neither is a score.
     /// </remarks>
-    public static string EraOf(ContentItem paper, DateTime? now = null)
+    public static string? EraOf(ContentItem paper, DateTime? now = null)
     {
+        // No date, no era. The guard this replaces asked whether the year was zero or less,
+        // which no DateTime can be - default(DateTime) is year 1 - so it never fired, and a
+        // record with no publication date was quietly aged at two thousand years and labelled
+        // "Established". An age bracket asserted about a date Radar does not have.
+        if (paper.PublishedAt == default) return null;
+
         var age = ((now ?? DateTime.UtcNow) - paper.PublishedAt).TotalDays / 365.25;
 
         if (age <= RecentYears) return Recent;

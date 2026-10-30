@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
 using RadarV2.Models;
 
@@ -66,9 +67,26 @@ public static class PersonaPriorities
     {
         if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(term)) return false;
 
-        var pattern = $@"\b{Regex.Escape(term)}[a-z]{{0,{MostATermMayGrow}}}\b";
-        return Regex.IsMatch(text, pattern, RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100));
+        return PatternFor(term).IsMatch(text);
     }
+
+    /// <summary>
+    /// The compiled pattern for a term, built once.
+    /// </summary>
+    /// <remarks>
+    /// This interpolated the pattern on every call and handed it to the static Regex.IsMatch,
+    /// which caches fifteen. The longest list here holds twenty-six terms, so scoring a single
+    /// item evicted the cache and recompiled every term after it - and the research library
+    /// scores two hundred candidates per request. Thousands of regex constructions a call, for
+    /// twenty-six patterns that never change.
+    /// </remarks>
+    private static Regex PatternFor(string term) =>
+        Compiled.GetOrAdd(term, t => new Regex(
+            $@"\b{Regex.Escape(t)}[a-z]{{0,{MostATermMayGrow}}}\b",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled,
+            TimeSpan.FromMilliseconds(100)));
+
+    private static readonly ConcurrentDictionary<string, Regex> Compiled = new(StringComparer.Ordinal);
 
     /// <summary>
     /// The term this text is about, or null if none of them.

@@ -67,6 +67,20 @@ public class ContentItem
     /// </remarks>
     public int CitationCount { get; set; }
 
+    /// <summary>
+    /// Where this paper sits in time: Recent, Established or Foundational.
+    /// </summary>
+    /// <remarks>
+    /// On the item, not only inside the breakdown. The breakdown is a model call and is built
+    /// only when somebody opens a paper, so the era - which costs nothing, needs no model, and
+    /// is most useful while skimming a list of twenty - could not be shown on the one surface
+    /// it was for. A reader would have had to open each paper to find out which of them was
+    /// current, which is the opposite of the point.
+    ///
+    /// Derived, never typed. See ResearchRanking.EraOf.
+    /// </remarks>
+    public string? PaperEra { get; set; }
+
     // Enrichment fields — populated by the AI ingestion pipeline
     public ContentLayer Layer { get; set; } = ContentLayer.Ideas;
     public int CredibilityTier { get; set; }

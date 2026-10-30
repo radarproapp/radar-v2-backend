@@ -85,27 +85,26 @@ public class MongoResearchService : IResearchService
                 combined.Add(paper);
             }
         }
-        catch (Exception e)
+        catch (ResearchUnavailableException e)
         {
-            // Said, not swallowed. The comment that used to sit here promised "curated catalog
-            // still powers the response" - that catalogue was eight hand-written papers and was
-            // deleted, so what actually happened was an empty list presented as "no research
-            // matches your search". A reader then believes nothing exists on their topic, which
-            // is a different and worse answer than "Radar could not reach the index".
+            // Logged and rethrown. The message a reader sees is written where the failure is
+            // known, which is the client - this used to construct its own, which only looked
+            // right because the client never let anything through to it.
             _logger.LogWarning(e, "OpenAlex search failed for {Query}", query);
-            throw new ResearchUnavailableException(
-                "Radar could not reach the research index just now. Your search is fine - try it again shortly.", e);
+            throw;
         }
 
         // Deliberately no synthetic-paper fallback: an empty result set is the honest answer when
         // no verifiable work matches. Inventing a plausible-looking paper, DOI or statistic would
         // violate the "never invent academic information" rule the product is built on.
 
-        // Ordered before it is cut, or the ranking only sorts whichever page OpenAlex put first.
+        // Ranked rather than handed over in the index's own order, which is what used to
+        // happen, under a spec asking for credible and relevant research first.
         //
-        // Nothing sorted these. They arrived in the index's own order and were handed straight
-        // to the reader, under a spec asking for credible and relevant research first, and for
-        // recent work and the foundational papers of a field both to surface.
+        // Within the page, to be exact. OpenAlex is asked for one page and returns it, so this
+        // reorders those results and cannot reach past them - fine for the first page, which is
+        // the one almost everybody reads, and worth knowing before trusting page two, where the
+        // ordering across pages is not monotonic.
         var papers = ResearchRanking.Ordered(combined, profile).Take(pageSize * page).ToList();
         ExplainForReader(papers, profile);
         return papers;
@@ -330,13 +329,17 @@ public class MongoResearchService : IResearchService
     {
         // Era does not depend on the reader, so it is set before the profile check - a signed-out
         // search still needs to know a 1998 paper is foundational.
-        foreach (var paper in papers) AcademicPaperSynthesizer.EnsureEra(paper);
+        //
+        // Set on the item rather than through EnsureEra, which writes into the breakdown and
+        // returns immediately when there is not one. Search results never have a breakdown -
+        // it is a model call made when a paper is opened - so that loop did nothing at all on
+        // every surface the era was for, and the comment above it was false.
+        foreach (var paper in papers) paper.PaperEra = ResearchRanking.EraOf(paper);
 
         if (profile is null) return;
 
         foreach (var paper in papers)
         {
-            AcademicPaperSynthesizer.EnsureEra(paper);
 
             var explanation = InterestPersonalization.Explain(profile, paper);
             paper.MatchedSignals = explanation.MatchedSignals.ToList();

@@ -127,13 +127,16 @@ public class AcademicPaperSynthesizerTests
     /// decides it - and the threshold is high, because the label is meant to mean something.
     /// </remarks>
     [Theory]
-    [InlineData(2026, 0, "Recent")]
-    [InlineData(2018, 0, "Established")]
-    [InlineData(1998, 3, "Established")]
-    [InlineData(1998, 20_000, "Foundational")]
-    public void A_papers_era_is_stated_so_a_classic_is_not_read_as_current_practice(int year, int citations, string expected)
+    // Not a literal year. This runs against the real clock, so a hard-coded "recent" year
+    // becomes a failing test in 2030 - which is a test that knows the date better than the
+    // person who will be debugging it.
+    [InlineData(0, 0, "Recent")]
+    [InlineData(-8, 0, "Established")]
+    [InlineData(-28, 3, "Established")]
+    [InlineData(-28, 20_000, "Foundational")]
+    public void A_papers_era_is_stated_so_a_classic_is_not_read_as_current_practice(int yearsAgo, int citations, string expected)
     {
-        var paper = Paper("A paper", "We did work.", year);
+        var paper = Paper("A paper", "We did work.", DateTime.UtcNow.Year + yearsAgo);
         paper.CitationCount = citations;
 
         AcademicPaperSynthesizer.EnrichPaperWithStrictBreakdown(paper);
