@@ -87,7 +87,7 @@ public class OpportunityMixTests
     }
 
     /// <summary>
-    /// A day that is mostly local is left alone.
+    /// A day that is mostly local stays mostly local.
     /// </summary>
     /// <remarks>
     /// The reserve is a floor, not a quota. Somebody whose matches are nearly all Nigerian should
@@ -99,7 +99,37 @@ public class OpportunityMixTests
         var chosen = Curate(Ranked(foreign: 2, nearby: 20));
 
         Assert.Equal(12, chosen.Count);
-        Assert.True(chosen.Count(o => o.Nearby) >= 10, "A local-heavy day was cut back.");
+        Assert.True(chosen.Count(o => o.Nearby) >= 8, "A local-heavy day was cut back too far.");
+    }
+
+    /// <summary>
+    /// And a corpus that is almost entirely local still shows something else.
+    /// </summary>
+    /// <remarks>
+    /// The reserve cut one way only to begin with, which is not a mix. One source arriving with
+    /// several hundred Nigerian job listings makes every candidate nearby, and a learner looking
+    /// for work would never see a scholarship or a fellowship again - the opportunities the
+    /// product was built around, pushed off the page by the fix for the opposite problem.
+    /// </remarks>
+    [Fact]
+    public void ADayIsNotEntirelyLocalEither()
+    {
+        var chosen = Curate(Ranked(foreign: 6, nearby: 40));
+
+        Assert.Equal(12, chosen.Count);
+        Assert.True(
+            chosen.Count(o => !o.Nearby) >= OpportunityMix.ReservedForNearby,
+            $"Only {chosen.Count(o => !o.Nearby)} of the day came from further afield.");
+    }
+
+    /// <summary>Nearby items beyond the batch size do not crowd out the rest.</summary>
+    [Fact]
+    public void MoreNearbyThanADayHoldsStillLeavesRoom()
+    {
+        var chosen = Curate(Ranked(foreign: 1, nearby: 100));
+
+        Assert.Equal(12, chosen.Count);
+        Assert.Equal(1, chosen.Count(o => !o.Nearby));
     }
 
     /// <summary>Nothing is dropped when there is less than a full day.</summary>

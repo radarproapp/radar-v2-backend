@@ -54,8 +54,17 @@ public class MongoOpportunityService : IOpportunityService
             Builders<Opportunity>.Filter.Eq(o => o.Deadline, null),
             Builders<Opportunity>.Filter.Gte(o => o.Deadline, cutoff));
 
+        // Newest first, which the window depends on and did not have.
+        //
+        // Unsorted, Mongo returns whatever order it stores, and in practice that is insertion
+        // order - so the five hundred places filled with the oldest rows and every opportunity
+        // ingested after them was never scored and never shown. One source arriving with several
+        // hundred entries was enough to freeze the window permanently, because most job postings
+        // carry no deadline and so never expire out of it. "New opportunities every day" stops
+        // being true, silently, which is the failure the ingestion was built to end.
         return await _db.Opportunities
             .Find(notExpired)
+            .SortByDescending(o => o.DiscoveredAt)
             .Limit(MaxScoringCandidates)
             .ToListAsync();
     }

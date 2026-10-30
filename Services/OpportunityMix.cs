@@ -86,7 +86,14 @@ public static class OpportunityMix
         // Whatever the top of the list would have given anyway, minus the places being kept.
         var openPlaces = size - Math.Min(reserved, nearby.Count);
 
+        // And the same floor the other way round. A reserve on one side only is not a mix: one
+        // source of several hundred local jobs makes every item nearby, and a learner looking
+        // for work would never see the scholarships and fellowships again. Kept symmetric so
+        // that whichever side the corpus is heavy on, the other still reaches the page.
+        var nearbyPlaces = size - Math.Min(reserved, elsewhere.Count);
+
         var chosen = new List<T>(size);
+        var takenNearby = 0;
         var takenElsewhere = 0;
 
         foreach (var item in ranked)
@@ -95,7 +102,12 @@ public static class OpportunityMix
 
             if (isNearby(item))
             {
-                chosen.Add(item);
+                if (takenNearby < nearbyPlaces)
+                {
+                    chosen.Add(item);
+                    takenNearby++;
+                }
+
                 continue;
             }
 
@@ -106,10 +118,10 @@ public static class OpportunityMix
             }
         }
 
-        // The page is still full when there was not enough nearby to fill the reserve.
+        // The page is still full when one side ran out before its places did.
         if (chosen.Count < size)
         {
-            foreach (var item in elsewhere)
+            foreach (var item in ranked)
             {
                 if (chosen.Count == size) break;
                 if (!chosen.Contains(item)) chosen.Add(item);

@@ -45,12 +45,25 @@ public partial class OpportunityIngestionService
     private static partial Regex HtmlTags();
 
     /// <summary>
-    /// Deadline phrasing as it actually appears in these posts: "Deadline: 15 December 2026",
-    /// "Application Deadline: December 15, 2026", "Closes 15/12/2026".
+    /// Deadline phrasing as it actually appears in these posts.
     /// </summary>
-    [GeneratedRegex(@"(?:deadline|closes?|apply by|closing date)\s*[:\-]?\s*((?:\d{1,2}\s+)?[A-Z][a-z]+\s+\d{1,2},?\s+\d{4}|\d{1,2}\s+[A-Z][a-z]+\s+\d{4}|\d{1,2}[/-]\d{1,2}[/-]\d{4})",
+    /// <remarks>
+    /// "Deadline: 15 December 2026", "Application Deadline: December 15, 2026",
+    /// "Closes 15/12/2026" - and, on the Nigerian boards, overwhelmingly
+    /// "Application Closing Date: 30th November, 2026".
+    ///
+    /// The ordinal suffix is what this missed. Both date shapes began with digits followed by
+    /// whitespace, so "30th" stopped the match dead and almost every job on those feeds stored no
+    /// deadline at all. A missing deadline reads as "never closes": no urgency on a posting that
+    /// shuts in three days, and a row that never expires out of the scoring window.
+    /// </remarks>
+    [GeneratedRegex(@"(?:deadline|closes?|apply by|closing date)\s*[:\-]?\s*((?:\d{1,2}(?:st|nd|rd|th)?\s+)?[A-Z][a-z]+\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4}|\d{1,2}(?:st|nd|rd|th)?\s+[A-Z][a-z]+,?\s+\d{4}|\d{1,2}[/-]\d{1,2}[/-]\d{4})",
         RegexOptions.IgnoreCase)]
     private static partial Regex DeadlinePhrase();
+
+    /// <summary>The ordinal on a day, which no date parser accepts.</summary>
+    [GeneratedRegex(@"(?<=\d)(?:st|nd|rd|th)", RegexOptions.IgnoreCase)]
+    private static partial Regex Ordinal();
 
     public async Task<int> RunAsync(CancellationToken ct = default)
     {
@@ -75,6 +88,15 @@ public partial class OpportunityIngestionService
         return added;
     }
 
+    /// <summary>
+    /// How much of one feed is taken in a single run.
+    /// </summary>
+    /// <remarks>
+    /// Enough that a source with a daily handful is fully read every time, and small enough that
+    /// a source with hundreds cannot crowd every other source out of the scoring window.
+    /// </remarks>
+    public const int MostPerFeedPerRun = 40;
+
     private async Task<int> IngestFeedAsync(OpportunitySourceRegistry.OpportunityFeed feed, CancellationToken ct)
     {
         var client = _httpFactory.CreateClient("Ingestion");
@@ -84,8 +106,20 @@ public partial class OpportunityIngestionService
         var xml = await client.GetStringAsync(feed.Url, cts.Token);
         var doc = XDocument.Parse(xml);
 
+        // Newest first, and only so many from any one source per run.
+        //
+        // Nothing capped this, and one of these feeds publishes close to six hundred entries. A
+        // single run took the collection from a few dozen to several hundred, all from one
+        // source - and the scoring window is five hundred documents, so that one feed could fill
+        // it and keep everything ingested afterwards from ever being scored. Content ingestion
+        // has had a per-source cap and a round robin for this reason; the opportunity path never
+        // got one.
+        //
+        // The feeds are in reverse-chronological order, so taking from the front takes the most
+        // recent postings. The rest arrive over the following runs.
         var entries = doc.Descendants("item")
             .Concat(doc.Descendants(Atom + "entry"))
+            .Take(MostPerFeedPerRun)
             .ToList();
 
         var added = 0;
@@ -142,8 +176,29 @@ public partial class OpportunityIngestionService
     /// Reads the type from how the post describes itself. Falls back to the feed's default rather
     /// than guessing, because calling a job a "Scholarship" is worse than being vague.
     /// </summary>
-    private static OpportunityType InferType(string title, string body, OpportunityType fallback)
+    /// <remarks>Internal so the inference can be tested; it is the part that is easiest to get
+    /// quietly wrong and the hardest to notice from a feed.</remarks>
+    internal static OpportunityType InferType(string title, string body, OpportunityType fallback)
     {
+        var heading = title.ToLowerInvariant();
+
+        // The title, when it says outright what the posting is.
+        //
+        // The body used to decide, and on a job board the body is a list of requirements:
+        // "a B.Sc Degree in any course of study" is in close to every Nigerian job advert, and
+        // "course" matched the Training keyword. So a large share of a job feed was filed as
+        // Training - a different thing, that a learner is looking for on a different day.
+        //
+        // A headline that says Job Recruitment is not ambiguous, and nothing in a requirements
+        // list should overrule it.
+        if (heading.Contains("job recruitment")
+            || heading.Contains("job vacanc")
+            || heading.Contains("vacancies")
+            || heading.Contains("recruitment ("))
+        {
+            return OpportunityType.Job;
+        }
+
         var text = $"{title} {body}".ToLowerInvariant();
 
         if (text.Contains("scholarship") || text.Contains("tuition")) return OpportunityType.Scholarship;
@@ -154,16 +209,27 @@ public partial class OpportunityIngestionService
         if (text.Contains("competition") || text.Contains("challenge") || text.Contains("hackathon")) return OpportunityType.Competition;
         if (text.Contains("conference") || text.Contains("summit")) return OpportunityType.Conference;
         if (text.Contains("workshop") || text.Contains("bootcamp")) return OpportunityType.Workshop;
-        if (text.Contains("training") || text.Contains("course")) return OpportunityType.Training;
+        // Last, and only when the posting is about the training rather than mentioning it. "On
+        // the job training is provided" and "any course of study" are lines in a job advert, not
+        // a description of a training programme.
+        if (heading.Contains("training") || heading.Contains("course")) return OpportunityType.Training;
 
         return fallback;
     }
 
     /// <summary>
-    /// Job feeds title posts as "Company: Role" or "Role at Company". Anything else falls back to
-    /// the publication, which is at least true.
+    /// Who is actually offering this.
     /// </summary>
-    private static string InferOrganisation(string title, string feedName)
+    /// <remarks>
+    /// Job feeds title posts as "Company: Role", "Role at Company", or - on the aggregators -
+    /// "Company Job Recruitment (3 Positions)". That last shape has no colon and no " at ", so
+    /// it fell through to the feed's own name: every job carried "Hot Nigerian Jobs" as the
+    /// organisation while the employer sat in plain sight at the front of the title. It is the
+    /// line a learner reads first when deciding whether to apply.
+    ///
+    /// The feed name is still the last resort, because naming the board is at least true.
+    /// </remarks>
+    internal static string InferOrganisation(string title, string feedName)
     {
         var colon = title.IndexOf(':');
         if (colon is > 1 and < 48) return title[..colon].Trim();
@@ -171,8 +237,22 @@ public partial class OpportunityIngestionService
         var at = title.LastIndexOf(" at ", StringComparison.OrdinalIgnoreCase);
         if (at > 0 && title.Length - at < 60) return title[(at + 4)..].Trim();
 
+        // "<Employer> Job Recruitment (3 Positions)" and its variants. Everything before the
+        // phrase that describes the advert is the employer.
+        foreach (var marker in Advertised)
+        {
+            var found = title.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (found > 1) return title[..found].Trim().TrimEnd(',', '-', '–');
+        }
+
         return feedName;
     }
+
+    /// <summary>The phrases an aggregator appends after the employer's name.</summary>
+    private static readonly string[] Advertised =
+    [
+        " job recruitment", " job vacanc", " vacancies", " recruitment (", " recruits ", " is recruiting",
+    ];
 
     private static string InferRegion(string title, string body, string fallback)
     {
@@ -187,13 +267,28 @@ public partial class OpportunityIngestionService
     /// Only returns a date it actually found, and only a future one. A wrong deadline makes someone
     /// miss a real chance or panic over a fake one, so no date beats a guessed date.
     /// </summary>
-    private static DateTime? FindDeadline(string text)
+    internal static DateTime? FindDeadline(string text)
     {
         var match = DeadlinePhrase().Match(text);
         if (!match.Success) return null;
 
-        var candidate = match.Groups[1].Value.Replace(",", " ").Trim();
-        if (!DateTime.TryParse(candidate, System.Globalization.CultureInfo.InvariantCulture,
+        var candidate = Ordinal().Replace(match.Groups[1].Value, string.Empty)
+            .Replace(",", " ")
+            .Trim();
+
+        // Day before month, which is how this market writes dates.
+        //
+        // InvariantCulture reads 03/12/2026 as the third of December in American order - the
+        // twelfth of March. Nine months early, usually already past, and then dropped by the
+        // sanity check below without a word. A wrong deadline makes somebody miss a real one;
+        // this one was quietly becoming no deadline at all.
+        //
+        // The unambiguous shapes - "30 November 2026", "November 30 2026" - parse the same under
+        // either culture, so this only decides the numeric case, and it decides it the way the
+        // people reading these postings wrote them.
+        var dayFirst = System.Globalization.CultureInfo.GetCultureInfo("en-GB");
+
+        if (!DateTime.TryParse(candidate, dayFirst,
                 System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal,
                 out var parsed))
             return null;

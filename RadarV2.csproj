@@ -26,4 +26,11 @@
       <PackageReference Include="PdfPig" Version="0.1.16" />
     </ItemGroup>
 
+  <ItemGroup>
+    <!-- The test project sees internals, so inference that is easy to get quietly wrong - which
+         opportunity type a posting is, what its deadline says - can be tested directly rather
+         than through a feed nobody can run in a test. -->
+    <InternalsVisibleTo Include="RadarV2.Tests" />
+  </ItemGroup>
+
 </Project>
