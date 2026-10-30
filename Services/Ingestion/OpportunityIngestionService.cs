@@ -61,6 +61,10 @@ public partial class OpportunityIngestionService
         RegexOptions.IgnoreCase)]
     private static partial Regex DeadlinePhrase();
 
+    /// <summary>A numeric date, so its two leading components can be compared.</summary>
+    [GeneratedRegex(@"^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$")]
+    private static partial Regex Numeric();
+
     /// <summary>The ordinal on a day, which no date parser accepts.</summary>
     [GeneratedRegex(@"(?<=\d)(?:st|nd|rd|th)", RegexOptions.IgnoreCase)]
     private static partial Regex Ordinal();
@@ -97,6 +101,32 @@ public partial class OpportunityIngestionService
     /// </remarks>
     public const int MostPerFeedPerRun = 40;
 
+    /// <summary>
+    /// When an entry says it was published, for ordering before the cap.
+    /// </summary>
+    /// <remarks>
+    /// The cap used to take the first forty in document order and trust the feed to be newest
+    /// first. For a feed that is not, that freezes the source on its oldest forty for ever: the
+    /// next run takes the same forty, finds them all stored, and adds nothing - logged as "0 new
+    /// of 40", which is also what a quiet day looks like.
+    ///
+    /// Undated entries sort last rather than first, so a feed with no dates degrades to document
+    /// order rather than putting its unknowns ahead of real postings.
+    /// </remarks>
+    private static DateTime PublishedAt(XElement entry)
+    {
+        var raw = Value(entry, "pubDate")
+                  ?? Value(entry, Atom + "published")
+                  ?? Value(entry, Atom + "updated")
+                  ?? Value(entry, "{http://purl.org/dc/elements/1.1/}date");
+
+        return DateTime.TryParse(raw, System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal,
+            out var parsed)
+            ? parsed
+            : DateTime.MinValue;
+    }
+
     private async Task<int> IngestFeedAsync(OpportunitySourceRegistry.OpportunityFeed feed, CancellationToken ct)
     {
         var client = _httpFactory.CreateClient("Ingestion");
@@ -119,6 +149,7 @@ public partial class OpportunityIngestionService
         // recent postings. The rest arrive over the following runs.
         var entries = doc.Descendants("item")
             .Concat(doc.Descendants(Atom + "entry"))
+            .OrderByDescending(PublishedAt)
             .Take(MostPerFeedPerRun)
             .ToList();
 
@@ -191,6 +222,27 @@ public partial class OpportunityIngestionService
         //
         // A headline that says Job Recruitment is not ambiguous, and nothing in a requirements
         // list should overrule it.
+        // What the headline says it is, when it says something more specific than "a job".
+        //
+        // The recruitment markers are an aggregator's house style and sit on everything,
+        // including "Internship Recruitment (4 Positions)" and "Graduate Trainee Recruitment (5
+        // Positions)". Short-circuiting on them alone filed both as ordinary jobs, which makes
+        // them invisible to the filter a learner would actually use to find them.
+        if (heading.Contains("internship") || heading.Contains("industrial attachment"))
+            return OpportunityType.Internship;
+
+        if (heading.Contains("graduate trainee")
+            || heading.Contains("graduate programme")
+            || heading.Contains("graduate program")
+            || heading.Contains("management trainee")
+            || heading.Contains("trainee programme"))
+        {
+            return OpportunityType.GraduateProgramme;
+        }
+
+        if (heading.Contains("scholarship")) return OpportunityType.Scholarship;
+        if (heading.Contains("fellowship")) return OpportunityType.Fellowship;
+
         if (heading.Contains("job recruitment")
             || heading.Contains("job vacanc")
             || heading.Contains("vacancies")
@@ -239,11 +291,19 @@ public partial class OpportunityIngestionService
 
         // "<Employer> Job Recruitment (3 Positions)" and its variants. Everything before the
         // phrase that describes the advert is the employer.
-        foreach (var marker in Advertised)
-        {
-            var found = title.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
-            if (found > 1) return title[..found].Trim().TrimEnd(',', '-', '–');
-        }
+        // The earliest marker in the title, not the first one in this list.
+        //
+        // Returning on list order meant "Sahara Group Vacancies - Graduate Job Recruitment" cut
+        // at " job recruitment" because that marker is checked first, giving "Sahara Group
+        // Vacancies - Graduate" as the employer. The employer is whatever comes before the
+        // earliest of them.
+        var earliest = Advertised
+            .Select(marker => title.IndexOf(marker, StringComparison.OrdinalIgnoreCase))
+            .Where(found => found > 1)
+            .DefaultIfEmpty(-1)
+            .Min();
+
+        if (earliest > 1) return title[..earliest].Trim().TrimEnd(',', '-', '–');
 
         return feedName;
     }
@@ -276,22 +336,35 @@ public partial class OpportunityIngestionService
             .Replace(",", " ")
             .Trim();
 
-        // Day before month, which is how this market writes dates.
+        // A numeric date is read the way it can only have been meant.
         //
-        // InvariantCulture reads 03/12/2026 as the third of December in American order - the
-        // twelfth of March. Nine months early, usually already past, and then dropped by the
-        // sanity check below without a word. A wrong deadline makes somebody miss a real one;
-        // this one was quietly becoming no deadline at all.
+        // InvariantCulture read 03/12/2026 as the twelfth of March - American order, nine months
+        // early in a market that writes the day first, usually already past, and then dropped by
+        // the sanity check below without a word. Switching the whole thing to day-first fixed
+        // that and broke the other direction: 12/25/2026 became month 25 and parsed as nothing
+        // at all, so a US-written posting lost a deadline it previously had right.
         //
-        // The unambiguous shapes - "30 November 2026", "November 30 2026" - parse the same under
-        // either culture, so this only decides the numeric case, and it decides it the way the
-        // people reading these postings wrote them.
+        // Most numeric dates decide themselves. A first component above twelve can only be a
+        // day; a second above twelve can only be a month. Only 1-12 against 1-12 is genuinely
+        // ambiguous, and there the market Radar serves writes the day first.
+        //
+        // The word shapes - "30 November 2026", "November 30 2026" - parse the same under either
+        // culture, so none of this touches them.
+        var invariant = System.Globalization.CultureInfo.InvariantCulture;
         var dayFirst = System.Globalization.CultureInfo.GetCultureInfo("en-GB");
+        var styles = System.Globalization.DateTimeStyles.AssumeUniversal
+                     | System.Globalization.DateTimeStyles.AdjustToUniversal;
 
-        if (!DateTime.TryParse(candidate, dayFirst,
-                System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal,
-                out var parsed))
+        var order = Numeric().Match(candidate) is { Success: true } numeric
+                    && int.Parse(numeric.Groups[2].Value) > 12
+            ? invariant
+            : dayFirst;
+
+        if (!DateTime.TryParse(candidate, order, styles, out var parsed)
+            && !DateTime.TryParse(candidate, order == dayFirst ? invariant : dayFirst, styles, out parsed))
+        {
             return null;
+        }
 
         return parsed > DateTime.UtcNow && parsed < DateTime.UtcNow.AddYears(3) ? parsed : null;
     }

@@ -73,7 +73,11 @@ public static class OpportunityMix
     {
         if (ranked.Count <= size) return [.. ranked];
 
-        reserved = Math.Clamp(reserved, 0, size);
+        // At most half the page, so a reserve can never be larger than the room left for the
+        // other side. Asked for four places out of three, both sides reserved everything, the
+        // first pass admitted nothing, and the top-up quietly handed back plain top-N with no
+        // mix in it - the opposite of what was asked for, with no way to tell from the result.
+        reserved = Math.Clamp(reserved, 0, size / 2);
 
         var nearby = new List<T>();
         var elsewhere = new List<T>();

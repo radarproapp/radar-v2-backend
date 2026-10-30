@@ -150,6 +150,25 @@ public class RadarDatabase
             new CreateIndexModel<Opportunity>(
                 Builders<Opportunity>.IndexKeys.Ascending(o => o.Deadline)));
 
+        // The order the scoring window is taken in.
+        //
+        // That window is the five hundred most recently discovered opportunities, and with no
+        // index the server had to fetch and sort every non-expired document to find them - on
+        // every opportunities page and every first page of the feed. Most job postings carry no
+        // deadline, so "non-expired" is nearly the whole collection.
+        Opportunities.Indexes.CreateOne(
+            new CreateIndexModel<Opportunity>(
+                Builders<Opportunity>.IndexKeys.Descending(o => o.DiscoveredAt)));
+
+        // The link is the identity, and ingestion checks it once per entry - up to forty times
+        // per feed, six feeds a run. Unindexed that is a collection scan each time; unique, the
+        // database enforces the thing the check is for rather than trusting a read that another
+        // run could already have invalidated.
+        Opportunities.Indexes.CreateOne(
+            new CreateIndexModel<Opportunity>(
+                Builders<Opportunity>.IndexKeys.Ascending(o => o.Url),
+                new CreateIndexOptions { Unique = true, Sparse = true }));
+
         DailyOpportunityBatches.Indexes.CreateOne(
             new CreateIndexModel<DailyOpportunityBatchDoc>(
                 Builders<DailyOpportunityBatchDoc>.IndexKeys

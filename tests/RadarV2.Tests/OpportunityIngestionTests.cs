@@ -61,6 +61,29 @@ public class OpportunityIngestionTests
         Assert.Equal(3, found.Value.Day);
     }
 
+    /// <summary>
+    /// And a date that can only be American order is read that way.
+    /// </summary>
+    /// <remarks>
+    /// Reading everything day-first fixed one market and broke the other: 12/25/2026 became
+    /// month 25, parsed as nothing, and a US-written posting lost a deadline it previously had
+    /// right. A first component above twelve can only be a day, a second above twelve can only
+    /// be a month, and only 1-12 against 1-12 is genuinely ambiguous - where this market writes
+    /// the day first.
+    /// </remarks>
+    [Theory]
+    [InlineData("Closes 12/25/2026", 12, 25)]
+    [InlineData("Closes 25/12/2026", 12, 25)]
+    [InlineData("Closes 03/12/2026", 12, 3)]
+    public void ANumericDateIsReadTheOnlyWayItCanBeMeant(string text, int month, int day)
+    {
+        var found = OpportunityIngestionService.FindDeadline(text);
+
+        Assert.NotNull(found);
+        Assert.Equal(month, found!.Value.Month);
+        Assert.Equal(day, found.Value.Day);
+    }
+
     /// <summary>The unambiguous shapes still parse, in both orders.</summary>
     [Theory]
     [InlineData("Deadline: 15 December 2026", 12, 15)]
@@ -98,6 +121,39 @@ public class OpportunityIngestionTests
     }
 
     // ── What kind of thing it is ────────────────────────────────────────────
+
+    /// <summary>
+    /// A headline that names a programme is that programme, not a generic job.
+    /// </summary>
+    /// <remarks>
+    /// The recruitment markers are an aggregator's house style and sit on everything, including
+    /// "Internship Recruitment (4 Positions)". Short-circuiting on them alone filed those as
+    /// ordinary jobs - invisible to the filter a learner would actually use to find them.
+    /// </remarks>
+    [Theory]
+    [InlineData("Internship Recruitment (4 Positions) at XYZ Limited", OpportunityType.Internship)]
+    [InlineData("Graduate Trainee Recruitment (5 Positions)", OpportunityType.GraduateProgramme)]
+    [InlineData("Management Trainee Programme 2027", OpportunityType.GraduateProgramme)]
+    [InlineData("Dangote Group Job Recruitment (12 Positions)", OpportunityType.Job)]
+    public void AHeadlineThatNamesAProgrammeIsThatProgramme(string title, OpportunityType expected)
+    {
+        var body = "Candidates should possess a B.Sc Degree in any course of study.";
+
+        Assert.Equal(expected, OpportunityIngestionService.InferType(title, body, OpportunityType.Job));
+    }
+
+    /// <summary>
+    /// The employer is whatever comes before the earliest marker, not the first one checked.
+    /// </summary>
+    [Fact]
+    public void TheEmployerIsCutAtTheEarliestMarker()
+    {
+        Assert.Equal(
+            "Sahara Group",
+            OpportunityIngestionService.InferOrganisation(
+                "Sahara Group Vacancies - Graduate Job Recruitment (3 Positions)",
+                "Hot Nigerian Jobs"));
+    }
 
     /// <summary>
     /// An ordinary job advert is a job.

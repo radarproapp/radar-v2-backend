@@ -197,4 +197,22 @@ public class OpportunityMixTests
         Assert.False(OpportunityMix.IsNearby("Nigeria", isRemote: false, where: ""));
         Assert.False(OpportunityMix.IsNearby("Nigeria", isRemote: false, where: null));
     }
+
+    /// <summary>
+    /// A reserve larger than the page still mixes.
+    /// </summary>
+    /// <remarks>
+    /// Clamped to the size rather than to half of it, both sides reserved everything, the first
+    /// pass admitted nothing and the top-up handed back plain top-N - the opposite of what was
+    /// asked for, and nothing in the result says so.
+    /// </remarks>
+    [Fact]
+    public void AReserveBiggerThanThePageStillMixes()
+    {
+        var chosen = OpportunityMix.Curate(Ranked(foreign: 5, nearby: 5), o => o.Nearby, size: 4, reserved: 4);
+
+        Assert.Equal(4, chosen.Count);
+        Assert.Contains(chosen, o => o.Nearby);
+        Assert.Contains(chosen, o => !o.Nearby);
+    }
 }
