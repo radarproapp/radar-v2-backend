@@ -218,12 +218,14 @@ public class RoadmapsController : ControllerBase
     }
 
     [HttpGet("active")]
-    public async Task<IActionResult> GetActiveAsync()
+    public async Task<IActionResult> GetActiveAsync(CancellationToken ct = default)
     {
         var profile = await _profiles.GetCurrentUserAsync();
         if (profile is null) return NotFound(new { error = "Profile not found" });
 
-        var active = await _roadmaps.GetActiveRoadmapAsync(profile.Id);
+        // The caller's cancellation reaches the video searches this triggers. Without it, a
+        // reader who navigated away left a request still calling two third-party services.
+        var active = await _roadmaps.GetActiveRoadmapAsync(profile.Id, ct);
         return active is null ? NotFound(new { error = "No active roadmap" }) : Ok(active);
     }
 

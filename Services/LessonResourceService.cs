@@ -422,7 +422,7 @@ public class LessonResourceService
         //
         // Asked for fewer than YouTube: it is the second source, and the judge ranks what comes
         // back from both together.
-        var open = await _peerTube.SearchAsync(query, count: CandidatesPerKind, ct: ct);
+        var open = await OpenVideosAsync(query, ct);
 
         // Counted here rather than on the service: lessons are built concurrently, so a field
         // would be a budget shared between whichever lessons happened to overlap.
@@ -465,6 +465,36 @@ public class LessonResourceService
     /// saying it was there. Nothing noticed, because the only tests of this went through the
     /// judge with a candidate built by hand.
     /// </remarks>
+    /// <summary>
+    /// How long a search of the open network is worth keeping.
+    /// </summary>
+    /// <remarks>
+    /// YouTube results are cached because the API is metered. These were not cached at all, so
+    /// every read of a path that still had unsettled lessons searched a public index again -
+    /// fifteen lessons, fifteen searches, on a service that owes Radar nothing and has every
+    /// reason to rate-limit it. Freshness is worth little here: the subject of a lesson does not
+    /// change, and neither does what the network holds on it hour to hour.
+    /// </remarks>
+    private static readonly TimeSpan OpenVideosKeptFor = TimeSpan.FromHours(12);
+
+    /// <summary>Videos from the open network, searched once per subject per half day.</summary>
+    private async Task<List<OpenVideoRef>> OpenVideosAsync(string query, CancellationToken ct)
+    {
+        var key = $"peertube:{query.ToLowerInvariant()}";
+
+        if (_cache.TryGetValue(key, out List<OpenVideoRef>? cached) && cached is not null)
+        {
+            return cached;
+        }
+
+        var found = await _peerTube.SearchAsync(query, count: CandidatesPerKind, ct: ct);
+
+        // Kept even when empty. A subject the network holds nothing on is the case worth not
+        // asking about again, and it is the common one.
+        _cache.Set(key, found, OpenVideosKeptFor);
+        return found;
+    }
+
     /// <summary>
     /// How many videos in one lesson are worth fetching captions for.
     /// </summary>

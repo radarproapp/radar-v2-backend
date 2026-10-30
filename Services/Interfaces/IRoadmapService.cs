@@ -6,7 +6,10 @@ namespace RadarV2.Services.Interfaces;
 public interface IRoadmapService
 {
     Task<List<GrowthRoadmap>> GetUserRoadmapsAsync(string userId);
-    Task<GrowthRoadmap?> GetActiveRoadmapAsync(string userId);
+    /// <param name="ct">
+    /// Carried into the resource enrichment this performs, which reaches third-party services.
+    /// </param>
+    Task<GrowthRoadmap?> GetActiveRoadmapAsync(string userId, CancellationToken ct = default);
     Task<GrowthRoadmap> CreateRoadmapAsync(string userId, string goal);
 
     /// <summary>

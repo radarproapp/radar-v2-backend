@@ -163,7 +163,14 @@ public class MongoRoadmapService : IRoadmapService
             || (roadmap.QuizResults?.Count ?? 0) > 0;
     }
 
-    public async Task<GrowthRoadmap?> GetActiveRoadmapAsync(string userId)
+    /// <param name="ct">
+    /// Carried into the enrichment below, which reaches two third-party services.
+    /// </param>
+    /// <remarks>
+    /// It had none, so a request that the client had already given up on went on searching for
+    /// videos - and nothing could stop it. This is the method every screen in Radar Learn calls.
+    /// </remarks>
+    public async Task<GrowthRoadmap?> GetActiveRoadmapAsync(string userId, CancellationToken ct = default)
     {
         var roadmap = await _db.Roadmaps
             .Find(r => r.UserId == userId && r.IsActive)
@@ -197,7 +204,7 @@ public class MongoRoadmapService : IRoadmapService
             // for the whole stage. That is the mismatch this gate exists to end, landing on the
             // one lesson deliberately pushed to the front of their work.
             await PersonalizeAsync(roadmap, userId);
-            await EnrichRoadmapWithResourcesAsync(roadmap);
+            await EnrichRoadmapWithResourcesAsync(roadmap, ct);
             await _db.Roadmaps.ReplaceOneAsync(r => r.Id == roadmap.Id, roadmap);
             return roadmap;
         }
