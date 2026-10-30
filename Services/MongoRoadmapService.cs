@@ -221,15 +221,28 @@ public class MongoRoadmapService : IRoadmapService
     public async Task<GrowthRoadmap> CreateRoadmapAsync(
         string userId, string goal, string? displayGoal, LearningIntent? intent = null)
     {
-        // Deactivate any existing active roadmap
-        var deactivate = Builders<GrowthRoadmap>.Update.Set(r => r.IsActive, false);
-        await _db.Roadmaps.UpdateManyAsync(r => r.UserId == userId && r.IsActive, deactivate);
-
+        // Built, then switched to. Not the other way round.
+        //
+        // The old path was deactivated first and then minutes of model calls and third-party
+        // HTTP ran before the new one was inserted. Anything that threw in that stretch - and
+        // the video search put an uncancelled network loop in it - left the learner with no
+        // active path at all: Radar Learn empty, Today blank, and the path they were on switched
+        // off for a path that was never written.
+        //
+        // Enriching first costs nothing if it fails, because nothing has changed yet.
         var roadmap = BuildFromTemplate(userId, goal, displayGoal, intent);
+
         // Personalise first: a lesson it inserts after the fill is one nothing has checked.
         await PersonalizeAsync(roadmap, userId);
         await EnrichRoadmapWithResourcesAsync(roadmap);
+
         await _db.Roadmaps.InsertOneAsync(roadmap);
+
+        // Then clear the others, excluding the one just written.
+        await _db.Roadmaps.UpdateManyAsync(
+            r => r.UserId == userId && r.IsActive && r.Id != roadmap.Id,
+            Builders<GrowthRoadmap>.Update.Set(r => r.IsActive, false));
+
         return roadmap;
     }
 
