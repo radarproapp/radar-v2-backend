@@ -68,7 +68,14 @@ public static class InterestPersonalization
         // The spec asks for a feed prioritised by category, and persona reached this scorer only
         // through PersonaImpact - written by the AI enricher and by nothing else. Two readers
         // with the same interests and different stages got the same ranking. See PersonaPriorities.
-        AddDimension(matches, text, PersonaPriorities.Dimension, PersonaPriorities.For(profile.Persona), PersonaPriorities.Weight);
+        //
+        // Matched by its own rule rather than through AddDimension. These terms are authored, not
+        // typed by a user, so they can be required to appear as whole words - which the keyword
+        // path does not do, and which is the difference between "graduate job" and "undergraduate
+        // enrolment".
+        var category = PersonaPriorities.Matched(text, profile.Persona);
+        if (category is not null)
+            matches.Add(new DimensionMatch(PersonaPriorities.Dimension, category, 1));
 
         // What the record knows and the profile does not. Weighted below Goal, because a stated
         // goal is a decision and a derived topic is an inference - but above Interest, because
@@ -86,9 +93,14 @@ public static class InterestPersonalization
         var score = (int)Math.Round(matches.Where(m => m.Dimension != "Persona").Sum(m => m.Coverage * WeightFor(m.Dimension)))
                     + (matches.Any(m => m.Dimension == "Persona") ? 5 : 0);
 
+        // Ordered for the reader, not by score. WhyShown prints the first two, and the category
+        // outweighs a general interest - so a student reading about mathematics would be told
+        // "a priority at your stage" while the interest they actually typed went unmentioned.
+        // What somebody stated themselves leads; the stage is the last thing worth saying.
         var signals = matches
             .Where(m => m.Dimension != "Persona")
-            .OrderByDescending(m => WeightFor(m.Dimension) * m.Coverage)
+            .OrderByDescending(m => m.Dimension == PersonaPriorities.Dimension ? 0 : 1)
+            .ThenByDescending(m => WeightFor(m.Dimension) * m.Coverage)
             .Take(3)
             .Select(m => $"{m.Dimension}: {m.Phrase}")
             .ToList();

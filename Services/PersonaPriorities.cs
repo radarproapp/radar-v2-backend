@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using RadarV2.Models;
 
 namespace RadarV2.Services;
@@ -22,10 +23,6 @@ namespace RadarV2.Services;
 /// because the category is a box somebody ticked and the goal is a sentence they wrote. It sits
 /// above a general interest, because "scholarship" is what a student came for even when the
 /// subject is one they never listed.
-///
-/// Terms are stems, deliberately. The matcher asks whether the item's text contains the term, so
-/// "scholarship" finds "scholarships" while the reverse finds nothing. Multi-word terms need all
-/// of their words, which is what keeps "industry report" from firing on every use of "industry".
 /// </remarks>
 public static class PersonaPriorities
 {
@@ -34,6 +31,54 @@ public static class PersonaPriorities
 
     /// <summary>The dimension name, as it appears in a matched signal.</summary>
     public const string Dimension = "Category";
+
+    /// <summary>
+    /// How much a term may grow at the end and still be the same term.
+    /// </summary>
+    /// <remarks>
+    /// Three letters covers the endings a headline actually uses - scholarship/scholarships,
+    /// internship/internships, mentorship/mentorships - and stops short of a different word.
+    /// The same bound, for the same reason, as <see cref="DomainVocabulary"/>.
+    /// </remarks>
+    private const int MostATermMayGrow = 3;
+
+    /// <summary>
+    /// Whether the text is about this term, as opposed to merely containing its letters.
+    /// </summary>
+    /// <remarks>
+    /// The whole phrase, bounded at both ends. The scorer's general matcher splits a phrase into
+    /// keywords, drops anything under four letters, and then asks whether the text contains each
+    /// of them anywhere at all. That is right for a subject a user typed and wrong for an
+    /// authored list, because it found every one of these in text about something else:
+    /// "graduate job" reduced to the single word "graduate" and fired on "undergraduate
+    /// enrolment"; "seed round" fired on "seed yields improve around smallholder farms";
+    /// "business grant" fired on "migrant workers are being granted permits"; "industry report"
+    /// is a literal substring of "industry reported record profits".
+    ///
+    /// Each of those was worth twelve points and, worse, was then printed to the reader as the
+    /// reason the item was in front of them. These terms are written here rather than typed by a
+    /// user, so they can be required to appear as themselves.
+    /// </remarks>
+    public static bool Mentions(string? text, string term)
+    {
+        if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(term)) return false;
+
+        var pattern = $@"\b{Regex.Escape(term)}[a-z]{{0,{MostATermMayGrow}}}\b";
+        return Regex.IsMatch(text, pattern, RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100));
+    }
+
+    /// <summary>
+    /// The term this text is about, or null if none of them.
+    /// </summary>
+    /// <remarks>
+    /// The longest match wins, so an item about a "graduate trainee programme" is reported as
+    /// that rather than as whichever shorter term happened to be listed first.
+    /// </remarks>
+    public static string? Matched(string? text, PersonaType persona) =>
+        For(persona)
+            .Where(term => Mentions(text, term))
+            .OrderByDescending(term => term.Length)
+            .FirstOrDefault();
 
     private static readonly Dictionary<PersonaType, string[]> ByStage = new()
     {
@@ -45,10 +90,11 @@ public static class PersonaPriorities
         [
             "scholarship",
             "bursary",
+            "bursaries",
             "internship",
             "undergraduate research",
-            "student competition",
             "academic competition",
+            "student competition",
             "hackathon",
             "fellowship",
             "exchange programme",
@@ -58,7 +104,7 @@ public static class PersonaPriorities
             "education policy",
             "student entrepreneurship",
             "academic conference",
-            "call for paper",
+            "call for papers",
         ],
 
         // Finished studying, not yet established. The spec's list: graduate jobs and internships,
@@ -72,14 +118,16 @@ public static class PersonaPriorities
             "graduate trainee",
             "graduate programme",
             "graduate program",
+            "graduate recruitment",
             "entry-level",
+            "entry level",
             "internship",
             "scholarship",
             "postgraduate",
             "certification",
-            "in-demand skill",
-            "industry report",
+            "in-demand",
             "industry trend",
+            "industry outlook",
             "professional networking",
             "career development",
             "recruitment drive",
@@ -87,22 +135,28 @@ public static class PersonaPriorities
         ],
 
         // Established and moving. The spec's part on professionals was not to hand when this was
-        // written, so this is the stage read the same way as the two that were specified: what
-        // the category is for rather than what the person happens to follow. Worth checking
-        // against the written list.
+        // written, so this stage and the two below it are read the same way as the two that were
+        // specified: what the category is for rather than what the person happens to follow.
+        // Worth checking against the written list.
+        //
+        // "promotion" is deliberately absent. Bounded growth still reaches "promotional", so
+        // every festive-season advertising story would have scored as career news. What the term
+        // was there for is covered by career advancement and career progression.
         [PersonaType.YoungProfessional] =
         [
             "professional certification",
             "career advancement",
-            "promotion",
+            "career progression",
             "leadership programme",
             "leadership program",
             "management training",
             "executive education",
-            "industry report",
             "industry trend",
+            "industry outlook",
             "salary",
-            "compensation",
+            "salaries",
+            "remuneration",
+            "pay rise",
             "remote work",
             "professional networking",
             "upskilling",
@@ -114,27 +168,30 @@ public static class PersonaPriorities
             "startup funding",
             "seed round",
             "venture capital",
-            "accelerator",
-            "incubator",
+            "startup accelerator",
+            "accelerator programme",
+            "accelerator program",
+            "business incubator",
             "pitch competition",
             "business grant",
             "business registration",
             "market expansion",
             "small business policy",
             "customer acquisition",
-            "founder",
+            "co-founder",
         ],
 
+        // "publication" is absent for the same reason as "promotion": a newspaper is a
+        // publication, and "the publication reported" is not research news.
         [PersonaType.Researcher] =
         [
             "research grant",
             "research funding",
-            "call for paper",
+            "call for papers",
             "academic conference",
             "fellowship",
             "peer review",
             "postdoctoral",
-            "publication",
             "preprint",
             "research collaboration",
         ],

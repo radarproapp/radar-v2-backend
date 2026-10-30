@@ -44,7 +44,7 @@ public class PersonaPrioritiesTests
     [Fact]
     public void ThePromotionPieceRanksHigherForTheProfessionalThanForTheStudent()
     {
-        var promotion = Item("What actually earns a promotion in a Nigerian bank");
+        var promotion = Item("What actually earns career advancement in a Nigerian bank");
 
         var professional = InterestPersonalization.ContentScore(promotion, Reader(PersonaType.YoungProfessional));
         var student = InterestPersonalization.ContentScore(promotion, Reader(PersonaType.Student));
@@ -82,22 +82,67 @@ public class PersonaPrioritiesTests
         Assert.True(theirGoal > theirStage, $"goal {theirGoal}, stage {theirStage}");
     }
 
-    /// An item that speaks to nobody's stage is not penalised — it simply does not gain.
+    /// An item that speaks to nobody's stage does not record a category at all.
+    ///
+    /// The first version of this compared one profile against another built field for field the
+    /// same way, which is f(x) == f(x) and would have passed at any weight including a thousand.
     [Fact]
-    public void SomethingOffTheListIsNotPushedDown()
+    public void SomethingOffTheListRecordsNoCategory()
     {
         var plain = Item("A new proof of the Collatz bound");
 
-        var withCategory = InterestPersonalization.ContentScore(plain, Reader(PersonaType.Student));
-        var noCategory = InterestPersonalization.ContentScore(plain, new UserProfile
-        {
-            Persona = PersonaType.Student,
-            Interests = ["Mathematics"],
-            Goals = ["Get better at mathematics"],
-            PrimaryGoal = "Get better at mathematics",
-        });
+        var signals = InterestPersonalization.Explain(Reader(PersonaType.Student), plain).MatchedSignals;
 
-        Assert.Equal(noCategory, withCategory);
+        Assert.DoesNotContain(signals, signal => signal.StartsWith($"{PersonaPriorities.Dimension}:", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// A term has to appear as itself, not as letters inside another word.
+    /// </summary>
+    /// <remarks>
+    /// Every one of these was a real twelve-point match before the terms were bounded, and each
+    /// was then printed to the reader as the reason the item was in front of them. "graduate job"
+    /// lost its second word to the four-letter floor and became a bare search for "graduate",
+    /// which undergraduate and postgraduate both contain.
+    /// </remarks>
+    [Theory]
+    [InlineData(PersonaType.Graduate, "UNILAG undergraduate enrolment rises 12% as more school leavers apply")]
+    [InlineData(PersonaType.Graduate, "Nigeria graduated 500,000 students last year")]
+    [InlineData(PersonaType.Graduate, "Oil industry reported record profits in Q3")]
+    [InlineData(PersonaType.Graduate, "Rising demand for skilled welders in Lekki free zone")]
+    [InlineData(PersonaType.Entrepreneur, "Seed yields improve around smallholder farms in Kano")]
+    [InlineData(PersonaType.Entrepreneur, "Business owners say migrant workers are being granted permits faster")]
+    [InlineData(PersonaType.Entrepreneur, "An adventure tourism push in the capital")]
+    [InlineData(PersonaType.YoungProfessional, "Coca-Cola launches promotional campaign for the festive season")]
+    [InlineData(PersonaType.YoungProfessional, "Remote sensing framework maps Lagos flood risk")]
+    [InlineData(PersonaType.YoungProfessional, "Training a large language model now needs petabyte-scale data management")]
+    [InlineData(PersonaType.Researcher, "Researchers were granted access to the new telescope")]
+    [InlineData(PersonaType.Researcher, "Court recalls judge over leaked papers")]
+    public void LettersInsideAnotherWordAreNotAMatch(PersonaType persona, string headline)
+    {
+        Assert.Null(PersonaPriorities.Matched(headline.ToLowerInvariant(), persona));
+    }
+
+    /// And the forms a headline actually uses still match.
+    [Theory]
+    [InlineData(PersonaType.Student, "chevron scholarships now open for 200 level students", "scholarship")]
+    [InlineData(PersonaType.Student, "applications open for summer internships at mtn", "internship")]
+    [InlineData(PersonaType.Graduate, "dangote opens its graduate trainee programme", "graduate trainee")]
+    [InlineData(PersonaType.Graduate, "entry-level roles are drying up in lagos fintech", "entry-level")]
+    [InlineData(PersonaType.YoungProfessional, "what actually earns career advancement in a nigerian bank", "career advancement")]
+    [InlineData(PersonaType.Researcher, "tetfund opens research grants for 2027", "research grant")]
+    public void TheFormsAHeadlineActuallyUsesStillMatch(PersonaType persona, string headline, string expected)
+    {
+        Assert.Equal(expected, PersonaPriorities.Matched(headline, persona));
+    }
+
+    /// The longest match is the one reported, so the reason names the specific thing.
+    [Fact]
+    public void TheMostSpecificTermIsTheOneNamed()
+    {
+        Assert.Equal(
+            "graduate trainee",
+            PersonaPriorities.Matched("shell graduate trainee programme opens", PersonaType.Graduate));
     }
 
     /// Every category has a list. One without would silently lose the whole dimension.
@@ -112,17 +157,47 @@ public class PersonaPrioritiesTests
         Assert.NotEmpty(PersonaPriorities.For(persona));
     }
 
-    /// Terms are stems, because the matcher asks whether the text contains the term. A plural
-    /// stored here would miss the singular the headline actually uses.
+    /// <summary>
+    /// Every term can actually fire.
+    /// </summary>
+    /// <remarks>
+    /// A term that matches nothing is invisible: the dimension simply does not score, and no
+    /// test of a headline would notice the one entry that never contributes. Stray whitespace
+    /// or a character the pattern treats specially is all it takes.
+    ///
+    /// An earlier rule here banned plurals, on the theory that a stored "scholarships" would
+    /// miss "scholarship". Bounded growth handles that now, and two of these - "bursaries",
+    /// "salaries" - are irregular enough to be worth listing in both forms.
+    /// </remarks>
     [Fact]
-    public void TermsAreStoredAsStemsNotPlurals()
+    public void EveryTermMatchesItself()
     {
-        var plural = Enum.GetValues<PersonaType>()
+        var dead = Enum.GetValues<PersonaType>()
             .SelectMany(PersonaPriorities.For)
-            .Where(term => term.EndsWith('s') && !term.EndsWith("ss"))
+            .Where(term => !PersonaPriorities.Mentions($"something about {term} in Lagos", term))
             .ToList();
 
-        Assert.True(plural.Count == 0, $"plural terms will miss the singular: {string.Join(", ", plural)}");
+        Assert.True(dead.Count == 0, $"terms that can never fire: {string.Join(", ", dead)}");
+    }
+
+    /// <summary>
+    /// What the reader stated leads the reason, even though the category outscores an interest.
+    /// </summary>
+    /// <remarks>
+    /// WhyShown prints the first two signals. Ordered by score alone, the category (12) displaces
+    /// a general interest (10), so a student reading about the subject they typed would be told
+    /// only "a priority at your stage" - the stage they ticked named ahead of the subject they
+    /// wrote. The score and the sentence are allowed to disagree about order; they are answering
+    /// different questions.
+    /// </remarks>
+    [Fact]
+    public void TheReaderOwnWordsLeadTheReason()
+    {
+        var item = Item("Chevron scholarship opens for mathematics undergraduates", "Mathematics");
+
+        var why = WhyShown.Build(item, InterestPersonalization.Explain(Reader(PersonaType.Student), item).MatchedSignals);
+
+        Assert.StartsWith("Matches your interest in Mathematics", why, StringComparison.Ordinal);
     }
 
     /// The reason is sayable. A ranking the reader cannot be told the cause of is the thing this
