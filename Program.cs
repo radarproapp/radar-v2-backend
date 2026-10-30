@@ -181,6 +181,10 @@ builder.Services.AddCors(options =>
     options.AddPolicy("Spa", policy => policy
         .SetIsOriginAllowed(origin => IsHostedSpaOrigin(origin, configuredOrigins, strictOrigins))
         .AllowAnyHeader()
+        // What the browser is allowed to read back. AllowAnyHeader covers what it may send;
+        // a response header stays invisible to the SPA unless it is named here, which is why
+        // the mentor's conversation id was being guessed from a list refetch instead.
+        .WithExposedHeaders("X-Conversation-Id")
         .AllowAnyMethod());
 });
 

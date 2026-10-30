@@ -21,6 +21,16 @@ public interface ILearningMentorService
         string? conversationId = null,
         CancellationToken ct = default);
 
+    /// <summary>
+    /// Settles which conversation this turn belongs to, before the reply starts streaming.
+    /// </summary>
+    /// <remarks>
+    /// So the client is told its thread rather than guessing it from a list refetched
+    /// afterwards - which it got wrong whenever the reply arrived inside the list query's
+    /// staleTime, appending every follow-up to whichever thread happened to be top.
+    /// </remarks>
+    Task<string?> BeginTurnAsync(string userId, string message, string? conversationId, CancellationToken ct = default);
+
     /// <summary>This learner's threads, most recently used first, without the turns in them.</summary>
     Task<List<MentorConversationSummary>> GetConversationsAsync(string userId, int limit = 50);
 

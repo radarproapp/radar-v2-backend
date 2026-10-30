@@ -181,7 +181,10 @@ public class MentorHistoryTests
 
         Assert.DoesNotContain("c => c.Id == conversationId)", source);
 
-        // The read, the append of a turn, and the delete.
-        Assert.Equal(3, source.Split("OwnedBy(conversationId, userId)").Length - 1);
+        // The read, the append of a turn, the delete, and settling which conversation a turn
+        // belongs to before the reply streams. The fourth arrived with that last one and this
+        // assertion is how: it failed at three, which is the check working - a new query that
+        // takes a conversation id is exactly what has to be looked at.
+        Assert.Equal(4, source.Split("OwnedBy(conversationId, userId)").Length - 1);
     }
 }

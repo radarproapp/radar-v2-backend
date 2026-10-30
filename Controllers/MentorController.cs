@@ -65,7 +65,20 @@ public class MentorController : ControllerBase
             return;
         }
 
-        await SseWriter.WriteChatStreamAsync(Response, _mentor.StreamMessageAsync(profile.Id, request.Message, request.History, request.ConversationId, ct), ct);
+        // Settled before a byte goes out, and sent back in a header.
+        //
+        // The client used to work this out afterwards by refetching the conversation list and
+        // taking the first entry. That is a guess, and it was wrong in the ordinary case: the
+        // list query inherits a thirty-second staleTime, so a reply arriving inside that window
+        // handed back the pre-send cache and the client claimed whichever thread was already
+        // top. Every follow-up then went to an unrelated conversation.
+        //
+        // A header rather than an SSE frame because the frames are what the client already
+        // parses, and that shape does not change.
+        var conversationId = await _mentor.BeginTurnAsync(profile.Id, request.Message, request.ConversationId, ct);
+        if (conversationId is not null) Response.Headers["X-Conversation-Id"] = conversationId;
+
+        await SseWriter.WriteChatStreamAsync(Response, _mentor.StreamMessageAsync(profile.Id, request.Message, request.History, conversationId, ct), ct);
     }
 
     // ── Conversation History ────────────────────────────────────────────────

@@ -28,6 +28,14 @@ public static class SseWriter
             // client disconnected mid-stream — nothing to clean up
             return;
         }
+        catch (RadarV2.Services.ReplyTruncatedException)
+        {
+            // The reply stopped before it was finished, so the stream ends without [DONE] -
+            // which is what "unfinished" looks like on the wire and what the client already
+            // tells apart. Everything that did arrive has been written: the reader keeps what
+            // they were given, and nothing downstream records it as the whole answer.
+            return;
+        }
 
         await response.WriteAsync("data: [DONE]\n\n", ct);
         await response.Body.FlushAsync(ct);

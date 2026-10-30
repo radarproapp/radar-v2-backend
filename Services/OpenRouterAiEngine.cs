@@ -406,6 +406,11 @@ public sealed class OpenRouterAiEngine : IAiEngine
         var withinBudget = await WithinBudgetAsync(feature, ct);
 
         var streamedChunks = 0;
+
+        // Whether the provider said it had finished, and whether it stopped because it ran out
+        // of room. Both read after the loop, which has more ways out than it looks.
+        var sawDone = false;
+        var ranOutOfRoom = false;
         if (hasApiKey && withinBudget)
         {
             var promptMessages = new List<object> { new { role = "system", content = systemPrompt } };
@@ -446,12 +451,23 @@ public sealed class OpenRouterAiEngine : IAiEngine
                 {
                     if (!line.StartsWith("data: ", StringComparison.Ordinal)) continue;
                     var data = line[6..];
-                    if (data == "[DONE]") break;
+                    if (data == "[DONE]") { sawDone = true; break; }
                     string? chunk = null;
                     try
                     {
                         using var doc = JsonDocument.Parse(data);
-                        chunk = doc.RootElement.GetProperty("choices")[0].GetProperty("delta").GetProperty("content").GetString();
+                        var choice = doc.RootElement.GetProperty("choices")[0];
+                        chunk = choice.GetProperty("delta").GetProperty("content").GetString();
+
+                        // Why the model stopped, which it says and nothing was reading. "length"
+                        // means it ran into its ceiling mid-sentence - a truncated reply that
+                        // arrives with a perfectly normal [DONE] after it.
+                        if (choice.TryGetProperty("finish_reason", out var why)
+                            && why.ValueKind == JsonValueKind.String
+                            && why.GetString() == "length")
+                        {
+                            ranOutOfRoom = true;
+                        }
                     }
                     catch (JsonException) { }
                     if (!string.IsNullOrEmpty(chunk))
@@ -463,7 +479,27 @@ public sealed class OpenRouterAiEngine : IAiEngine
 
                 if (streamedChunks > 0)
                 {
-                    await RecordActivityAsync(feature, null, "LLM", true, sw.ElapsedMilliseconds, $"Streamed {streamedChunks} chunks via OpenRouter", ct);
+                    // Finished, or merely stopped. The loop ends the same way whether the
+                    // provider said [DONE] or the connection died mid-sentence, so this used to
+                    // report every partial reply as a complete one - and anything storing the
+                    // result wrote a fragment down as the whole answer.
+                    var cutOff = !sawDone || ranOutOfRoom;
+
+                    await RecordActivityAsync(
+                        feature, null, "LLM", !cutOff, sw.ElapsedMilliseconds,
+                        cutOff
+                            ? $"Streamed {streamedChunks} chunks, then stopped before the end ({(ranOutOfRoom ? "hit its token ceiling" : "stream ended without [DONE]")})"
+                            : $"Streamed {streamedChunks} chunks via OpenRouter",
+                        ct);
+
+                    if (cutOff && !ct.IsCancellationRequested)
+                    {
+                        throw new ReplyTruncatedException(
+                            ranOutOfRoom
+                                ? "The reply ran into its token ceiling before it finished."
+                                : "The reply stopped before the provider said it was finished.");
+                    }
+
                     yield break;
                 }
             }

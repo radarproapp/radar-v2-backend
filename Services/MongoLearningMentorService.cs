@@ -191,6 +191,51 @@ public class MongoLearningMentorService : ILearningMentorService
     /// It is also what names the thread: the first message is the only description of a
     /// conversation that exists at the moment it starts.
     /// </remarks>
+    /// <summary>
+    /// Settles which conversation a turn belongs to, before a byte of the reply is written.
+    /// </summary>
+    /// <remarks>
+    /// The id used to be worked out by the client afterwards: it refetched the list once the
+    /// turn finished and, if it had no thread, took the first entry. That is a guess, and it was
+    /// wrong in the ordinary case - the list query inherits a thirty-second staleTime, so a
+    /// reply that arrives within thirty seconds of opening the Mentor got the pre-send cache
+    /// back and claimed whichever thread was already top. A learner with one old conversation
+    /// asked a new question and had every follow-up appended to the old one, while the sidebar
+    /// highlighted a title that had nothing to do with what was on screen.
+    ///
+    /// Resolved here instead and returned to the controller, which puts it in a response header
+    /// before streaming. The SSE frames - the thing the client parses - are untouched.
+    ///
+    /// Creating it empty rather than with the question in it keeps one writer for turns:
+    /// StreamMessageAsync still appends the question exactly as before, and finds the
+    /// conversation already there rather than making one.
+    /// </remarks>
+    public async Task<string?> BeginTurnAsync(string userId, string message, string? conversationId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(userId)) return null;
+
+        if (!string.IsNullOrWhiteSpace(conversationId))
+        {
+            var existing = await _db.MentorConversations.Find(OwnedBy(conversationId, userId)).FirstOrDefaultAsync(ct);
+
+            // Not theirs, or deleted while the tab was open. A new thread of their own is
+            // started, and the header tells them its id - so the next question joins what is
+            // actually on screen instead of opening a third thread, and a fourth after that.
+            if (existing is not null) return existing.Id;
+        }
+
+        var started = new MentorConversation
+        {
+            UserId = userId,
+            Title = TitleFrom(message),
+            CreatedAt = DateTime.UtcNow,
+            LastMessageAt = DateTime.UtcNow,
+        };
+
+        await _db.MentorConversations.InsertOneAsync(started, cancellationToken: ct);
+        return started.Id;
+    }
+
     private async Task<MentorConversation?> RecordQuestionAsync(string userId, MentorConversation? conversation, string message)
     {
         // Nothing to file it under, so nothing is filed. Every read of a conversation is scoped
