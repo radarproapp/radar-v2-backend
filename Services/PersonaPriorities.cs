@@ -28,7 +28,19 @@ namespace RadarV2.Services;
 public static class PersonaPriorities
 {
     /// <summary>What a category being right is worth against what the reader typed.</summary>
-    public const double Weight = 12;
+    /// <remarks>
+    /// Below a stated interest, which is ten. It was twelve, on the reasoning that a
+    /// scholarship is what a student came for even on a subject they never listed - and the
+    /// use-case suite showed what that actually does: a scholarship notice for software
+    /// engineering students outranked news in a nursing student's own field, for every student
+    /// in the corpus and every career in it.
+    ///
+    /// The spec settles it. Category lists are "starting priorities, not restrictions", and
+    /// "the user's actual interests and goals must influence what appears in their feed". A
+    /// priority that outranks the subject somebody typed is a restriction wearing another name.
+    /// Eight still lifts the things a stage is for above everything that matched nothing.
+    /// </remarks>
+    public const double Weight = 8;
 
     /// <summary>The dimension name, as it appears in a matched signal.</summary>
     public const string Dimension = "Category";

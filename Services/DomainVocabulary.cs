@@ -195,9 +195,9 @@ public static class DomainVocabulary
             return word[..^3] + "y";
         }
 
-        foreach (var ending in Endings)
+        foreach (var (ending, survivors) in Endings)
         {
-            if (word.Length - ending.Length < 4) continue;
+            if (word.Length - ending.Length < survivors) continue;
             if (word.EndsWith(ending, StringComparison.OrdinalIgnoreCase)) return word[..^ending.Length];
         }
 
@@ -205,12 +205,38 @@ public static class DomainVocabulary
     }
 
     /// <summary>
+    /// The endings a subject is written with, and how much has to survive trimming each one.
+    /// </summary>
+    /// <remarks>
     /// Longest first, so "ing" is tried before "s" would ever be.
     ///
-    /// "ery" earns its place on midwifery/midwife, surgery/surgeon and nursery/nurse. A bare "y"
-    /// does not: it turns "policy" into "polic", which matches "police".
-    /// </summary>
-    private static readonly string[] Endings = ["ing", "ery", "es", "ed", "s"];
+    /// The floor is per ending rather than one number for all of them, which is what makes a
+    /// bare "y" safe. It was excluded outright because it turns "policy" into "polic", which
+    /// matches "police" - a public-policy learner shown Police Force recruitment. But "policy"
+    /// is six letters and loses only one, while "psychology" loses one and keeps nine. Requiring
+    /// six survivors admits the long ones and leaves "policy" alone.
+    ///
+    /// Measured against all fifty careers in the use-case corpus before being added: a bare "y"
+    /// at six fixes Psychology, Physiotherapy, Library Science and Geology with no new failure
+    /// anywhere, and "ion" at four fixes Public Administration without letting "Nutrition" reach
+    /// "nutrient". "ation" was tried and rejected - it overshoots "Administration" to
+    /// "Administr", which then cannot reach "Administrative" at all.
+    ///
+    /// Until this, a psychology graduate was not shown "Clinical psychologist, adolescent mental
+    /// health service, Lagos". Her own field's jobs were invisible to her, which is a quieter
+    /// failure than being shown somebody else's and a worse one.
+    /// </remarks>
+    private static readonly (string Suffix, int MinimumSurvivors)[] Endings =
+    [
+        ("ion", 4),
+        ("ing", 4),
+        ("ery", 4),
+        ("ics", 6),
+        ("es", 4),
+        ("ed", 4),
+        ("y", 6),
+        ("s", 4),
+    ];
 
     /// <summary>The subject's own words, long enough to be worth matching on.</summary>
     public static string[] OwnWords(string? subject) =>
@@ -247,18 +273,70 @@ public static class DomainVocabulary
     /// </remarks>
     private static bool MentionsForm(string text, string word)
     {
+        // The word itself, whatever it is. A learner whose subject genuinely is "nursery
+        // education" matches "nursery" here, and the stem rule below never sees it.
         if (Bounded(text, word)) return true;
 
         var stem = Stem(word);
-        return !string.Equals(stem, word, StringComparison.OrdinalIgnoreCase) && Bounded(text, stem);
+        if (string.Equals(stem, word, StringComparison.OrdinalIgnoreCase)) return false;
+
+        return Bounded(text, stem, NotGrownFrom(stem));
     }
 
-    private static bool Bounded(string text, string word) =>
-        Regex.IsMatch(
+    /// <summary>
+    /// Words a stem reaches that are a different subject entirely.
+    /// </summary>
+    /// <remarks>
+    /// Stemming trades precision for recall deliberately - nursing/nurse, teaching/teacher - and
+    /// three letters of growth is what makes those work. It is also exactly enough to get from
+    /// "nurs" to "nursery", so a nursing student was shown "Nursery school expands its intake in
+    /// Ikeja" as something in her field. Found by the use-case suite on its first run; every
+    /// nursing case failed on it.
+    ///
+    /// Listed against the stem rather than banned outright, which is the part that matters. A
+    /// learner whose subject is nursery education must still match "nursery" - it is their
+    /// subject. What must not happen is "nurs" reaching it. The same shape as the ies/y fix
+    /// above, where a bare "polic" matched "police" and a public-policy learner was shown Police
+    /// Force recruitment.
+    ///
+    /// Short on purpose. A list that grows without a failing use case behind each entry is one
+    /// nobody can justify later.
+    /// </remarks>
+    private static readonly Dictionary<string, string[]> FalseFriends = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["nurs"] = ["nursery", "nurseries"],
+
+        // Economics reaches "economist" and "economic", and one letter further to "economy" -
+        // which is an aeroplane seat and a newspaper section before it is anybody's subject.
+        ["econom"] = ["economy"],
+    };
+
+    private static string[] NotGrownFrom(string stem) =>
+        FalseFriends.TryGetValue(stem, out var words) ? words : [];
+
+    /// <summary>
+    /// Whether the text uses this word, allowing the endings a real sentence uses.
+    /// </summary>
+    /// <remarks>
+    /// Every match is looked at rather than asking only whether one exists, so a sentence
+    /// carrying both a false friend and a real use of the word still matches on the real one.
+    /// </remarks>
+    private static bool Bounded(string text, string word, string[]? notThese = null)
+    {
+        var matches = Regex.Matches(
             text,
             $@"\b{Regex.Escape(word)}[a-z]{{0,{MostAWordMayGrow}}}\b",
             RegexOptions.IgnoreCase,
             TimeSpan.FromMilliseconds(100));
+
+        foreach (Match match in matches)
+        {
+            if (notThese is null || notThese.Length == 0) return true;
+            if (!notThese.Contains(match.Value, StringComparer.OrdinalIgnoreCase)) return true;
+        }
+
+        return false;
+    }
 
     private static bool Mentions(string text, Keyword keyword)
     {

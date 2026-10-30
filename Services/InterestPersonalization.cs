@@ -398,7 +398,22 @@ public static class InterestPersonalization
     /// opportunity scoring, where an outcome is a real discriminator rather than a word to find.
     /// </summary>
     private static IEnumerable<string> GoalPhrases(UserProfile profile) =>
-        new List<string> { profile.PrimaryGoal }.Concat(Contexts(profile).Select(c => c.Goal));
+        new List<string> { profile.PrimaryGoal }
+            .Concat(Contexts(profile).Select(c => c.Goal))
+            // Only the goals that name a subject. The comment above says box 2's goal list is
+            // deliberately not text-matched, and gives the reason - "Learn a new skill" would
+            // fire on any item containing "learn" and "new" and carry goal weight doing it. But
+            // PrimaryGoal came through this unfiltered, and it is the same kind of string.
+            //
+            // Found by the use-case suite on its first run: a nursing student whose goal is
+            // "get a scholarship" scored a software engineering scholarship notice at 42 - goal
+            // weight for the word "scholarship", plus her category tier - against 10 for news in
+            // her own field. The spec is explicit that category priorities are "starting
+            // priorities, not restrictions" and that interests must influence what appears.
+            //
+            // Same fault as the one in opportunity matching, where "find a job" became her field
+            // and matched every job advert ever written. An outcome is not a term to search for.
+            .Where(LearningIntentReader.NamesASubject);
 
     private static IEnumerable<string> IntentPhrases(UserProfile profile) =>
         new[] { profile.CurrentIntent }.Concat(Contexts(profile).Select(c => c.Lens));

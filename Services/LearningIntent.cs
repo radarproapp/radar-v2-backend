@@ -37,6 +37,17 @@ public enum LearningOutcome
     EarnMore,
     StartBusiness,
     Leadership,
+
+    /// <summary>
+    /// Money, or a place to study: a scholarship, a grant, a funded masters.
+    /// </summary>
+    /// <remarks>
+    /// The commonest goal a Nigerian student types, and it was being read as a subject - so
+    /// "get a scholarship" matched the word "scholarship" in any advert at goal weight. A
+    /// nursing student scored a software engineering scholarship notice at 42 against 10 for
+    /// news in her own field. Found by the use-case suite.
+    /// </remarks>
+    Funding,
 }
 
 public static partial class LearningIntentReader
@@ -49,6 +60,9 @@ public static partial class LearningIntentReader
 
     [GeneratedRegex(@"\b(earn more|higher pay|salary|income|raise)\w*", RegexOptions.IgnoreCase)]
     private static partial Regex EarnMore();
+
+    [GeneratedRegex(@"\b(scholarship|bursary|bursaries|grant|funded|funding|fund a|sponsorship)\w*", RegexOptions.IgnoreCase)]
+    private static partial Regex Funding();
 
     [GeneratedRegex(@"\b(start a business|startup|found|entrepreneur|my own company)\w*", RegexOptions.IgnoreCase)]
     private static partial Regex StartBusiness();
@@ -118,6 +132,7 @@ public static partial class LearningIntentReader
             LearningOutcome.EarnMore => RoleAware("increasing what you earn", role, domain),
             LearningOutcome.StartBusiness => $"building a business in {SubjectPhrase.Lower(domain)}",
             LearningOutcome.Leadership => RoleAware("leading a team", role, domain),
+            LearningOutcome.Funding => RoleAware("winning funding to study", role, domain),
             _ => SubjectPhrase.Clean(goalText, domain),
         };
 
@@ -159,6 +174,7 @@ public static partial class LearningIntentReader
         if (StartBusiness().IsMatch(goal)) return LearningOutcome.StartBusiness;
         if (NewJob().IsMatch(goal)) return LearningOutcome.NewJob;
         if (EarnMore().IsMatch(goal)) return LearningOutcome.EarnMore;
+        if (Funding().IsMatch(goal)) return LearningOutcome.Funding;
 
         return LearningOutcome.LearnSubject;
     }
