@@ -162,6 +162,9 @@ public sealed class OpenRouterAiEngine : IAiEngine
                 max_tokens = MaxOutputTokens(feature),
             });
 
+            // What the key turned out to be able to afford, once it has told us.
+            var affordable = 0;
+
             // Overall deadline across attempts. The per-request HttpClient timeout bounds one call;
             // without this a retry could stack a second full timeout on top of the first, which is how
             // a single slow provider turned into a 40-second page.
@@ -190,8 +193,32 @@ public sealed class OpenRouterAiEngine : IAiEngine
                         // Kept, not just logged. The log line lives in the host's dashboard; this
                         // reason reaches /api/ai/status, where it can be read without one.
                         var detail = await response.Content.ReadAsStringAsync(ct);
-                        failureReason = $"HTTP {(int)response.StatusCode} {response.StatusCode}: {Trim(detail)}";
+                        failureReason = $"HTTP {(int)response.StatusCode} {response.StatusCode}: {Safe(detail)}";
                         _log.LogWarning("OpenRouter feature {Feature} returned {Status} on attempt {Attempt}: {Detail}", feature, response.StatusCode, attempt, detail);
+
+                        // A refusal that tells us the answer.
+                        //
+                        // OpenRouter prices the reservation, not the reply, and when the key
+                        // cannot cover the reservation it says exactly what it can cover:
+                        // "You requested up to 1600 tokens, but can only afford 1358." Falling
+                        // back to the deterministic brain there throws away a working request
+                        // over a number the provider just handed us.
+                        //
+                        // This has now happened twice on this product, at 16384 and at 1600,
+                        // and each time every model-backed feature went quiet at once. Asking
+                        // for what it can afford is the difference between a degraded month and
+                        // a dead one.
+                        var canAfford = AffordableTokens(detail);
+                        if (canAfford > MinimumUsefulTokens && canAfford != affordable)
+                        {
+                            affordable = canAfford;
+                            body = Rebudgeted(body, canAfford);
+                            _log.LogWarning(
+                                "OpenRouter feature {Feature} retried within the key's remaining credit: {Tokens} tokens.",
+                                feature, canAfford);
+                            continue;
+                        }
+
                         var backoff = RetryDelayFor((int)response.StatusCode, detail, attempt);
                         if (attempt == maxAttempts || sw.Elapsed + backoff >= deadline) break;
                         await Task.Delay(backoff, ct);
@@ -446,12 +473,78 @@ public sealed class OpenRouterAiEngine : IAiEngine
             if (ct.IsCancellationRequested) yield break;
             yield return chunk;
         }
-        await RecordActivityAsync(feature, null, "DeterministicBrain", true, sw.ElapsedMilliseconds, "Streamed via resilient Socratic tutor stream", ct);
+        // Recorded as a failure, because it is one. This said success, so a tutor that had
+        // stopped answering looked identical in the engine's own figures to one that was working.
+        await RecordActivityAsync(feature, null, "DeterministicBrain", false, sw.ElapsedMilliseconds, "Could not reach the model; said so rather than improvising.", ct);
     }
 
     public Task<float[]?> EmbedAsync(string text, CancellationToken ct = default)
     {
         return Task.FromResult<float[]?>(null);
+    }
+
+    /// <summary>
+    /// The smallest answer worth asking for.
+    /// </summary>
+    /// <remarks>
+    /// Below this the reply is cut off mid-sentence, which is worse than saying nothing: a
+    /// truncated explanation reads as a complete one that stops making sense.
+    /// </remarks>
+    private const int MinimumUsefulTokens = 400;
+
+    /// <summary>
+    /// What the key can afford, when the provider has said so.
+    /// </summary>
+    /// <remarks>
+    /// OpenRouter's 402 carries the number: "You requested up to 1600 tokens, but can only
+    /// afford 1358." Reading it turns a dead request into a smaller one.
+    ///
+    /// Returns zero for any other refusal. A 402 that does not name a figure is a key with
+    /// nothing left, and retrying it differently would only spend the deadline.
+    /// </remarks>
+    internal static int AffordableTokens(string? providerError)
+    {
+        if (string.IsNullOrWhiteSpace(providerError)) return 0;
+
+        var match = System.Text.RegularExpressions.Regex.Match(
+            providerError,
+            @"can only afford\s+(\d+)",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase,
+            TimeSpan.FromMilliseconds(100));
+
+        return match.Success && int.TryParse(match.Groups[1].Value, out var tokens) ? tokens : 0;
+    }
+
+    /// <summary>The same request, asking for fewer tokens.</summary>
+    internal static string Rebudgeted(string body, int tokens) =>
+        System.Text.RegularExpressions.Regex.Replace(
+            body,
+            @"""max_tokens"":\s*\d+",
+            $"\"max_tokens\":{tokens}",
+            System.Text.RegularExpressions.RegexOptions.None,
+            TimeSpan.FromMilliseconds(100));
+
+    /// <summary>
+    /// A provider error with anything account-identifying taken out of it.
+    /// </summary>
+    /// <remarks>
+    /// The reason reaches /api/ai/status, which any signed-in reader can call. OpenRouter's
+    /// credit refusal includes a link to the key's own page in the dashboard, so the raw body
+    /// was publishing a key identifier to every user of the product. The number and the fact of
+    /// the refusal are what anybody needs; the URL is not.
+    /// </remarks>
+    internal static string Safe(string? detail)
+    {
+        if (string.IsNullOrWhiteSpace(detail)) return "(no body)";
+
+        var cleaned = System.Text.RegularExpressions.Regex.Replace(
+            detail,
+            @"https?://\S+",
+            "(link removed)",
+            System.Text.RegularExpressions.RegexOptions.None,
+            TimeSpan.FromMilliseconds(100));
+
+        return Trim(cleaned);
     }
 
     /// <summary>One line of a provider error body — enough to act on, short enough to store.</summary>
@@ -640,156 +733,49 @@ public sealed class OpenRouterAiEngine : IAiEngine
         // 2. Opportunity Matching
         if (feature.Contains("opportunity"))
         {
-            var matches = new List<string>();
-            var idMatches = Regex.Matches(prompt, "\"id\":\"([^\"]+)\"");
-            foreach (Match m in idMatches)
-            {
-                var id = m.Groups[1].Value;
-                matches.Add($$"""{"id":"{{id}}","score":0.88,"confidence":0.92,"whyItFits":"Strong alignment with your active roadmap and target career goals.","preparationSteps":["Review technical requirements and prerequisites","Align your portfolio projects to highlighted competencies","Prepare a tailored application highlighting your relevant roadmap milestones"]}""");
-            }
-
-            if (matches.Count == 0)
-            {
-                matches.Add("""{"id":"default","score":0.85,"confidence":0.9,"whyItFits":"High contextual relevance to your professional profile.","preparationSteps":["Review prerequisites","Prepare submission"]}""");
-            }
-
-            return $$"""{ "matches": [{{string.Join(",", matches)}}] }""";
+            // No matches, rather than invented ones.
+            //
+            // This answered every opportunity with score 0.88, confidence 0.92 and "Strong
+            // alignment with your active roadmap and target career goals." - a number and a
+            // sentence about nothing, written over the deterministic score that had actually
+            // been worked out from what the learner said. So when the model was unreachable,
+            // every opportunity reported the same confident fit, and the reason shown to the
+            // reader was a template.
+            //
+            // Returning nothing leaves the deterministic scoring in place, which is a real
+            // judgement with real reasons behind it. The refinement is an improvement on it, not
+            // a prerequisite for it.
+            return """{ "matches": [] }""";
         }
 
         // 3. Mentor Quiz Generation
+        //
+        // No questions, rather than invented ones. This produced a quiz about "Implementation
+        // Edge Cases" and "Production Debugging" with the learner's subject pasted in - which
+        // for somebody studying mathematics is a test on a thing they are not studying, scored
+        // and recorded against them as though it meant something.
+        //
+        // An empty set is a quiz the mentor could not write, and the screen can say so.
         if (feature.Contains("quiz") || feature.Contains("mentor-generation"))
         {
-            var topic = ExtractTopic(prompt) ?? "this topic";
-            return $$"""
-            {
-              "nextMove": "Your next move: Practice applying the concepts from this quiz in a real code or architecture scenario.",
-              "detectedWeakAreas": ["{{topic}} Implementation Edge Cases", "{{topic}} Production Debugging"],
-              "questions": [
-                {
-                  "question": "What is the primary architectural principle governing {{topic}}?",
-                  "options": [
-                    "Separation of concerns and deterministic execution",
-                    "Monolithic tight coupling across modules",
-                    "Unchecked shared mutable state",
-                    "Exclusively synchronous blocking operations"
-                  ],
-                  "correctIndex": 0,
-                  "explanation": "{{topic}} relies fundamentally on separation of concerns and deterministic execution to maintain consistency and scalability.",
-                  "questionType": "MCQ",
-                  "cognitiveLevel": "Recall",
-                  "codeSnippet": null,
-                  "scenarioContext": "Foundational architectural evaluation",
-                  "subtopic": "{{topic}} Core Principles"
-                },
-                {
-                  "question": "When debugging performance bottlenecks in {{topic}}, which metric provides the most accurate ground truth?",
-                  "options": [
-                    "Surface-level CPU percentage alone",
-                    "Latency percentile distribution (p95/p99) and I/O wait times",
-                    "Total lines of code executed",
-                    "Memory heap allocation count without GC duration"
-                  ],
-                  "correctIndex": 1,
-                  "explanation": "High-percentile latency distributions combined with I/O wait times reflect the actual user experience and system constraints.",
-                  "questionType": "MCQ",
-                  "cognitiveLevel": "Understanding",
-                  "codeSnippet": null,
-                  "scenarioContext": "System observability and diagnosis",
-                  "subtopic": "{{topic}} Diagnostics"
-                },
-                {
-                  "question": "A production service implementing {{topic}} experiences sudden unhandled exceptions during high concurrency. What is the most effective initial remediation?",
-                  "options": [
-                    "Restart the cluster repeatedly without examining logs",
-                    "Introduce backpressure limits, rate limiting, and review concurrency locks",
-                    "Disable all input validation to maximize throughput",
-                    "Increase thread count without bound"
-                  ],
-                  "correctIndex": 1,
-                  "explanation": "Applying backpressure controls and auditing concurrency boundaries stabilizes throughput and prevents cascading failures.",
-                  "questionType": "Scenario",
-                  "cognitiveLevel": "Application",
-                  "codeSnippet": null,
-                  "scenarioContext": "High-throughput production outage mitigation",
-                  "subtopic": "{{topic}} Concurrency & Resilience"
-                }
-              ]
-            }
-            """;
+            return """{ "questions": [], "detectedWeakAreas": [], "nextMove": "" }""";
         }
 
         // 4. Dynamic Study Plan
+        //
+        // No weeks, rather than invented ones. This wrote "Configure local environment and run 3
+        // baseline exercises" and "Master core syntax, data models, and fundamental execution
+        // rules" against whatever subject it was handed - a software curriculum for a nurse, a
+        // mathematician or a lawyer alike, presented as their plan for the next six weeks.
         if (feature.Contains("study-plan"))
         {
-            var topic = ExtractTopic(prompt) ?? "this topic";
-            return $$"""
-            {
-              "weeks": [
-                {
-                  "weekNumber": 1,
-                  "title": "Foundations & Core Mechanics of {{topic}}",
-                  "focus": "Master core syntax, data models, and fundamental execution rules.",
-                  "hoursNeeded": 6,
-                  "tasks": [
-                    { "title": "Review fundamental principles and official documentation", "isCompleted": false },
-                    { "title": "Configure local environment and run 3 baseline exercises", "isCompleted": false },
-                    { "title": "Complete Mentor Recall Quiz with 80%+ score", "isCompleted": false }
-                  ],
-                  "milestoneReview": "Demonstrate a working local sandbox executing basic commands without errors."
-                },
-                {
-                  "weekNumber": 2,
-                  "title": "Intermediate Patterns & State Management in {{topic}}",
-                  "focus": "Transition from syntax to structured problem solving and workflow integration.",
-                  "hoursNeeded": 7,
-                  "tasks": [
-                    { "title": "Implement intermediate workflows and handle common edge cases", "isCompleted": false },
-                    { "title": "Build a mini-utility solving a realistic business requirement", "isCompleted": false },
-                    { "title": "Submit code to Mentor Work Review for automated feedback", "isCompleted": false }
-                  ],
-                  "milestoneReview": "Working mini-utility passing all validation criteria with clean modular structure."
-                },
-                {
-                  "weekNumber": 3,
-                  "title": "Production Hardening, Resilience & Real-World Application",
-                  "focus": "Security, performance optimization, and portfolio artifact integration.",
-                  "hoursNeeded": 8,
-                  "tasks": [
-                    { "title": "Conduct stress tests and audit bottlenecks", "isCompleted": false },
-                    { "title": "Document architecture decisions in a technical brief", "isCompleted": false },
-                    { "title": "Complete Mentor Challenge Mode diagnostic assessment", "isCompleted": false }
-                  ],
-                  "milestoneReview": "Complete, production-ready portfolio project with documentation."
-                }
-              ]
-            }
-            """;
+            return """{ "weeks": [] }""";
         }
 
-        // Work review is deliberately absent.
-        //
-        // A canned review is worse here than anywhere else in the product. Verified: a banana
-        // bread recipe and a security incident report came back with byte-identical strengths,
-        // weaknesses, main issue and a score of 74 — because none of it was read. Someone acting
-        // on that feedback is being misled about work they are trying to improve, and a fabricated
-        // score is a judgement Radar has not actually made.
-        //
-        // Falling through to "{}" lets the caller detect that no review happened and say so.
-
-        // The academic paper breakdown is deliberately absent, for the same reason as the work
-        // review above.
-        //
-        // What this used to return was a complete seven-part breakdown of a paper nobody had
-        // read: "a statistically significant 31.4% improvement in operational efficacy", "robust
-        // error attenuation across stress scenarios", "published in verified peer-reviewed press
-        // with verifiable DOI". It was attached to whichever paper the reader had opened — so a
-        // real title and a real, resolving DOI carried invented findings, which is worse than an
-        // invented paper, because everything checkable about it checks out.
-        //
-        // Falling through to "{}" leaves the breakdown empty, and the card omits the sections it
-        // has nothing for.
-
-        // Default generic JSON
+        // A paper breakdown falls through to an empty object on purpose: a real title and a
+        // real, resolving DOI carrying invented findings is worse than an invented paper,
+        // because everything checkable about it checks out. The card omits the sections it has
+        // nothing for.
         return "{}";
     }
 
@@ -798,12 +784,11 @@ public sealed class OpenRouterAiEngine : IAiEngine
         var topic = ExtractTopic(userPrompt);
 
         // No invented explanation. What this used to return - "X is a structured methodology
-        // designed to solve complex operational challenges by breaking them into manageable,
-        // measurable components" - was true of nothing in particular and was shown to the reader
-        // in the same register as a real answer, so there was no way to tell them apart.
-        // Gaps asks a different question from explain, and saying "could not write a
-        // plain-English summary" to someone who asked what a paper leaves open reads as a
-        // different request having been answered.
+        // designed to solve complex operational challenges" - was true of nothing in particular
+        // and was shown to the reader in the same register as a real answer, so there was no way
+        // to tell them apart. Gaps asks a different question from explain, and saying "could not
+        // write a plain-English summary" to somebody who asked what a paper leaves open reads as
+        // a different request having been answered.
         if (feature.Contains("gap"))
         {
             return "Radar could not work out what this paper leaves open right now. Nothing here is a stand-in for it.";
@@ -819,22 +804,32 @@ public sealed class OpenRouterAiEngine : IAiEngine
         return "Radar could not generate this right now. Nothing here is a stand-in for it.";
     }
 
-    private IEnumerable<string> GetDeterministicChatStream(string feature, string systemPrompt, IReadOnlyCollection<ChatMessage> messages)
+    /// <summary>
+    /// What the mentor says when it cannot answer.
+    /// </summary>
+    /// <remarks>
+    /// It used to say a great deal. A learner asking "What roles does Mathematics lead to?" was
+    /// answered with three headed sections about components interacting under realistic
+    /// constraints, design patterns, state integrity and high availability - software-engineering
+    /// boilerplate with the subject pasted in, and when the subject could not be read at all, the
+    /// words "this topic" in bold. Confident, well formatted, and about nothing. It was recorded
+    /// as a success, so nothing anywhere reported that the tutor had stopped working.
+    ///
+    /// This is the same correction already made to the JSON fallbacks above, which no longer
+    /// invent an explanation. The chat path was missed, and chat is the one a learner reads as a
+    /// person talking to them.
+    ///
+    /// Saying less is not a worse answer here. A tutor that admits it cannot reach its model can
+    /// be waited out; one that improvises teaches the wrong thing to somebody who came to learn.
+    /// </remarks>
+    private static IEnumerable<string> GetDeterministicChatStream(
+        string feature, string systemPrompt, IReadOnlyCollection<ChatMessage> messages)
     {
-        var lastMsg = messages.LastOrDefault()?.Content ?? "learning topic";
-        var topic = ExtractTopic(lastMsg) ?? "this topic";
+        var asked = ExtractTopic(messages.LastOrDefault()?.Content ?? string.Empty);
 
-        var intro = $"Let's break down **{topic}** from first principles.\n\n";
-        var explanation = $"### 1. The Core Concept\n" +
-                          $"At its foundation, **{topic}** is about understanding how components interact under realistic constraints. Rather than memorizing abstract rules, think of it as a set of deterministic principles that guide predictable outcomes.\n\n" +
-                          $"### 2. A Real-World Example\n" +
-                          $"Consider how an organization or production system handles unexpected volume or edge cases. By applying the right design pattern in **{topic}**, you isolate failures, ensure state integrity, and maintain high availability.\n\n" +
-                          $"### 3. Check for Understanding\n" +
-                          $"To test your mental model: *If you had to explain the single most critical constraint in {topic} to a junior colleague, which component would you highlight first and why?*\n\n" +
-                          $"### Your next move: Spend 10 minutes writing down your answer to this question, then test a simple implementation in your local lab.\n";
-
-        yield return intro;
-        yield return explanation;
+        yield return asked is null
+            ? "Radar could not reach its tutor just now, so there is no answer to give you - and a made-up one would be worse than none. Try again shortly."
+            : $"Radar could not reach its tutor just now, so it cannot answer about {asked} - and a made-up answer would be worse than none. Try again shortly.";
     }
 
     /// <summary>
