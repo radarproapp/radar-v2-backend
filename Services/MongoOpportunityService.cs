@@ -692,10 +692,27 @@ public class MongoOpportunityService : IOpportunityService
         // record is what their behaviour says, and the stated goal is the fallback. No field is
         // hardcoded here: an empty subject scores no domain points rather than quietly becoming
         // somebody else's field, which is how a nursing learner used to be matched on "security".
-        var domain = Firm(activeRoadmap?.Interest) ?? Firm(record?.PrimaryGoal) ?? Firm(profile.PrimaryGoal);
+        // Read through LearningIntentReader, which exists to keep a goal out of this slot and
+        // documents its Domain as "never the outcome".
+        //
+        // This read PrimaryGoal directly. For somebody whose goal is "find a job", the domain
+        // became "a job" - so every job advert ever written matched it on the word "job", scored
+        // twenty-six, and was announced as "It is a job work, which is what you are learning."
+        // Reported from production by a learner whose interest is International Relations, shown
+        // three senior AI engineering roles at ninety per cent. The learning path had been
+        // taught this distinction; opportunity matching never was.
+        var intent = LearningIntentReader.Read(profile);
+        var domain = Firm(activeRoadmap?.Interest) ?? FieldWorthMatching(intent.Domain);
+
+        // A field signal is the thing that makes an opportunity theirs rather than merely open.
+        // Tracked separately from `personal` because `personal` also counts a deadline they
+        // asked about or a type that suits their stage - true things, but not about their field.
+        var fieldMatched = false;
+
         if (domain is not null && DomainVocabulary.MentionsSubject(fullText, domain))
         {
             score += 26;
+            fieldMatched = true;
             signals.Add(new MatchSignal(26, $"It is {SubjectPhrase.Lower(domain)} work, which is what you are learning."));
         }
 
@@ -709,13 +726,14 @@ public class MongoOpportunityService : IOpportunityService
         {
             score += 8;
             personal = true;
+            fieldMatched = true;
             signals.Add(new MatchSignal(8, $"You said you are interested in {SubjectPhrase.Lower(interest)}."));
         }
 
         // What they said they are trying to do. Goals were in the profile, used by the roadmap
         // and by the Intelligence feed, and read here only as a fallback source of one domain
         // string - so somebody whose goal was a scholarship was never matched on it.
-        foreach (var goal in OpportunityFit.Matching(fullText, profile.Goals))
+        foreach (var goal in OpportunityFit.Matching(fullText, profile.Goals.Where(LearningIntentReader.NamesASubject)))
         {
             score += 12;
             personal = true;
@@ -784,6 +802,7 @@ public class MongoOpportunityService : IOpportunityService
             if (role is not null && fullText.Contains(role.ToLowerInvariant()))
             {
                 personal = true;
+                fieldMatched = true;
                 score += 12;
                 signals.Add(new MatchSignal(12, $"It is a step toward {SubjectPhrase.Lower(role)}, the role you are aiming for."));
             }
@@ -792,6 +811,7 @@ public class MongoOpportunityService : IOpportunityService
             if (priority is not null)
             {
                 personal = true;
+                fieldMatched = true;
                 score += 10;
                 signals.Add(new MatchSignal(10, $"It covers {SubjectPhrase.Lower(priority)}, which is what you are learning next."));
             }
@@ -837,7 +857,22 @@ public class MongoOpportunityService : IOpportunityService
         // LearnFromTrackingAsync, which generalise by type, goal and field rather than by volume.
         if (trackingMap.Values.Count(t => t.Status == OpportunityTrackingStatus.NotRelevant) > 2) score -= 5;
 
-        opp.MatchScorePercent = Math.Clamp(score, 38, 98);
+        // Nothing reads as a strong match without a field signal.
+        //
+        // The backstop, and the part of this fix that does not depend on getting a vocabulary
+        // right. Three senior AI engineering roles were shown at ninety per cent to a learner
+        // whose interest is International Relations, because a goal had been admitted as a field
+        // and then matched on the word "job". The two causes above are fixed; this makes the
+        // symptom impossible to reach by some other route, because a percentage is a claim and a
+        // high one about somebody's field has to have been earned by something that read their
+        // field.
+        //
+        // Not zero, and not hidden. An open conference, a near deadline and a type that suits
+        // their stage are all true and all worth seeing - they are simply not evidence that the
+        // thing is in their field, so they cannot carry a number that says it is.
+        opp.MatchScorePercent = fieldMatched
+            ? Math.Clamp(score, 38, 98)
+            : Math.Clamp(score, 38, MostWithoutAFieldSignal);
         opp.WhyItFits = ExplainMatch(signals);
 
         if (opp.NextMoveSteps.Count == 0)
@@ -867,6 +902,30 @@ public class MongoOpportunityService : IOpportunityService
 
     /// <summary>Where everyone starts, before anything is known about the fit.</summary>
     private const int BaseScore = 48;
+
+    /// <summary>
+    /// The most an opportunity can score when nothing about the learner's field matched.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately below the band a reader treats as "this is for me". It leaves room for the
+    /// things that are genuinely true without a field match - a deadline this week, a type that
+    /// suits their stage, something they marked interesting - while making it arithmetically
+    /// impossible to show ninety per cent against a field nothing read.
+    /// </remarks>
+    private const int MostWithoutAFieldSignal = 70;
+
+    /// <summary>
+    /// A field worth matching an advert against, or null.
+    /// </summary>
+    /// <remarks>
+    /// LearningIntentReader returns a placeholder when it has no field to name. It reads
+    /// correctly inside a sentence and is useless as a search term - every advert matches "your
+    /// field" about as well as every other - so it is not one.
+    /// </remarks>
+    private static string? FieldWorthMatching(string? domain) =>
+        string.IsNullOrWhiteSpace(domain) || domain == LearningIntentReader.NoFieldNamed
+            ? null
+            : domain;
 
     /// <summary>
     /// How much of a stored batch has to survive re-checking before it is served as today's.

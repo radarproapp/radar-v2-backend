@@ -124,6 +124,31 @@ public static partial class LearningIntentReader
         return new LearningIntent(subject, domain, outcome);
     }
 
+    /// <summary>
+    /// Whether a goal names a field of study rather than a result the learner wants.
+    /// </summary>
+    /// <remarks>
+    /// "Cybersecurity" is a subject and can be matched against the text of an advert.
+    /// "Find a job" is an outcome and must never be: it matches the word "job", which appears in
+    /// every job advert ever written, and the learner is then told that an AI engineering role in
+    /// Berlin "fits what you said you are working on".
+    ///
+    /// Reported from production by somebody whose interest was International Relations and who
+    /// was shown three senior AI engineering roles at ninety per cent.
+    /// </remarks>
+    public static bool NamesASubject(string? goal) =>
+        !string.IsNullOrWhiteSpace(goal) && ReadOutcome(goal) == LearningOutcome.LearnSubject;
+
+    /// <summary>
+    /// The placeholder <see cref="Read(UserProfile)"/> returns when it has no field to name.
+    /// </summary>
+    /// <remarks>
+    /// Fine inside a sentence - "you still need to get better at your field" reads. Useless as a
+    /// term to match an advert against, and dangerous as one: everything about anything would
+    /// match the words "your field" about as well as everything else.
+    /// </remarks>
+    public const string NoFieldNamed = "your field";
+
     private static LearningOutcome ReadOutcome(string goal)
     {
         if (string.IsNullOrWhiteSpace(goal)) return LearningOutcome.LearnSubject;
