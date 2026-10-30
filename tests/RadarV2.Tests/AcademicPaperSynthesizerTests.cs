@@ -115,13 +115,26 @@ public class AcademicPaperSynthesizerTests
         Assert.DoesNotContain("verified", paper.PaperBreakdown.WhyItMatters, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// A classic is marked as one, and a merely old paper is not promoted into a classic.
+    /// </summary>
+    /// <remarks>
+    /// The era was read off the year alone, so anything past fifteen years was labelled
+    /// "Foundational - predates current practice by design" whether or not a soul had cited it.
+    /// Most published work is never cited again; telling a student that an ignored 1998 paper is
+    /// the text their field rests on is a claim, and a false one. Citations are the only
+    /// evidence available that old work is a foundation rather than a dead end, so they are what
+    /// decides it - and the threshold is high, because the label is meant to mean something.
+    /// </remarks>
     [Theory]
-    [InlineData(2024, "Recent")]
-    [InlineData(2015, "Established")]
-    [InlineData(1998, "Foundational")]
-    public void A_papers_era_is_stated_so_a_classic_is_not_read_as_current_practice(int year, string expected)
+    [InlineData(2026, 0, "Recent")]
+    [InlineData(2018, 0, "Established")]
+    [InlineData(1998, 3, "Established")]
+    [InlineData(1998, 20_000, "Foundational")]
+    public void A_papers_era_is_stated_so_a_classic_is_not_read_as_current_practice(int year, int citations, string expected)
     {
         var paper = Paper("A paper", "We did work.", year);
+        paper.CitationCount = citations;
 
         AcademicPaperSynthesizer.EnrichPaperWithStrictBreakdown(paper);
 

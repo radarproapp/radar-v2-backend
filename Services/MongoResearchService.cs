@@ -16,17 +16,20 @@ public class MongoResearchService : IResearchService
     private readonly IHttpClientFactory _httpFactory;
     private readonly IConfiguration _config;
     private readonly IAiEngine _ai;
+    private readonly ILogger<MongoResearchService> _logger;
 
     public MongoResearchService(
         OpenAlexClient openAlex,
         IHttpClientFactory httpFactory,
         IConfiguration config,
-        IAiEngine ai)
+        IAiEngine ai,
+        ILogger<MongoResearchService> logger)
     {
         _openAlex = openAlex;
         _httpFactory = httpFactory;
         _config = config;
         _ai = ai;
+        _logger = logger;
     }
 
     /// <summary>
@@ -82,16 +85,28 @@ public class MongoResearchService : IResearchService
                 combined.Add(paper);
             }
         }
-        catch
+        catch (Exception e)
         {
-            // If external OpenAlex call fails or times out, curated catalog still powers the response
+            // Said, not swallowed. The comment that used to sit here promised "curated catalog
+            // still powers the response" - that catalogue was eight hand-written papers and was
+            // deleted, so what actually happened was an empty list presented as "no research
+            // matches your search". A reader then believes nothing exists on their topic, which
+            // is a different and worse answer than "Radar could not reach the index".
+            _logger.LogWarning(e, "OpenAlex search failed for {Query}", query);
+            throw new ResearchUnavailableException(
+                "Radar could not reach the research index just now. Your search is fine - try it again shortly.", e);
         }
 
         // Deliberately no synthetic-paper fallback: an empty result set is the honest answer when
         // no verifiable work matches. Inventing a plausible-looking paper, DOI or statistic would
         // violate the "never invent academic information" rule the product is built on.
 
-        var papers = combined.Take(pageSize * page).ToList();
+        // Ordered before it is cut, or the ranking only sorts whichever page OpenAlex put first.
+        //
+        // Nothing sorted these. They arrived in the index's own order and were handed straight
+        // to the reader, under a spec asking for credible and relevant research first, and for
+        // recent work and the foundational papers of a field both to surface.
+        var papers = ResearchRanking.Ordered(combined, profile).Take(pageSize * page).ToList();
         ExplainForReader(papers, profile);
         return papers;
     }

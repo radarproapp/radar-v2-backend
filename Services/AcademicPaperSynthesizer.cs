@@ -42,7 +42,7 @@ public static class AcademicPaperSynthesizer
 
         if (string.IsNullOrWhiteSpace(paper.PaperBreakdown.Era))
         {
-            paper.PaperBreakdown.Era = EraFor(paper.PublishedAt.Year);
+            paper.PaperBreakdown.Era = EraFor(paper);
         }
 
         var abstractText = CleanText(
@@ -91,7 +91,7 @@ public static class AcademicPaperSynthesizer
         // Era, and the whole point of 8.4 is that a reader sees it without having to check a year.
         if (paper.PaperBreakdown is not null && string.IsNullOrWhiteSpace(paper.PaperBreakdown.Era))
         {
-            paper.PaperBreakdown.Era = EraFor(paper.PublishedAt.Year);
+            paper.PaperBreakdown.Era = EraFor(paper);
         }
 
         if (paper.PaperBreakdown != null && paper.WordCount > 400)
@@ -136,7 +136,7 @@ public static class AcademicPaperSynthesizer
 
             // Spec 8.4: where the work sits in time, so a 1998 foundational paper is not read as
             // current practice. Derived from the publication date rather than asserted.
-            Era = EraFor(year),
+            Era = EraFor(paper),
 
             // Spec 8.2. Both extracted from the abstract on the same terms as every other
             // section: present when the authors said it, NotStated when they did not.
@@ -339,13 +339,21 @@ public static class AcademicPaperSynthesizer
     /// thing to follow as current practice. Saying which it is costs one line and stops a reader
     /// treating a classic as a recommendation.
     /// </summary>
-    private static string EraFor(int year)
+    private static string EraFor(ContentItem paper)
     {
-        var now = DateTime.UtcNow.Year;
-        if (year <= 0) return "Publication date not recorded";
-        if (year >= now - 5) return "Recent";
-        if (year >= now - 15) return "Established";
-        return "Foundational - predates current practice by design";
+        if (paper.PublishedAt.Year <= 0) return "Publication date not recorded";
+
+        // One definition, shared with the ranking that uses it. This one read the year alone,
+        // so anything older than fifteen years was "Foundational" whether or not a soul had
+        // cited it - which is most of what gets published. Being old is not the same as being
+        // the thing a field was built on, and saying so about an uncited paper is the kind of
+        // claim this product exists not to make.
+        return ResearchRanking.EraOf(paper) switch
+        {
+            ResearchRanking.Recent => "Recent",
+            ResearchRanking.Foundational => "Foundational - predates current practice by design",
+            _ => "Established",
+        };
     }
 
     private static string CleanText(string text)

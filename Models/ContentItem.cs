@@ -52,6 +52,21 @@ public class ContentItem
     public string? OpenAccessPdfUrl { get; set; }
     public string? DatabaseSource { get; set; } = "OpenAlex";
 
+    /// <summary>
+    /// How many times this paper has been cited.
+    /// </summary>
+    /// <remarks>
+    /// OpenAlex reports it and Radar read it, used it to write the sentence "Cited 412 times."
+    /// and then dropped the number. So the one structured signal of credibility the source
+    /// gives us existed only inside a string, and nothing could sort on it - which is why
+    /// Research Discovery returned results in whatever order OpenAlex happened to send them,
+    /// under a spec that asks for credible and relevant research first.
+    ///
+    /// Also what separates a foundational paper from a merely old one. Both are twenty years
+    /// past; one is still being cited.
+    /// </remarks>
+    public int CitationCount { get; set; }
+
     // Enrichment fields — populated by the AI ingestion pipeline
     public ContentLayer Layer { get; set; } = ContentLayer.Ideas;
     public int CredibilityTier { get; set; }

@@ -37,8 +37,19 @@ public class ResearchController : ControllerBase
             return BadRequest(new { error = "A search query 'q' is required." });
 
         var profile = await _profiles.GetCurrentUserAsync();
-        var results = await _research.SearchPapersAsync(q.Trim(), yearFrom, paperType, Math.Max(1, page), Math.Clamp(pageSize, 5, 50), profile);
-        return Ok(results);
+
+        try
+        {
+            var results = await _research.SearchPapersAsync(q.Trim(), yearFrom, paperType, Math.Max(1, page), Math.Clamp(pageSize, 5, 50), profile);
+            return Ok(results);
+        }
+        catch (ResearchUnavailableException e)
+        {
+            // 503, not an empty 200. "No research matches your search" is a claim about the
+            // reader's topic; this is a fact about Radar, and the screen can offer a retry for
+            // one and not for the other.
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new { error = e.Message });
+        }
     }
 
     /// <summary>

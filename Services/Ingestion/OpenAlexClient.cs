@@ -251,6 +251,10 @@ public class OpenAlexClient
             WhyItMatters = string.IsNullOrWhiteSpace(journal)
                 ? $"Cited {citedByCount} times."
                 : $"Cited {citedByCount} times. Published in {journal}.",
+
+            // Kept as a number as well as a sentence. It is the one structured measure of
+            // standing the source gives us, and ranking cannot read it out of prose.
+            CitationCount = citedByCount,
         };
 
         // No summary attached here, deliberately.

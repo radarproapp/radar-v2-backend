@@ -83,13 +83,31 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
         var filter = await BuildFeedFilterAsync(
             profile, null, dismissedIds, ContentSurface.ResearchFilter());
 
-        return await _db.ContentItems
+        // Over-fetched by date, then ranked, then cut.
+        //
+        // This used to sort on the publication date and stop there, so the library was "the
+        // newest research Radar holds" - which is not what the spec asks for. Credibility and
+        // relevance come first in its list, and a foundational paper could never appear at all,
+        // because something is always newer. Recency is still what decides which candidates are
+        // worth considering; it is no longer what decides the order they are read in.
+        var candidates = await _db.ContentItems
             .Find(filter)
             .SortByDescending(i => i.PublishedAt)
             .ThenByDescending(i => i.Id)
-            .Limit(limit)
+            .Limit(limit * CandidatesPerPlace)
             .ToListAsync(ct);
+
+        return ResearchRanking.Ordered(candidates, profile).Take(limit).ToList();
     }
+
+    /// <summary>
+    /// How many papers to look at for each one shown.
+    /// </summary>
+    /// <remarks>
+    /// Enough that ranking has something to choose between, and small enough that the query
+    /// still uses the DiscoveredAt index rather than reading the collection.
+    /// </remarks>
+    private const int CandidatesPerPlace = 4;
 
     public async Task<PagedResult<ContentItem>> GetFeedPageAsync(UserProfile profile, ContentType? filterType, string? cursor, int limit, CancellationToken ct = default)
     {
