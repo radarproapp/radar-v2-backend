@@ -28,15 +28,42 @@ public class PaperSummaryTests
         return File.ReadAllText(Path.Combine(dir!.FullName, "Services", "MongoResearchService.cs"));
     }
 
-    /// <summary>All five sections the spec names are asked for.</summary>
+    /// <summary>
+    /// Every key the breakdown deserialises is asked for, by exactly its property name.
+    /// </summary>
+    /// <remarks>
+    /// Four of the nine were unguarded, including aimAndObjectives - which is "Objective of the
+    /// research", one of the six the summary is specified as. Renaming it would have left that
+    /// section silently blank on every paper, with the whole suite still green: a missing key
+    /// does not fail, it deserialises to an empty string.
+    /// </remarks>
     [Fact]
-    public void TheSummaryAsksForEverySectionTheSpecNames()
+    public void TheSummaryAsksForEverySectionByItsRealName()
     {
         var prompt = PromptSource();
 
-        foreach (var section in new[] { "introduction", "problem", "methodology", "findings", "conclusion" })
+        string[] everyKey =
+        [
+            // The six the summary is specified as.
+            "introduction", "problem", "aimAndObjectives", "methodology", "findings", "conclusion",
+            // And the supplementary ones, which still have to arrive under the right name.
+            "keyArguments", "contribution", "whyItMatters",
+        ];
+
+        foreach (var section in everyKey)
         {
             Assert.Contains($"\"{section}\":", prompt);
+        }
+
+        // Every property the model is asked to fill is one the breakdown actually has.
+        var properties = typeof(RadarV2.Models.AcademicPaperBreakdown)
+            .GetProperties()
+            .Select(p => char.ToLowerInvariant(p.Name[0]) + p.Name[1..])
+            .ToHashSet(StringComparer.Ordinal);
+
+        foreach (var section in everyKey)
+        {
+            Assert.Contains(section, properties);
         }
     }
 

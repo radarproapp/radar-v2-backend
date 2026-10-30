@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using RadarV2.Models;
 using RadarV2.Services.Ingestion;
+using Microsoft.Extensions.Caching.Memory;
 using RadarV2.Services.Interfaces;
 
 namespace RadarV2.Services;
@@ -17,19 +18,22 @@ public class MongoResearchService : IResearchService
     private readonly IConfiguration _config;
     private readonly IAiEngine _ai;
     private readonly ILogger<MongoResearchService> _logger;
+    private readonly IMemoryCache _cache;
 
     public MongoResearchService(
         OpenAlexClient openAlex,
         IHttpClientFactory httpFactory,
         IConfiguration config,
         IAiEngine ai,
-        ILogger<MongoResearchService> logger)
+        ILogger<MongoResearchService> logger,
+        IMemoryCache cache)
     {
         _openAlex = openAlex;
         _httpFactory = httpFactory;
         _config = config;
         _ai = ai;
         _logger = logger;
+        _cache = cache;
     }
 
     /// <summary>
@@ -142,10 +146,46 @@ public class MongoResearchService : IResearchService
 
         if (paper is null) return null;
 
-        if (withSummary) await EnsureAiPaperBreakdownAsync(paper);
+        if (withSummary) await WithSummaryAsync(paper);
 
         ExplainForReader([paper], profile);
         return paper;
+    }
+
+    /// <summary>
+    /// The plain-English summary, built once per paper rather than once per reader.
+    /// </summary>
+    /// <remarks>
+    /// Papers are fetched live from OpenAlex and nothing is stored, so every expansion of a card
+    /// was a fresh model call - the same five hundred words about the same paper, paid for again
+    /// each time anybody opened it, and again when the same person opened it twice. There is a
+    /// guard that looks like it prevents this, "if the breakdown is there and over 400 words,
+    /// return", but the breakdown is always null on a record that was just built from the index,
+    /// so it never fires.
+    ///
+    /// The summary is a function of the paper and of nothing else - no profile, no reader - so
+    /// it caches cleanly. Held in memory with an expiry rather than stored, because it is
+    /// derived and a better model later should be allowed to replace it.
+    /// </remarks>
+    private static readonly TimeSpan SummaryKeptFor = TimeSpan.FromHours(12);
+
+    private async Task WithSummaryAsync(ContentItem paper)
+    {
+        var key = $"paper-summary:{paper.Id}";
+
+        if (_cache.TryGetValue<AcademicPaperBreakdown>(key, out var cached) && cached is not null)
+        {
+            paper.PaperBreakdown = cached;
+            paper.WordCount = cached.TotalWordCount;
+            return;
+        }
+
+        await EnsureAiPaperBreakdownAsync(paper);
+
+        // Only a summary worth keeping. A failed generation falls back to the template, and
+        // caching that for twelve hours would make one bad moment last the day.
+        if (paper.PaperBreakdown is not null && paper.PaperBreakdown.TotalWordCount > 0)
+            _cache.Set(key, paper.PaperBreakdown, SummaryKeptFor);
     }
 
     public async Task<List<ContentItem>> GetRelatedPapersAsync(string paperId)
@@ -305,6 +345,14 @@ public class MongoResearchService : IResearchService
 
             if (breakdown != null && !string.IsNullOrWhiteSpace(breakdown.Introduction))
             {
+                // The specified ceiling, held rather than requested.
+                //
+                // The prompt asks for 30 to 50 words and the model mostly obliges, but "mostly"
+                // is not a specification. Over the ceiling the introduction stops being the
+                // orientation and becomes a precis of the paper, and the reader then meets the
+                // same ground again under the five headings that follow it.
+                breakdown.Introduction = AcademicPaperSynthesizer.WithinIntroductionLength(breakdown.Introduction);
+
                 paper.PaperBreakdown = breakdown;
                 AcademicPaperSynthesizer.EnsureDerivedParts(paper);
                 paper.WordCount = breakdown.TotalWordCount;

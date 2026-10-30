@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 using RadarV2.Models;
@@ -149,10 +150,12 @@ public static class AcademicPaperSynthesizer
             Conclusion = FromSource(abstractText, "we conclude", "in conclusion", "concludes", "overall", "taken together", "these results suggest", "we argue that", "this shows")
         };
 
-        // Calculate total word count
-        var totalWords = CountWords(intro) + CountWords(problem) + CountWords(aim) + 
-                         CountWords(method) + CountWords(args) + CountWords(findings) + 
-                         CountWords(contribution);
+        // The same six sections the model path counts, from the one definition of them.
+        //
+        // This added up its own list - KeyArguments and Contribution, which are supplementary,
+        // and no Conclusion, which is one of the six - so the template and the model disagreed
+        // about the length of the same summary by about a section.
+        var totalWords = paper.PaperBreakdown.TotalWordCount;
 
         paper.WordCount = totalWords;
         paper.EstimatedReadTime = $"{Math.Max(5, (int)Math.Ceiling(totalWords / 110.0))} min read";
@@ -200,8 +203,19 @@ public static class AcademicPaperSynthesizer
             if (!string.IsNullOrEmpty(doi)) return $"doi: {doi}";
             if (string.IsNullOrWhiteSpace(url)) return string.Empty;
 
-            return $"Available at: {url} (Accessed: {DateTime.UtcNow:d MMMM yyyy})";
+            // en-GB explicitly. The default formats with the host's culture, so a server in
+            // Frankfurt would write "30 Oktober 2026" inside an English Harvard reference.
+            return $"Available at: {url} (Accessed: {DateTime.UtcNow.ToString("d MMMM yyyy", CultureInfo.GetCultureInfo("en-GB"))})";
         }
+
+        // A full stop that does not double one already there.
+        //
+        // An author string now ends in an initial's period - "Vaswani, A." - and the MLA and
+        // Chicago templates hard-coded their own, so every entry in those two styles came out
+        // as "Vaswani, A.. \"Title.\"". The author list only started ending that way when it
+        // became style-aware, so this is new, and the honesty test that guards against gaps
+        // only looked for ". " with a space.
+        string Stop(string text) => text.EndsWith('.') ? text : text + ".";
 
         return style.ToUpperInvariant() switch
         {
@@ -216,7 +230,7 @@ public static class AcademicPaperSynthesizer
             // - the year loose after a comma and the title bare - which is neither Harvard nor
             // APA but a half-remembered blend of the two.
             "HARVARD" =>
-                $"{authors} ({year}) '{title}', {Venue(". ")}{Access()}".TrimEnd(),
+                Stop($"{authors} ({year}) '{title}'{(string.IsNullOrWhiteSpace(journal) ? ". " : $", {journal}. ")}{Access()}".TrimEnd()),
 
             "IEEE" =>
                 $"[1] {FormatAuthorsIeee(paper.Authors)}, \"{title},\" {Venue(", ")}{year}{(string.IsNullOrEmpty(doi) ? "" : $", doi: {doi}")}.",
@@ -225,12 +239,16 @@ public static class AcademicPaperSynthesizer
                 BuildBibtexCitation(paper, authors, year, title, journal, doi, url),
 
             "MLA" =>
-                $"{authors}. \"{title}.\" {Venue(", ")}{year}, {(string.IsNullOrEmpty(doi) ? url : $"doi:{doi}")}.",
+                $"{Stop(authors)} \"{title}.\" {Venue(", ")}{year}, {(string.IsNullOrEmpty(doi) ? url : $"doi:{doi}")}.",
 
             "CHICAGO" =>
-                $"{authors}. \"{title}.\" {Venue(" ")}({year}). {(string.IsNullOrEmpty(doi) ? url : $"https://doi.org/{doi}")}.",
+                $"{Stop(authors)} \"{title}.\" {Venue(" ")}({year}). {(string.IsNullOrEmpty(doi) ? url : $"https://doi.org/{doi}")}.",
 
-            _ => $"{authors} ({year}). {title}. {Venue(". ")}https://doi.org/{doi}"
+            // Anything else is treated as APA rather than as its own half-written style. This
+            // arm appended "https://doi.org/" unconditionally, so a paper with no DOI reached
+            // an unrecognised style and produced a citation ending in a link to nothing - and
+            // the style parameter comes straight off the query string, unvalidated.
+            _ => $"{authors} ({year}). {title}. {Venue(". ")}{(string.IsNullOrEmpty(doi) ? url : $"https://doi.org/{doi}")}".TrimEnd()
         };
     }
 
@@ -282,8 +300,35 @@ public static class AcademicPaperSynthesizer
         return style.ToUpperInvariant() switch
         {
             "HARVARD" => Harvard(named),
+            "MLA" or "CHICAGO" => FirstInverted(authors, style),
             _ => Apa(named),
         };
+    }
+
+    /// <summary>
+    /// MLA and Chicago: only the first author is inverted, and given names are written in full.
+    /// </summary>
+    /// <remarks>
+    /// These fell through to the APA arm, so they came out as "Vaswani, A., &amp; Shazeer, N." -
+    /// APA initials and the APA ampersand, in an MLA entry. Before the author list became
+    /// style-aware they used the raw display name, which was wrong in a different way; this is
+    /// the first time either is right.
+    ///
+    /// MLA 9 and Chicago 17 agree on the shape: invert the first, leave the rest as written,
+    /// join with "and". They part company on where "et al." begins, which is the parameter.
+    /// </remarks>
+    private static string FirstInverted(List<string> authors, string style)
+    {
+        var etAlFrom = style.Equals("MLA", StringComparison.OrdinalIgnoreCase) ? 3 : 11;
+
+        var first = AuthorName.InvertedInFull(authors[0]);
+        if (authors.Count == 1) return first;
+        if (authors.Count >= etAlFrom) return $"{first}, et al.";
+
+        var rest = authors.Skip(1).Select(AuthorName.AsWritten).ToList();
+        if (rest.Count == 1) return $"{first}, and {rest[0]}";
+
+        return $"{first}, {string.Join(", ", rest[..^1])}, and {rest[^1]}";
     }
 
     /// <summary>
@@ -317,12 +362,24 @@ public static class AcademicPaperSynthesizer
         return $"{named[0]} et al.";
     }
 
+    /// <summary>
+    /// IEEE: initials first, then the surname - "A. Vaswani", not "Ashish Vaswani".
+    /// </summary>
+    /// <remarks>
+    /// This handed back the display name untouched, so an IEEE reference read "Ashish Vaswani
+    /// and Noam Shazeer" where the style wants "A. Vaswani and N. Shazeer". It was the one style
+    /// the author work did not reach, because it has its own formatter.
+    /// </remarks>
     private static string FormatAuthorsIeee(List<string> authors)
     {
-        if (authors.Count == 0) return "Unknown";
-        if (authors.Count == 1) return authors[0];
-        if (authors.Count == 2) return $"{authors[0]} and {authors[1]}";
-        return $"{authors[0]} et al.";
+        var named = authors.Select(AuthorName.InitialsFirst).Where(a => a.Length > 0).ToList();
+
+        if (named.Count == 0) return "Unknown";
+        if (named.Count == 1) return named[0];
+        if (named.Count == 2) return $"{named[0]} and {named[1]}";
+        if (named.Count > 6) return $"{named[0]} et al.";
+
+        return $"{string.Join(", ", named[..^1])}, and {named[^1]}";
     }
 
     /// <summary>
@@ -369,10 +426,45 @@ public static class AcademicPaperSynthesizer
 
         if (string.IsNullOrWhiteSpace(abstractText)) return opening + " " + NotStated;
 
-        var firstSentences = GetSentenceRange(abstractText, 0, 2);
-        return string.IsNullOrWhiteSpace(firstSentences)
-            ? opening + " " + NotStated
-            : $"{opening} The authors open: \"{firstSentences.Trim()}\"";
+        // One sentence, not two, and cut to the specified ceiling.
+        //
+        // The introduction is specified at 30 to 50 words - it is the orientation, not the
+        // summary. This took the first two sentences of the abstract whole, so a clinical trial
+        // with a long title and two long opening sentences produced 98 words, and the reader met
+        // the same ground again under the five headings that follow.
+        var opened = GetSentenceRange(abstractText, 0, 1);
+        if (string.IsNullOrWhiteSpace(opened)) return opening + " " + NotStated;
+
+        return TrimmedToWords($"{opening} The authors open: \"{opened.Trim()}\"", MostIntroductionWords);
+    }
+
+    /// <summary>The ceiling the introduction is specified at.</summary>
+    public const int MostIntroductionWords = 50;
+
+    /// <summary>
+    /// An introduction cut to the specified ceiling, whoever wrote it.
+    /// </summary>
+    /// <remarks>
+    /// Applied to the model's answer as well as the template's. The prompt asks for 30 to 50
+    /// words and the model mostly obliges; a specification that is only asked for is one the
+    /// product does not actually have.
+    /// </remarks>
+    public static string WithinIntroductionLength(string? introduction) =>
+        TrimmedToWords((introduction ?? string.Empty).Trim(), MostIntroductionWords);
+
+    /// <summary>
+    /// Cuts to a word count, on a word boundary, marking that it was cut.
+    /// </summary>
+    /// <remarks>
+    /// The ellipsis matters: a sentence that stops mid-thought with no mark reads as though the
+    /// paper said only that much. A reader should be able to tell a cut from a conclusion.
+    /// </remarks>
+    private static string TrimmedToWords(string text, int most)
+    {
+        var words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (words.Length <= most) return text;
+
+        return string.Join(" ", words[..most]).TrimEnd(',', ';', ':', '"') + "...";
     }
 
     private static string GenerateProblem(string title, string topic, string abstractText) =>

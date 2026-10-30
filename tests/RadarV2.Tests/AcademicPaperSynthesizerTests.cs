@@ -143,4 +143,73 @@ public class AcademicPaperSynthesizerTests
 
         Assert.Contains(expected, paper.PaperBreakdown!.Era);
     }
+
+    /// <summary>
+    /// The introduction is held to its specified length, not merely asked for it.
+    /// </summary>
+    /// <remarks>
+    /// It is the orientation, not the summary. The template took the first two sentences of the
+    /// abstract whole, so a clinical trial with a long title and two long opening sentences
+    /// produced 98 words against a 30-to-50 bound - and the reader then met the same ground
+    /// again under the five headings that follow.
+    /// </remarks>
+    [Fact]
+    public void The_introduction_is_held_to_fifty_words()
+    {
+        var longAbstract = string.Join(" ", Enumerable.Repeat(
+            "This randomised controlled trial of a community health intervention examined whether "
+            + "the approach changed outcomes across a large and varied population over time.", 4));
+
+        var paper = Paper(
+            "A very long clinical trial title describing a community health intervention in detail",
+            longAbstract);
+
+        AcademicPaperSynthesizer.EnrichPaperWithStrictBreakdown(paper);
+
+        Assert.True(
+            paper.PaperBreakdown!.IntroductionWordCount <= AcademicPaperSynthesizer.MostIntroductionWords,
+            $"introduction ran to {paper.PaperBreakdown.IntroductionWordCount} words");
+    }
+
+    /// <summary>And a cut is visibly a cut, rather than reading as the end of a thought.</summary>
+    [Fact]
+    public void A_trimmed_introduction_says_it_was_trimmed()
+    {
+        var longAbstract = string.Join(" ", Enumerable.Repeat("A sentence about the work that keeps going and going.", 6));
+
+        var paper = Paper("A title", longAbstract);
+
+        AcademicPaperSynthesizer.EnrichPaperWithStrictBreakdown(paper);
+
+        if (paper.PaperBreakdown!.IntroductionWordCount == AcademicPaperSynthesizer.MostIntroductionWords)
+            Assert.EndsWith("...", paper.PaperBreakdown.Introduction);
+    }
+
+    /// <summary>The model's answer is held to the same ceiling as the template's.</summary>
+    [Fact]
+    public void The_ceiling_applies_to_whoever_wrote_the_introduction()
+    {
+        var sixty = string.Join(" ", Enumerable.Range(1, 60).Select(i => $"word{i}"));
+
+        var held = AcademicPaperSynthesizer.WithinIntroductionLength(sixty);
+
+        Assert.True(held.Split(' ').Length <= AcademicPaperSynthesizer.MostIntroductionWords + 1);
+        Assert.DoesNotContain("word60", held);
+    }
+
+    /// <summary>Both producers count the same six sections.</summary>
+    /// <remarks>
+    /// The template added up its own list - KeyArguments and Contribution, which are
+    /// supplementary, and no Conclusion, which is one of the six - so the two paths disagreed
+    /// about the length of the same summary by roughly a section.
+    /// </remarks>
+    [Fact]
+    public void The_word_count_is_the_one_the_summary_is_measured_by()
+    {
+        var paper = Paper("A paper", "We studied a thing. We found a result. We conclude it matters.");
+
+        AcademicPaperSynthesizer.EnrichPaperWithStrictBreakdown(paper);
+
+        Assert.Equal(paper.PaperBreakdown!.TotalWordCount, paper.WordCount);
+    }
 }
