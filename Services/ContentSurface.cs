@@ -100,8 +100,17 @@ public static class ContentSurface
         & Builders<ContentItem>.Filter.In(i => i.Layer, FeedLayers);
 
     /// <summary>Research Discovery's half, as a query.</summary>
+    /// <remarks>
+    /// A document with no Layer field counts as research, because that is what the predicate
+    /// says: the model defaults the field to Ideas, so anything stored before the field existed
+    /// reads as a research layer once it is loaded. Without the Exists clause the query
+    /// disagreed - and since the feed query lists the layers it admits, neither side claimed it.
+    /// A legacy article was then ingested, stored, and reachable from no screen at all, which is
+    /// the one failure this class exists to prevent.
+    /// </remarks>
     public static FilterDefinition<ContentItem> ResearchFilter() =>
         Builders<ContentItem>.Filter.In(i => i.Type, Research)
         | (Builders<ContentItem>.Filter.In(i => i.Type, Intelligence)
-           & Builders<ContentItem>.Filter.In(i => i.Layer, ResearchLayers));
+           & (Builders<ContentItem>.Filter.In(i => i.Layer, ResearchLayers)
+              | Builders<ContentItem>.Filter.Exists(i => i.Layer, false)));
 }

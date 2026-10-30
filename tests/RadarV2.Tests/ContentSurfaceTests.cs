@@ -160,6 +160,24 @@ public class ContentSurfaceTests
     }
 
     /// <summary>
+    /// A document stored before the layer field existed is still somebody's to show.
+    /// </summary>
+    /// <remarks>
+    /// Mongo's $in does not match an absent field, and the model defaults Layer to Ideas - so a
+    /// legacy article read as research once loaded, while neither query claimed it. Ingested,
+    /// stored, and reachable from no screen at all, which is the one failure this class exists
+    /// to prevent.
+    /// </remarks>
+    [Fact]
+    public void ADocumentWithNoLayerIsClaimedByResearch()
+    {
+        var rendered = Render(ContentSurface.ResearchFilter());
+
+        // The query says what the predicate says: no layer means the default, which is research.
+        Assert.Contains("$exists", rendered);
+    }
+
+    /// <summary>
     /// Narrowing by type does not reach past the surface.
     /// </summary>
     /// <remarks>

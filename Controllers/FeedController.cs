@@ -160,7 +160,13 @@ public class FeedController : ControllerBase
         if (string.IsNullOrWhiteSpace(q))
             return BadRequest(new { error = "A search query 'q' is required." });
 
-        var items = await _feed.SearchAsync(q.Trim(), ParseType(type));
+        // Search looks across everything Radar holds, so it takes any type.
+        //
+        // Running it through the feed's parser dropped a research type on the floor: a reader
+        // narrowing a search to papers got articles and podcasts as well, with nothing on screen
+        // to say the filter had been ignored. Silently discarding a filter somebody set is the
+        // one option that cannot be explained.
+        var items = await _feed.SearchAsync(q.Trim(), ParseAnyType(type));
         return Ok(items);
     }
 
@@ -416,6 +422,10 @@ public class FeedController : ControllerBase
     /// An unrecognised or out-of-surface type reads as no filter, which is what a mistyped link
     /// has always done: show the feed rather than an empty page.
     /// </remarks>
+    /// <summary>Any type Radar holds, for the search that looks across both surfaces.</summary>
+    private static ContentType? ParseAnyType(string? type) =>
+        Enum.TryParse<ContentType>(type, ignoreCase: true, out var parsed) ? parsed : null;
+
     private static ContentType? ParseType(string? type) =>
         Enum.TryParse<ContentType>(type, ignoreCase: true, out var parsed)
         && ContentSurface.Intelligence.Contains(parsed)
