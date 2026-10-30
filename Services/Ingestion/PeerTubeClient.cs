@@ -43,6 +43,13 @@ public class PeerTubeClient
     /// <summary>How long to wait on a public index that owes Radar nothing.</summary>
     private static readonly TimeSpan Deadline = TimeSpan.FromSeconds(12);
 
+    /// <summary>How much of a response is worth reading into memory.</summary>
+    /// <remarks>
+    /// A subtitle file is tens of kilobytes. Two megabytes is generous for one and small enough
+    /// that a host sending something enormous costs a moment rather than the process.
+    /// </remarks>
+    private const int MostBytesWorthReading = 2 * 1024 * 1024;
+
     /// <summary>Videos matching a query, newest and most relevant as the index ranks them.</summary>
     public async Task<List<OpenVideoRef>> SearchAsync(string query, int count = 10, CancellationToken ct = default)
     {
@@ -82,13 +89,26 @@ public class PeerTubeClient
         if (!OpenVideoLicence.PermitsReading(video.LicenceId)) return null;
         if (string.IsNullOrWhiteSpace(video.Host) || string.IsNullOrWhiteSpace(video.Uuid)) return null;
 
+        // The instance has to be somewhere on the public internet.
+        //
+        // Every part of this request is chosen by a third party: the host comes from a
+        // community-run index that instances self-register with. OpenAccessText was written for
+        // this exact problem and then not called from here - "it came from our data provider" is
+        // how an internal endpoint gets called by a trusted service.
+        if (!OpenAccessText.IsWorthAsking($"https://{video.Host}/")) return null;
+
+        var instance = new Uri($"https://{video.Host}/");
+
         try
         {
             using var client = _httpFactory.CreateClient("Ingestion");
             client.Timeout = Deadline;
 
+            // Bounded, because the body is read into memory and nobody here chose how big it is.
+            client.MaxResponseContentBufferSize = MostBytesWorthReading;
+
             var listed = await client.GetStringAsync(
-                $"https://{video.Host}/api/v1/videos/{video.Uuid}/captions", ct);
+                new Uri(instance, $"/api/v1/videos/{Uri.EscapeDataString(video.Uuid)}/captions"), ct);
 
             using var document = JsonDocument.Parse(listed);
 
@@ -106,7 +126,18 @@ public class PeerTubeClient
             var path = Text(chosen, "captionPath");
             if (string.IsNullOrWhiteSpace(path)) return null;
 
-            var subtitles = await client.GetStringAsync($"https://{video.Host}{path}", ct);
+            // Resolved against the instance rather than pasted onto it.
+            //
+            // captionPath is a string the instance chose. Concatenated, a value beginning "@"
+            // moves the host: "https://tv.example.org" + "@internal.svc/secrets" is a request to
+            // internal.svc with tv.example.org as userinfo - and the body comes back as a lesson
+            // summary, so the product itself is the way out. Resolving and then checking the host
+            // did not move is what makes the earlier check mean anything.
+            if (!Uri.TryCreate(instance, path, out var caption)) return null;
+            if (!string.Equals(caption.Host, video.Host, StringComparison.OrdinalIgnoreCase)) return null;
+            if (caption.Scheme != Uri.UriSchemeHttps) return null;
+
+            var subtitles = await client.GetStringAsync(caption, ct);
             return Spoken(subtitles);
         }
         catch (Exception ex)
@@ -163,6 +194,12 @@ public class PeerTubeClient
 
         if (string.IsNullOrWhiteSpace(uuid) || string.IsNullOrWhiteSpace(url)) return null;
 
+        // A malformed url used to throw out of the whole projection, so one bad entry in a
+        // federated index - which anybody can publish into - discarded every other result for
+        // that search.
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var watch)) return null;
+        if (watch.Scheme != Uri.UriSchemeHttps) return null;
+
         // Live streams and anything flagged are not lesson material.
         if (video.TryGetProperty("isLive", out var live) && live.ValueKind == JsonValueKind.True) return null;
         if (video.TryGetProperty("nsfw", out var nsfw) && nsfw.ValueKind == JsonValueKind.True) return null;
@@ -179,7 +216,7 @@ public class PeerTubeClient
         return new OpenVideoRef
         {
             Uuid = uuid,
-            Host = new Uri(url).Host,
+            Host = watch.Host,
             Title = Text(video, "name"),
             Description = Text(video, "description"),
             ChannelTitle = Nested(video, "channel", "displayName") ?? Nested(video, "account", "displayName") ?? string.Empty,

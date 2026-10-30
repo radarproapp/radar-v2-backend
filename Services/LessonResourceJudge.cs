@@ -60,7 +60,22 @@ public class LessonResourceJudge
     /// not passed on, so the summariser was asked to describe a video from its title and channel
     /// alone - which is why it produced a sentence restating the title, or nothing at all.
     /// </remarks>
-    public sealed record Candidate(string Id, string Title, string Source, string? Summary);
+    /// <param name="FromTranscript">
+    /// Whether the summary is the video's own words rather than a blurb about it.
+    /// </param>
+    /// <remarks>
+    /// It decides how much of the summary the judge is shown. Everything was cut to three
+    /// hundred characters, which is right for a description and useless for a transcript: a
+    /// forty-minute talk arrived as its opening fifty words, so the judge described what the
+    /// video covers from a greeting and an ask to subscribe. Radar paid for the captions and
+    /// discarded the part that answered the question.
+    /// </remarks>
+    public sealed record Candidate(
+        string Id,
+        string Title,
+        string Source,
+        string? Summary,
+        bool FromTranscript = false);
 
     /// <summary>
     /// What the judge decided, and what it has to say about what it kept.
@@ -228,7 +243,11 @@ public class LessonResourceJudge
 
         return named.Count == 0
             ? "(this is the only lesson on the path)"
-            : string.Join("; ", named.Select(Shorten));
+            // Called, not passed as a method group. Shorten gained an optional budget parameter,
+            // which made it match Select's (element, index) overload - so every lesson title was
+            // truncated to its own position in the list, and the first one to nothing at all.
+            // The path context silently emptied and the test that reads it caught it.
+            : string.Join("; ", named.Select(title => Shorten(title)));
     }
 
     private static string BuildPrompt(
@@ -242,7 +261,7 @@ public class LessonResourceJudge
         // RSS, so a newline in one would forge further candidate lines inside a prompt whose only
         // job is to be a strict filter — and it would be a feed publisher, not a learner, doing it.
         var lines = candidates.Select(c =>
-            $"- id: {c.Id}\n  title: {Shorten(c.Title)}\n  source: {Shorten(c.Source)}\n  summary: {Shorten(c.Summary)}");
+            $"- id: {c.Id}\n  title: {Shorten(c.Title)}\n  source: {Shorten(c.Source)}\n  summary: {Described(c)}");
 
         return $$"""
             The learner is working towards: {{Shorten(Blank(learningGoal, "(not stated)"))}}
@@ -297,11 +316,30 @@ public class LessonResourceJudge
     private static string Blank(string? value, string fallback) =>
         string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
 
-    private static string Shorten(string? text)
+    /// <summary>How much of a description the judge is shown.</summary>
+    private const int DescriptionBudget = 300;
+
+    /// <summary>
+    /// And how much of a transcript.
+    /// </summary>
+    /// <remarks>
+    /// Six times a description, which is enough to carry what a talk actually covers without
+    /// spending a lesson's whole prompt on one candidate. Five videos at this size is still
+    /// less than one page of a paper.
+    /// </remarks>
+    private const int TranscriptBudget = 1800;
+
+    /// <summary>What this candidate says, at the size its kind deserves.</summary>
+    private static string Described(Candidate candidate) =>
+        candidate.FromTranscript
+            ? Shorten(candidate.Summary, TranscriptBudget)
+            : Shorten(candidate.Summary, DescriptionBudget);
+
+    private static string Shorten(string? text, int budget = DescriptionBudget)
     {
         if (string.IsNullOrWhiteSpace(text)) return "(none)";
 
         var flat = text.ReplaceLineEndings(" ").Trim();
-        return flat.Length <= 300 ? flat : flat[..300] + "…";
+        return flat.Length <= budget ? flat : flat[..budget] + "…";
     }
 }

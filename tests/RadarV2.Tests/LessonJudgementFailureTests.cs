@@ -118,6 +118,56 @@ public class LessonJudgementFailureTests
         Assert.Contains("only lesson on the path", engine.LastUserPrompt);
     }
 
+
+    /// <summary>
+    /// A transcript reaches the judge as something worth reading.
+    /// </summary>
+    /// <remarks>
+    /// It did not. Every candidate summary was cut to three hundred characters - the right size
+    /// for a description and useless for a transcript - so a forty-minute talk arrived as its
+    /// opening fifty words, and the judge described what the video covers from a greeting and an
+    /// ask to subscribe. Radar fetched the captions and discarded the part that answered the
+    /// question.
+    /// </remarks>
+    [Fact]
+    public async Task ATranscriptIsNotCutToTheSizeOfABlurb()
+    {
+        var spoken = string.Join(" ", Enumerable.Repeat("the model has no memory between turns", 200));
+
+        var asTranscript = await PromptFor(new LessonResourceJudge.Candidate(
+            "v1", "Prompting basics", "Open Learning", spoken, FromTranscript: true));
+
+        var asDescription = await PromptFor(new LessonResourceJudge.Candidate(
+            "v2", "Prompting basics", "Open Learning", spoken));
+
+        Assert.True(
+            asTranscript.Length > asDescription.Length + 1000,
+            "A transcript was shown at the size of a description.");
+    }
+
+    /// <summary>And a description is still kept short.</summary>
+    [Fact]
+    public async Task ADescriptionIsStillShortened()
+    {
+        var blurb = new string('x', 5000);
+
+        var prompt = await PromptFor(
+            new LessonResourceJudge.Candidate("v1", "A video", "A channel", blurb));
+
+        Assert.DoesNotContain(new string('x', 400), prompt);
+    }
+
+    /// <summary>The prompt the judge was given, for one candidate.</summary>
+    private static async Task<string> PromptFor(LessonResourceJudge.Candidate candidate)
+    {
+        var engine = new StubEngine("""{"items":[]}""");
+        var judge = new LessonResourceJudge(engine, NullLogger<LessonResourceJudge>.Instance);
+
+        await judge.JudgeAsync("A lesson", "What it covers", "A goal", [], [candidate]);
+
+        return engine.LastUserPrompt;
+    }
+
     /// <summary>
     /// Returns whatever JSON it is given, or throws when given none.
     /// </summary>

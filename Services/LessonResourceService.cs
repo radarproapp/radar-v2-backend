@@ -275,7 +275,9 @@ public class LessonResourceService
 
         var candidates = pending.Videos
             .Concat(pending.Articles)
-            .Select(r => new LessonResourceJudge.Candidate(r.Id, r.Title, r.Source, r.Summary))
+            .Select(r => new LessonResourceJudge.Candidate(
+                r.Id, r.Title, r.Source, r.Summary,
+                FromTranscript: r.SummarySource == SummarySource.Transcript))
             .ToList();
 
         if (candidates.Count == 0)
@@ -424,20 +426,23 @@ public class LessonResourceService
 
         // Counted here rather than on the service: lessons are built concurrently, so a field
         // would be a budget shared between whichever lessons happened to overlap.
-        var transcriptsRead = 0;
+        var attempted = 0;
 
         foreach (var video in open)
         {
-            var mayRead = transcriptsRead < TranscriptsPerLesson
+            // Attempts, not successes.
+            //
+            // Counting successes meant a licensed video with no caption track cost a request and
+            // did not spend the budget, so a lesson kept trying - and most licensed videos have
+            // no captions. Eleven serial requests to somebody else's server, each with a twelve
+            // second deadline, is a Radar Learn that hangs for two minutes and then shows the
+            // same thing it would have shown immediately.
+            var mayRead = attempted < TranscriptsPerLesson
                           && OpenVideoLicence.PermitsReading(video.LicenceId);
 
-            var resource = mayRead
-                ? await WithTranscriptAsync(video, ct)
-                : VideoResource(video);
+            if (mayRead) attempted++;
 
-            if (resource.SummarySource == SummarySource.Transcript) transcriptsRead++;
-
-            videos.Add(resource);
+            videos.Add(mayRead ? await WithTranscriptAsync(video, ct) : VideoResource(video));
         }
 
         if (videos.Count == 0) return [];
@@ -490,19 +495,37 @@ public class LessonResourceService
         var spoken = await _peerTube.TranscriptAsync(video, ct);
         if (string.IsNullOrWhiteSpace(spoken)) return resource;
 
-        // Bounded before it reaches the judge. A long talk runs to tens of thousands of
-        // characters, and the judge is being asked what the video covers rather than to read it
-        // all back.
-        resource.Summary = spoken.Length <= MostTranscriptForAJudge
-            ? spoken
-            : spoken[..MostTranscriptForAJudge];
-
+        resource.Summary = Representative(spoken);
         resource.SummarySource = SummarySource.Transcript;
         return resource;
     }
 
     /// <summary>How much of a transcript the judge is given.</summary>
-    private const int MostTranscriptForAJudge = 6000;
+    private const int MostTranscriptForAJudge = 2400;
+
+    /// <summary>
+    /// The part of a talk that is actually about the subject.
+    /// </summary>
+    /// <remarks>
+    /// Taken from a little way in rather than from the start. A video opens with a greeting, an
+    /// ask to subscribe and a word from a sponsor, so the first paragraph of a transcript
+    /// describes the channel and not the lesson - and a summary written from it says the video
+    /// is about welcoming you back.
+    ///
+    /// A twelfth of the way in, which clears a typical intro without reaching the sign-off.
+    /// </remarks>
+    private static string Representative(string spoken)
+    {
+        if (spoken.Length <= MostTranscriptForAJudge) return spoken;
+
+        var start = Math.Min(spoken.Length / 12, spoken.Length - MostTranscriptForAJudge);
+
+        // From a word boundary, so the excerpt does not open mid-syllable.
+        var space = spoken.IndexOf(' ', start);
+        if (space > 0 && space - start < 40) start = space + 1;
+
+        return spoken.Substring(start, Math.Min(MostTranscriptForAJudge, spoken.Length - start));
+    }
 
     /// <summary>
     /// A video from an open platform as a candidate resource.
