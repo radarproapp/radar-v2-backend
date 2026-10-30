@@ -26,6 +26,7 @@ public sealed class OpenRouterAiEngine : IAiEngine
     private readonly RadarDatabase _db;
     private readonly IMemoryCache _cache;
     private readonly ILogger<OpenRouterAiEngine> _log;
+    private readonly ModelRouter _router;
 
     /// <summary>Prompts currently being generated in the background, so a burst of requests for
     /// the same page triggers one provider call rather than one per request.</summary>
@@ -36,13 +37,15 @@ public sealed class OpenRouterAiEngine : IAiEngine
         IConfiguration config,
         RadarDatabase db,
         IMemoryCache cache,
-        ILogger<OpenRouterAiEngine> log)
+        ILogger<OpenRouterAiEngine> log,
+        ModelRouter router)
     {
         _httpFactory = httpFactory;
         _config = config;
         _db = db;
         _cache = cache;
         _log = log;
+        _router = router;
     }
 
     /// <summary>
@@ -151,7 +154,7 @@ public sealed class OpenRouterAiEngine : IAiEngine
         {
             var body = JsonSerializer.Serialize(new
             {
-                model = _config["OpenRouter:Model"] ?? "deepseek/deepseek-chat",
+                model = _router.For(feature),
                 messages = new[]
                 {
                     new { role = "system", content = systemPrompt },
@@ -295,7 +298,7 @@ public sealed class OpenRouterAiEngine : IAiEngine
         {
             var body = JsonSerializer.Serialize(new
             {
-                model = _config["OpenRouter:Model"] ?? "deepseek/deepseek-chat",
+                model = _router.For(feature),
                 messages = new[]
                 {
                     new { role = "system", content = systemPrompt },
@@ -409,7 +412,7 @@ public sealed class OpenRouterAiEngine : IAiEngine
             promptMessages.AddRange(messages.TakeLast(20).Select(m => new { role = m.Role, content = m.Content }));
             var body = JsonSerializer.Serialize(new
             {
-                model = _config["OpenRouter:Model"] ?? "deepseek/deepseek-chat",
+                model = _router.For(feature),
                 messages = promptMessages,
                 stream = true,
                 // The third call site, and it was missed when the other two were capped. A chat
@@ -633,7 +636,7 @@ public sealed class OpenRouterAiEngine : IAiEngine
         return new AiEngineStats
         {
             EngineName = "Radar Central AI Engine",
-            Model = _config["OpenRouter:Model"] ?? "deepseek/deepseek-chat",
+            Model = _router.Fallback,
             // Whether the model is answering, not whether a key is present.
             //
             // This read "configured and within budget", so a revoked key reported a live engine

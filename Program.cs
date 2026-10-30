@@ -327,6 +327,11 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserProfileService, MongoUserProfileService>();
 builder.Services.AddScoped<IIntelligenceFeedService, MongoIntelligenceFeedService>();
 builder.Services.AddScoped<IAskRadarService, OpenRouterAskRadarService>();
+// Which model answers which kind of call. Singleton like the engine that holds it, and it
+// reads configuration per call rather than caching a model id - so a route can be moved from
+// the Railway dashboard without a restart, which is the difference between an experiment
+// somebody runs and one they only talk about.
+builder.Services.AddSingleton<ModelRouter>();
 builder.Services.AddSingleton<IAiEngine, OpenRouterAiEngine>();
 builder.Services.AddScoped<ILibraryService, MongoLibraryService>();
 
