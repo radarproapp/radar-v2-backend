@@ -91,7 +91,7 @@ public static class CareerCorpus
         new("Law", "Law",
             "Associate, corporate and commercial practice, Lagos law firm",
             "Machine learning engineer, computer vision",
-            "Law Society of England dinner raises funds for charity"),
+            "Lawn tennis championship opens at the national stadium"),
 
         new("International Relations", "International Relations",
             "Policy analyst, West Africa desk, international relations unit, Abuja",
@@ -101,7 +101,7 @@ public static class CareerCorpus
         new("Political Science", "Political Science",
             "Research officer, electoral governance programme, civil society organisation",
             "Full-stack engineer, Node and React",
-            "Political party headquarters relocates to Abuja"),
+            "Politeness campaign launched across Lagos schools"),
 
         new("Public Administration", "Public Administration",
             "Administrative officer, federal civil service, Abuja",

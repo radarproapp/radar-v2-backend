@@ -57,6 +57,41 @@ public static class DomainVocabulary
             new("backend"), new("frontend"),
             new("coding", WholeWord: true),
         ],
+
+        // The five below exist because an advert in these fields shares no word with the field
+        // name, so no stemming rule could ever reach it. An accounting graduate was not shown
+        // "Audit associate, ICAN trainee scheme, Lagos" - the most obvious first job in her
+        // profession in Nigeria - because the advert never writes "accounting".
+        //
+        // Added one failing use case at a time, which is the only discipline that keeps a list
+        // like this honest. The class comment above is right that curated vocabularies drift;
+        // what stops them is that every entry here can be traced to somebody who was not shown
+        // their own field's work.
+        ["accounting"] =
+        [
+            new("account"), new("audit"), new("bookkeep"), new("ledger"),
+            new("ican", WholeWord: true), new("acca", WholeWord: true),
+        ],
+        ["criminology"] =
+        [
+            new("criminolog"), new("crime"), new("policing"), new("penal"), new("offender"),
+        ],
+        ["sociology"] =
+        [
+            // Deliberately not a bare "social": it belongs to Social Work as much as to
+            // sociology, and a word two fields share is a word that identifies neither.
+            new("sociolog"), new("livelihood"), new("ethnograph"), new("social research"),
+        ],
+        ["political science"] =
+        [
+            new("politic"), new("electoral"), new("governance"), new("legislat"),
+        ],
+        ["microbiology"] =
+        [
+            // "antimicrobial" is spelled out because there is no word boundary in front of the
+            // "microbial" inside it, so a prefix rule can never reach it.
+            new("microbiolog"), new("microbial"), new("antimicrobial"), new("pathogen"),
+        ],
     };
 
     /// <summary>Does this text name the given field?</summary>
