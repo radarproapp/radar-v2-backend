@@ -54,6 +54,17 @@ public class LessonResource
 
     public string? Duration { get; set; }
 
+    /// <summary>
+    /// The licence the author put on it, where they put one on it.
+    /// </summary>
+    /// <remarks>
+    /// Shown because it is owed. Every Creative Commons licence asks for attribution, and Radar
+    /// reads the captions of these videos to write the summary - so naming the terms is part of
+    /// the permission being relied on, not a nicety. Null for anything whose author granted
+    /// nothing, which is most video.
+    /// </remarks>
+    public string? Licence { get; set; }
+
     public DateTime? PublishedAt { get; set; }
 
     /// <summary>

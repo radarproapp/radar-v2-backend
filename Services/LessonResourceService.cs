@@ -547,6 +547,10 @@ public class LessonResourceService
         PublishedAt = video.PublishedAt,
         Summary = video.Description,
         SummarySource = SummarySource.Description,
+
+        // Named where there is one. It is what permits reading the captions, and every one of
+        // these licences asks for attribution in return.
+        Licence = OpenVideoLicence.Name(video.LicenceId),
     };
 
     public static LessonResource VideoResource(YouTubeVideoRef video) => new()
