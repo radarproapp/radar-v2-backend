@@ -345,30 +345,34 @@ public class MongoOpportunityService : IOpportunityService
         // Unseen first within every tier. An item the user has already passed over should not keep
         // taking a slot from something they have never been offered.
         var fresh = valid.Where(o => o.IsNewToYou).ToList();
-        var pool = fresh.Count >= 12 ? fresh : valid;
+        var pool = fresh.Count >= DailyBatchSize ? fresh : valid;
 
-        // Group into Tiers: Strong Match (80-100%), Relevant (60-79%), Explore (40-59%)
-        var strongMatches = pool.Where(o => o.MatchScorePercent >= 80).OrderByDescending(o => o.MatchScorePercent).ToList();
-        var relevantMatches = pool.Where(o => o.MatchScorePercent >= 60 && o.MatchScorePercent < 80).OrderByDescending(o => o.MatchScorePercent).ToList();
-        var exploreMatches = pool.Where(o => o.MatchScorePercent < 60).OrderByDescending(o => o.MatchScorePercent).ToList();
+        // Best first, then unseen before seen at the same score. The tiers are a label on the
+        // score rather than a separate ranking, so slicing six from one and four from another
+        // produced the same order by a longer route.
+        var ranked = pool
+            .OrderByDescending(o => o.MatchScorePercent)
+            .ThenByDescending(o => o.IsNewToYou)
+            .Concat(valid.OrderByDescending(o => o.MatchScorePercent))
+            .DistinctBy(o => o.Id)
+            .ToList();
 
-        // Curate the target 12 items: ~6 Strong, ~4 Relevant, ~2 Explore
-        var curated = new List<Opportunity>();
-        curated.AddRange(strongMatches.Take(6));
-        curated.AddRange(relevantMatches.Take(4));
-        curated.AddRange(exploreMatches.Take(2));
+        // Places kept for opportunities the reader can actually take.
+        //
+        // Every source but one is global, pan-African or remote, so ranking by score alone filled
+        // the page with foreign matches - a fellowship in Berlin, a scholarship to the United
+        // States, an accelerator in London. Each real, each a long shot, and offered to somebody
+        // in Lagos who also needs to know what is open to them this month in Lagos.
+        //
+        // A floor rather than a quota: the strongest matches still lead, a day that is mostly
+        // local stays mostly local, and a reader with nothing near them gets a full page rather
+        // than a short one. See OpportunityMix.
+        var where = $"{profile.City} {profile.Region} {learningRecord?.Location}".Trim();
 
-        // If not enough, fill from remaining items — unseen ones first, then anything valid.
-        if (curated.Count < 12)
-        {
-            var remaining = pool.Where(v => !curated.Any(c => c.Id == v.Id))
-                .Concat(valid.Where(v => !curated.Any(c => c.Id == v.Id)))
-                .DistinctBy(v => v.Id)
-                .OrderByDescending(v => v.IsNewToYou)
-                .ThenByDescending(v => v.MatchScorePercent)
-                .Take(12 - curated.Count);
-            curated.AddRange(remaining);
-        }
+        var curated = OpportunityMix.Curate(
+            ranked,
+            o => OpportunityMix.IsNearby(o.RegionTag, o.IsRemote, where),
+            DailyBatchSize);
 
         // Sort curated batch: Strong matches first, but prioritising urgent deadlines
         curated.Sort((a, b) =>
@@ -836,6 +840,9 @@ public class MongoOpportunityService : IOpportunityService
 
     /// <summary>A reason the score moved, written the way the user will read it.</summary>
     private sealed record MatchSignal(int Points, string Reason);
+
+    /// <summary>How many opportunities a day holds.</summary>
+    private const int DailyBatchSize = 12;
 
     /// <summary>Where everyone starts, before anything is known about the fit.</summary>
     private const int BaseScore = 48;
