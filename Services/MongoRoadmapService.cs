@@ -327,9 +327,21 @@ public class MongoRoadmapService : IRoadmapService
             roadmap.Modules[i].Order = i + 1;
         }
 
+        // Progress is recounted, not left as it was.
+        //
+        // It is a stored number rather than one derived on read, so removing two of three
+        // sections left a learner reported at the percentage they had reached across all three.
+        // The path screen works it out from the lessons in front of it and would have been
+        // right; everything reading the stored figure - the progress endpoint, the digest, the
+        // mastery dashboard - would have been quoting a path that no longer exists.
+        RecalculateMastery(roadmap);
+
         await _db.Roadmaps.UpdateOneAsync(
             r => r.Id == roadmapId && r.UserId == userId,
-            Builders<GrowthRoadmap>.Update.Set(r => r.Modules, roadmap.Modules));
+            Builders<GrowthRoadmap>.Update
+                .Set(r => r.Modules, roadmap.Modules)
+                .Set(r => r.ProgressPercent, roadmap.ProgressPercent)
+                .Set(r => r.StageMastery, roadmap.StageMastery));
 
         Normalise(roadmap);
         return roadmap;
