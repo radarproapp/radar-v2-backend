@@ -6,7 +6,29 @@ public interface ILearningMentorService
 {
     // 1. Chat & Tutor (Connected to roadmap, goal, Socratic questions, "Your next move")
     Task<ChatMessage> SendMessageAsync(string userId, string message, List<ChatMessage> history);
-    IAsyncEnumerable<string> StreamMessageAsync(string userId, string message, List<ChatMessage> history, CancellationToken ct = default);
+
+    /// <summary>
+    /// Streams a tutoring reply, and keeps both halves of the turn.
+    /// </summary>
+    /// <param name="conversationId">
+    /// The thread this turn belongs to, or null to start one. An id that is not this user's own
+    /// thread starts one too, rather than joining it.
+    /// </param>
+    IAsyncEnumerable<string> StreamMessageAsync(
+        string userId,
+        string message,
+        List<ChatMessage> history,
+        string? conversationId = null,
+        CancellationToken ct = default);
+
+    /// <summary>This learner's threads, most recently used first, without the turns in them.</summary>
+    Task<List<MentorConversationSummary>> GetConversationsAsync(string userId, int limit = 50);
+
+    /// <summary>One thread with its turns, or null when it is not this learner's.</summary>
+    Task<MentorConversation?> GetConversationAsync(string userId, string conversationId);
+
+    /// <summary>Deletes one thread. False when there was no such thread of this learner's.</summary>
+    Task<bool> DeleteConversationAsync(string userId, string conversationId);
 
     // 2. Practice & Quiz (Adaptive difficulty, MCQ/ShortAnswer/Scenario, weak area remediation)
     Task<MentorQuiz> GenerateQuizAsync(string userId, string topic, int questionCount = 5, string difficulty = "Adaptive");

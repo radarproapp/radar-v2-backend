@@ -178,3 +178,60 @@ public class ChallengeResult
     public string Recommendation { get; set; } = string.Empty;
     public string NextMove { get; set; } = string.Empty;
 }
+
+/// <summary>
+/// One Mentor chat thread, with every turn that has been taken in it.
+/// </summary>
+/// <remarks>
+/// Chat was the only part of the Mentor that kept nothing. Quizzes and study plans have been
+/// stored since they were written, so a learner can come back to them; the conversation lived in
+/// the browser tab and was posted back up by the client on every turn. Closing the tab lost the
+/// lot - the explanation they were halfway through, and the questions they had asked to get
+/// there - and nothing anywhere said that was going to happen.
+///
+/// The turns are ChatMessage records rather than a new shape, so a thread reopened out of history
+/// is the same object the client already renders while a reply is streaming in.
+/// </remarks>
+public class MentorConversation
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string UserId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Taken from the learner's first message, shortened at a word boundary.
+    /// </summary>
+    /// <remarks>
+    /// No model call writes this. A list of past conversations is navigation, and navigation that
+    /// waits on the provider - or goes blank when the provider is unreachable, which is a state
+    /// this product is in often enough to have a sentence for - is worse than a title that is
+    /// merely the first thing the learner typed.
+    /// </remarks>
+    public string Title { get; set; } = string.Empty;
+
+    public List<ChatMessage> Messages { get; set; } = [];
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    /// <summary>
+    /// When the last turn was appended. The list sorts on this rather than on CreatedAt, so a
+    /// thread picked up again a week later comes back to the top, where its reader left it.
+    /// </summary>
+    public DateTime LastMessageAt { get; set; } = DateTime.UtcNow;
+}
+
+/// <summary>
+/// A conversation as the list shows it: enough to choose one, without its turns.
+/// </summary>
+/// <remarks>
+/// The turns are nearly the whole of the payload - one tutoring reply runs to a few thousand
+/// characters - and this list is what loads every time the Mentor is opened. Sending fifty full
+/// transcripts in order to draw fifty titles is the kind of waste that only becomes visible once
+/// somebody has used the product for a month, by which time it is their account that is slow.
+/// </remarks>
+public class MentorConversationSummary
+{
+    public string Id { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public int MessageCount { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime LastMessageAt { get; set; }
+}

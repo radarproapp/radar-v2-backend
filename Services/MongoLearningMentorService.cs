@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using MongoDB.Driver;
 using RadarV2.Data;
 using RadarV2.Helpers;
@@ -44,6 +45,7 @@ public class MongoLearningMentorService : ILearningMentorService
         string userId,
         string message,
         List<ChatMessage> history,
+        string? conversationId = null,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
         var profile = await GetProfileAsync(userId);
@@ -54,12 +56,249 @@ public class MongoLearningMentorService : ILearningMentorService
 
         var systemPrompt = BuildMentorSystemPrompt(profile, roadmap, memory, masteries);
 
-        var messages = history.TakeLast(20).ToList();
+        // The thread this turn belongs to, read before the question is written into it, so that
+        // the prompt below is not handed the same question twice.
+        var conversation = await GetConversationAsync(userId, conversationId ?? string.Empty);
+
+        // What the client has on screen still wins.
+        //
+        // It is the record of this session, and reading it leaves the prompt exactly what it was
+        // before any of this was stored - the streaming path is the one thing here that was not
+        // to change. The stored turns are for the case the storing exists for: a thread carried
+        // on somewhere other than the tab it started in, where the client has nothing to send.
+        List<ChatMessage> priorTurns = history.Count > 0 ? history : (conversation?.Messages ?? []);
+
+        var messages = priorTurns.TakeLast(20).ToList();
         messages.Add(new ChatMessage { Role = "user", Content = message });
 
-        await foreach (var chunk in _ai.StreamChatAsync("mentor-chat", systemPrompt, messages, ct))
-            yield return chunk;
+        conversation = await RecordQuestionAsync(userId, conversation, message);
+
+        var reply = new StringBuilder();
+        var streamFinished = false;
+        try
+        {
+            await foreach (var chunk in _ai.StreamChatAsync("mentor-chat", systemPrompt, messages, ct))
+            {
+                reply.Append(chunk);
+                yield return chunk;
+            }
+
+            streamFinished = true;
+        }
+        finally
+        {
+            // In a finally because the loop has two ways out and only one of them is the end of
+            // it: the reader navigates away, the response is disposed, and the enumerator is
+            // torn down from the outside, which is why streamFinished is set inside the try and
+            // read here. RecordReplyAsync decides whether what arrived by then is worth keeping.
+            await RecordReplyAsync(userId, conversation, reply.ToString(), streamFinished);
+        }
     }
+
+    // ── 1b. Conversation History ───────────────────────────────────────────────────
+
+    /// <summary>
+    /// One conversation, by id, belonging to the person asking.
+    /// </summary>
+    /// <remarks>
+    /// The owner is part of the query rather than a check made after the read, which is how the
+    /// notebook came to have the same hole three times over - a read that was scoped sitting
+    /// beside a delete that was not. Somebody else's conversation answers as a conversation that
+    /// is not there, which is both the honest answer and the one that says least.
+    ///
+    /// A Mentor thread is a learner asking, by name, about what they do not know yet. There is
+    /// not much in this product more theirs than that.
+    /// </remarks>
+    public static FilterDefinition<MentorConversation> OwnedBy(string conversationId, string userId) =>
+        Builders<MentorConversation>.Filter.Where(c => c.Id == conversationId && c.UserId == userId);
+
+    public async Task<List<MentorConversationSummary>> GetConversationsAsync(string userId, int limit = 50)
+    {
+        if (string.IsNullOrEmpty(userId)) return [];
+
+        // Projected in the database rather than fetched and thrown away here, which is the only
+        // version of leaving the turns out that is actually cheaper.
+        return await _db.MentorConversations
+            .Find(c => c.UserId == userId)
+            .SortByDescending(c => c.LastMessageAt)
+            .Limit(limit)
+            .Project(c => new MentorConversationSummary
+            {
+                Id = c.Id,
+                Title = c.Title,
+                MessageCount = c.Messages.Count,
+                CreatedAt = c.CreatedAt,
+                LastMessageAt = c.LastMessageAt,
+            })
+            .ToListAsync();
+    }
+
+    public async Task<MentorConversation?> GetConversationAsync(string userId, string conversationId)
+    {
+        if (string.IsNullOrEmpty(userId) || string.IsNullOrEmpty(conversationId)) return null;
+
+        return await _db.MentorConversations.Find(OwnedBy(conversationId, userId)).FirstOrDefaultAsync();
+    }
+
+    public async Task<bool> DeleteConversationAsync(string userId, string conversationId)
+    {
+        if (string.IsNullOrEmpty(userId) || string.IsNullOrEmpty(conversationId)) return false;
+
+        var result = await _db.MentorConversations.DeleteOneAsync(OwnedBy(conversationId, userId));
+
+        // Whether anything was deleted, not whether the command succeeded. Deleting somebody
+        // else's thread succeeds at deleting nothing, and reporting that as done would tell the
+        // caller their thread is gone while it sits in another account untouched.
+        return result.DeletedCount > 0;
+    }
+
+    private const int TitleLength = 60;
+
+    /// <summary>
+    /// The title a thread gets, taken from the first thing the learner typed.
+    /// </summary>
+    /// <remarks>
+    /// Cut at a word boundary, because a list reading "How do I calculate standard de" is worse
+    /// to scan than one reading "How do I calculate standard...". Whitespace is collapsed first:
+    /// a question pasted in over three lines would otherwise become a title with newlines in it,
+    /// which a list renders as a mostly blank row.
+    ///
+    /// There is a hard cut underneath the word boundary for the case with no spaces in it at all
+    /// - a pasted URL, a block of code - and a fallback for a message that is nothing but
+    /// whitespace, because the thread still has to be clickable.
+    /// </remarks>
+    internal static string TitleFrom(string message)
+    {
+        var text = Regex.Replace(message ?? string.Empty, @"\s+", " ").Trim();
+        if (text.Length == 0) return "New conversation";
+        if (text.Length <= TitleLength) return text;
+
+        var cut = text[..TitleLength];
+        var lastSpace = cut.LastIndexOf(' ');
+        if (lastSpace >= TitleLength / 2) cut = cut[..lastSpace];
+
+        return cut.TrimEnd() + "...";
+    }
+
+    /// <summary>
+    /// Writes the learner's turn down, starting the thread if this is the first one.
+    /// </summary>
+    /// <remarks>
+    /// Before the reply rather than with it. On a long answer the two are a minute apart, and if
+    /// only one of them survives a restart or a closed tab it should be the question - a learner
+    /// can ask again, but only if they can see what they asked.
+    ///
+    /// It is also what names the thread: the first message is the only description of a
+    /// conversation that exists at the moment it starts.
+    /// </remarks>
+    private async Task<MentorConversation?> RecordQuestionAsync(string userId, MentorConversation? conversation, string message)
+    {
+        // Nothing to file it under, so nothing is filed. Every read of a conversation is scoped
+        // by its owner, so one stored without an owner would be unreadable and undeletable by
+        // anybody - a row that exists only in the database. The sibling chat service calls its
+        // own stream with an empty user id for internal summaries, which is how an empty one
+        // gets here at all.
+        if (string.IsNullOrEmpty(userId)) return null;
+
+        var turn = new ChatMessage { Role = "user", Content = message, Timestamp = DateTime.UtcNow };
+
+        if (conversation is null)
+        {
+            var started = new MentorConversation
+            {
+                UserId = userId,
+                Title = TitleFrom(message),
+                Messages = [turn],
+                CreatedAt = turn.Timestamp,
+                LastMessageAt = turn.Timestamp,
+            };
+
+            await _db.MentorConversations.InsertOneAsync(started);
+            return started;
+        }
+
+        await AppendTurnAsync(userId, conversation.Id, turn);
+        return conversation;
+    }
+
+    /// <summary>
+    /// Writes the tutor's turn down, when there is a tutor's turn to write down.
+    /// </summary>
+    /// <remarks>
+    /// Two things arrive here that are not answers, and neither can be stored as one.
+    ///
+    /// The first is the engine's honest failure. When the model cannot be reached it streams
+    /// "Radar could not reach its tutor just now..." and records the activity as success:false.
+    /// That sentence is a report about Radar, not tutoring. Kept as an assistant turn it would
+    /// stand as the answer to that question for as long as the thread exists, and on any later
+    /// turn taken from the stored thread it would go back up to the model as something the tutor
+    /// had said - so a tutor that was working again would carry on from a refusal it never made.
+    ///
+    /// The second is a reply cut off part-way, which is what a reader navigating away leaves
+    /// behind: a fragment ending mid-sentence with nothing in it that says so. It is dropped
+    /// rather than stored, because history would present it as the whole of what the tutor said,
+    /// and the next turn would feed it back to the model as a finished answer. The question
+    /// stays. A question with nothing under it is the truth about what happened, and it is also
+    /// what the learner needs in order to ask it again.
+    /// </remarks>
+    private async Task RecordReplyAsync(string userId, MentorConversation? conversation, string reply, bool streamFinished)
+    {
+        if (conversation is null || !streamFinished) return;
+
+        // Kept as it streamed, markdown and all. Ask Radar runs its transcript through
+        // PlainText.Clean; the mentor's own system prompt asks for bold headings and bullets, so
+        // cleaning it here would make a reopened thread read differently from the one the learner
+        // watched arrive.
+        var text = reply.Trim();
+        if (text.Length == 0 || IsTutorUnreachable(text)) return;
+
+        await AppendTurnAsync(userId, conversation.Id, new ChatMessage
+        {
+            Role = "assistant",
+            Content = text,
+            Timestamp = DateTime.UtcNow,
+        });
+    }
+
+    /// <summary>
+    /// Appends one turn and moves the thread to the top of the list.
+    /// </summary>
+    /// <remarks>
+    /// A push rather than a read, add to the list, write the whole document back. A
+    /// whole-document write carries a copy of the messages list taken before the read, so it
+    /// silently drops anything appended in between - and this runs twice per turn, minutes
+    /// apart, with the Mentor sometimes open in more than one tab. The filter names the owner
+    /// here too, so this cannot write into somebody else's thread even if a wrong id reached it.
+    ///
+    /// Deliberately not given the request's cancellation token. This runs when the stream has
+    /// just ended, and the most common way a stream ends is that token being cancelled; passing
+    /// it would cancel the write that exists to survive exactly that.
+    /// </remarks>
+    private Task AppendTurnAsync(string userId, string conversationId, ChatMessage turn) =>
+        _db.MentorConversations.UpdateOneAsync(
+            OwnedBy(conversationId, userId),
+            Builders<MentorConversation>.Update
+                .Push(c => c.Messages, turn)
+                .Set(c => c.LastMessageAt, turn.Timestamp),
+            cancellationToken: CancellationToken.None);
+
+    /// <summary>What the engine streams when it cannot reach the model, as far as its two forms agree.</summary>
+    internal const string TutorUnreachableOpening = "Radar could not reach its tutor just now";
+
+    /// <summary>
+    /// Whether what came back is the engine saying it could not answer.
+    /// </summary>
+    /// <remarks>
+    /// There is nothing else to read. StreamChatAsync yields strings, and the deterministic
+    /// fallback is one of them; the only thing that tells it apart from a tutoring reply is its
+    /// own words. Matched on the opening, because the rest of the sentence varies with whether
+    /// the engine could name the subject that was asked about.
+    ///
+    /// The cost of the match being too loose is a real reply that opens by saying Radar could not
+    /// reach its tutor, which is not a tutoring answer either.
+    /// </remarks>
+    internal static bool IsTutorUnreachable(string reply) =>
+        reply.TrimStart().StartsWith(TutorUnreachableOpening, StringComparison.Ordinal);
 
     // ── 2. Practice & Quiz (Adaptive Difficulty & Cognitive Testing) ────────────────
 

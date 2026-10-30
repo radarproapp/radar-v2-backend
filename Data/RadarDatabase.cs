@@ -89,6 +89,7 @@ public class RadarDatabase
     public IMongoCollection<YouTubeChannelDoc> YouTubeChannels => _db.GetCollection<YouTubeChannelDoc>("youtube_channels");
     public IMongoCollection<MentorQuiz> MentorQuizzes => _db.GetCollection<MentorQuiz>("mentor_quizzes");
     public IMongoCollection<MentorStudyPlan> MentorStudyPlans => _db.GetCollection<MentorStudyPlan>("mentor_study_plans");
+    public IMongoCollection<MentorConversation> MentorConversations => _db.GetCollection<MentorConversation>("mentor_conversations");
     public IMongoCollection<TopicMastery> TopicMasteries => _db.GetCollection<TopicMastery>("topic_masteries");
     public IMongoCollection<SpacedRevisionItem> SpacedRevisions => _db.GetCollection<SpacedRevisionItem>("spaced_revisions");
     public IMongoCollection<AiActivityLogDoc> AiActivities => _db.GetCollection<AiActivityLogDoc>("ai_activities");
@@ -267,6 +268,20 @@ public class RadarDatabase
                 Builders<PolicyComparison>.IndexKeys
                     .Ascending(c => c.UserId)
                     .Descending(c => c.CreatedAt)));
+
+        // The order the Mentor's conversation list is read in: this learner's threads, most
+        // recently used first. Same shape as the notes index above, and there for the same
+        // reason - without it the server fetches every conversation the account has ever had and
+        // sorts them in memory, on every visit to the Mentor.
+        //
+        // LastMessageAt descending rather than CreatedAt, because that is the field the sort
+        // actually names; an index on the wrong one of the two reads as an index and does
+        // nothing.
+        MentorConversations.Indexes.CreateOne(
+            new CreateIndexModel<MentorConversation>(
+                Builders<MentorConversation>.IndexKeys
+                    .Ascending(c => c.UserId)
+                    .Descending(c => c.LastMessageAt)));
 
         // Lets the cache sweep by age without scanning; the TTL itself is enforced in code so a
         // stale entry can still be served if a later lookup needs a fallback.

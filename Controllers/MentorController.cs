@@ -38,6 +38,21 @@ public class MentorController : ControllerBase
     {
         [Required, MinLength(1)] public string Message { get; set; } = string.Empty;
         public List<ChatMessage> History { get; set; } = [];
+
+        /// <summary>
+        /// The conversation this turn continues, or nothing to start one.
+        /// </summary>
+        /// <remarks>
+        /// Optional, and ignored when it is not one of this account's own conversations - a turn
+        /// naming somebody else's thread starts a new thread of the caller's rather than joining
+        /// it or failing.
+        ///
+        /// The id of a thread that has just been started comes back from
+        /// GET /api/mentor/conversations, which is ordered by the last turn taken, so it is at
+        /// the top. It is not announced in the stream: the SSE frames are what the client
+        /// already parses, and that shape does not change.
+        /// </remarks>
+        public string? ConversationId { get; set; }
     }
 
     [HttpPost("chat/stream")]
@@ -50,7 +65,64 @@ public class MentorController : ControllerBase
             return;
         }
 
-        await SseWriter.WriteChatStreamAsync(Response, _mentor.StreamMessageAsync(profile.Id, request.Message, request.History, ct), ct);
+        await SseWriter.WriteChatStreamAsync(Response, _mentor.StreamMessageAsync(profile.Id, request.Message, request.History, request.ConversationId, ct), ct);
+    }
+
+    // ── Conversation History ────────────────────────────────────────────────
+
+    /// <summary>
+    /// The learner's Mentor threads, most recently used first, without the turns in them.
+    /// </summary>
+    /// <remarks>
+    /// Quizzes and study plans have always been stored; the conversation was not, so closing the
+    /// tab lost it. This is the list that makes it possible to come back to one.
+    ///
+    /// The turns are left out because they are nearly all of the payload and none of what is
+    /// needed to choose a thread. GET conversations/{id} has them.
+    /// </remarks>
+    [HttpGet("conversations")]
+    public async Task<IActionResult> GetConversationsAsync([FromQuery] int limit = 50)
+    {
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        return Ok(await _mentor.GetConversationsAsync(profile.Id, Math.Clamp(limit, 1, 200)));
+    }
+
+    /// <summary>
+    /// One conversation with its turns, which has to be one of yours.
+    /// </summary>
+    /// <remarks>
+    /// Scoped to the account asking, the way the notebook's endpoints had to be corrected to be:
+    /// the ids are GUIDs, which makes them hard to guess and is not an authorisation check, since
+    /// they travel in URLs, in logs and in the list above. Somebody else's conversation answers
+    /// as a conversation that does not exist.
+    /// </remarks>
+    [HttpGet("conversations/{id}")]
+    public async Task<IActionResult> GetConversationAsync(string id)
+    {
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        var conversation = await _mentor.GetConversationAsync(profile.Id, id);
+        return conversation is null ? NotFound(new { error = "Conversation not found" }) : Ok(conversation);
+    }
+
+    /// <summary>
+    /// Deletes one conversation of the caller's own.
+    /// </summary>
+    /// <remarks>
+    /// 404 rather than 204 when nothing was deleted, because 204 would tell somebody their thread
+    /// is gone while it sits untouched in the account that actually owns it.
+    /// </remarks>
+    [HttpDelete("conversations/{id}")]
+    public async Task<IActionResult> DeleteConversationAsync(string id)
+    {
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        var deleted = await _mentor.DeleteConversationAsync(profile.Id, id);
+        return deleted ? NoContent() : NotFound(new { error = "Conversation not found" });
     }
 
     // ── Practice & Quiz ─────────────────────────────────────────────────────
