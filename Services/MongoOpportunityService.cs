@@ -741,14 +741,26 @@ public class MongoOpportunityService : IOpportunityService
         // here. See OpportunityFit: Graduate was missing from it entirely, and conferences,
         // seminars, workshops and job fairs scored the no-match default for every persona at
         // once.
-        var personaPoints = OpportunityFit.PointsFor(profile.Persona, opp.Type);
+        // Only a stage they chose. PersonaType's default is Student, so an account that was
+        // never asked scored as one - and was then told "it suits where you are now" about a
+        // stage nobody stated. The feed was fixed for this; the opportunities list was making
+        // the same claim in the same words. See UserProfile.HasChosenCategory.
+        //
+        // The things anybody can turn up to still score, because that needs no stage: a
+        // conference in your field is worth a Saturday whoever you are.
+        var openToAnyone = OpportunityFit.OpenToAnyone.Contains(opp.Type);
+        var personaCounts = profile.HasChosenCategory || openToAnyone;
+
+        var personaPoints = personaCounts
+            ? OpportunityFit.PointsFor(profile.Persona, opp.Type)
+            : OpportunityFit.NoSignal;
         score += personaPoints;
 
-        if (OpportunityFit.IsASignal(profile.Persona, opp.Type))
+        if (personaCounts && OpportunityFit.IsASignal(profile.Persona, opp.Type))
         {
             signals.Add(new MatchSignal(
                 personaPoints,
-                OpportunityFit.OpenToAnyone.Contains(opp.Type)
+                openToAnyone
                     ? "It is open to anyone who wants to turn up."
                     : "It is the kind of opening that suits where you are now."));
         }

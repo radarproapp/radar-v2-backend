@@ -99,6 +99,53 @@ public class PersonaPrioritiesTests
             "a chosen category should rank above one that was never stated");
     }
 
+    /// <summary>A stored category that is not the default is proof of a choice.</summary>
+    ///
+    /// Student is what the enum falls back to, so nothing but an explicit answer can make a
+    /// profile read as a Graduate. Reading the date alone would have called every profile that
+    /// predates the field unanswered - re-asked a Graduate with nothing selected, and let one
+    /// tap turn them into a Student while keeping the Graduate's answers.
+    [Theory]
+    [InlineData(PersonaType.Graduate, true)]
+    [InlineData(PersonaType.YoungProfessional, true)]
+    [InlineData(PersonaType.Entrepreneur, true)]
+    [InlineData(PersonaType.Researcher, true)]
+    // The one genuinely unknowable case, and the only one Radar asks about.
+    [InlineData(PersonaType.Student, false)]
+    public void AStoredCategoryThatIsNotTheDefaultCountsAsChosen(PersonaType stored, bool chosen)
+    {
+        Assert.Equal(chosen, new UserProfile { Persona = stored }.HasChosenCategory);
+    }
+
+    /// <summary>The other route in, which gating the terms alone left open.</summary>
+    ///
+    /// An enriched item carries a PersonaImpact entry per stage and was worth five points for a
+    /// match. Gating the twelve-point dimension and leaving this one ungated meant the same
+    /// unstated claim was still being made, five points at a time - and invisibly, because this
+    /// dimension is filtered out of the signals the card shows.
+    [Fact]
+    public void AnEnrichedItemDoesNotScoreForACategoryNobodyChose()
+    {
+        var enriched = Item("A piece the enricher reached");
+        enriched.PersonaImpact["Student"] = "Worth knowing before your finals.";
+
+        var neverAsked = new UserProfile
+        {
+            Interests = ["Mathematics"],
+            Goals = ["Get better at mathematics"],
+            PrimaryGoal = "Get better at mathematics",
+        };
+
+        Assert.Equal(
+            InterestPersonalization.ContentScore(Item("A piece the enricher reached"), neverAsked),
+            InterestPersonalization.ContentScore(enriched, neverAsked));
+
+        // And still scores for somebody who did choose.
+        Assert.True(
+            InterestPersonalization.ContentScore(enriched, Reader(PersonaType.Student))
+            > InterestPersonalization.ContentScore(Item("A piece the enricher reached"), Reader(PersonaType.Student)));
+    }
+
     /// What the reader typed still wins. The category is a box they ticked; the goal is a
     /// sentence they wrote, and a feed that put the stage first would be guessing over them.
     [Fact]
@@ -154,6 +201,19 @@ public class PersonaPrioritiesTests
     [InlineData(PersonaType.YoungProfessional, "Training a large language model now needs petabyte-scale data management")]
     [InlineData(PersonaType.Researcher, "Researchers were granted access to the new telescope")]
     [InlineData(PersonaType.Researcher, "Court recalls judge over leaked papers")]
+    // Nigerian news, which is what this feed actually carries. Every one of these matched.
+    [InlineData(PersonaType.Student, "CBN unveils new foreign exchange programme for bureau de change operators")]
+    [InlineData(PersonaType.Student, "NAFDAC revokes certification of 12 bottled water firms in Lagos")]
+    [InlineData(PersonaType.Student, "Nigeria receives WHO certification for polio-free status")]
+    [InlineData(PersonaType.Student, "Deeper Life Bible Church fellowship holds annual convention in Lagos")]
+    [InlineData(PersonaType.Graduate, "INEC begins certification of election results in Rivers")]
+    [InlineData(PersonaType.Researcher, "Nigeria submits country report to the African Peer Review Mechanism")]
+    [InlineData(PersonaType.YoungProfessional, "NFF reviews contract awarded to Super Eagles coach Finidi George")]
+    [InlineData(PersonaType.YoungProfessional, "Nigeria and Russia sign strategic partnership on nuclear power")]
+    [InlineData(PersonaType.YoungProfessional, "APC holds leadership development retreat for ward chairmen")]
+    [InlineData(PersonaType.YoungProfessional, "Senate probes industry practices behind rising drug prices")]
+    [InlineData(PersonaType.YoungProfessional, "Microsoft launches new business intelligence tools for African SMEs")]
+    [InlineData(PersonaType.Entrepreneur, "Tunde Onakoya, co-founder of Chess in Slums, breaks Guinness World Record")]
     public void LettersInsideAnotherWordAreNotAMatch(PersonaType persona, string headline)
     {
         Assert.Null(PersonaPriorities.Matched(headline.ToLowerInvariant(), persona));
@@ -202,8 +262,8 @@ public class PersonaPrioritiesTests
     /// or a character the pattern treats specially is all it takes.
     ///
     /// An earlier rule here banned plurals, on the theory that a stored "scholarships" would
-    /// miss "scholarship". Bounded growth handles that now, and two of these - "bursaries",
-    /// "salaries" - are irregular enough to be worth listing in both forms.
+    /// miss "scholarship". Bounded growth handles that now, and "bursaries" is irregular enough
+    /// to be worth listing in both forms.
     /// </remarks>
     [Fact]
     public void EveryTermMatchesItself()

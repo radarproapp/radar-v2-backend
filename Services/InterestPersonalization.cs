@@ -96,7 +96,7 @@ public static class InterestPersonalization
             AddDimension(matches, text, "Gap", record.WeakAreas);
         }
 
-        if (item.PersonaImpact.ContainsKey(profile.Persona.ToString()))
+        if (profile.HasChosenCategory && item.PersonaImpact.ContainsKey(profile.Persona.ToString()))
             matches.Add(new DimensionMatch("Persona", profile.Persona.ToString(), 1));
 
         var score = (int)Math.Round(matches.Where(m => m.Dimension != "Persona").Sum(m => m.Coverage * WeightFor(m.Dimension)))

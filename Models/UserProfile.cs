@@ -46,8 +46,18 @@ public class UserProfile
     public DateTime? PersonaChosenAt { get; set; }
 
     /// <summary>Whether the category is theirs or merely the enum's default.</summary>
+    /// <remarks>
+    /// A stored category that is not the default is proof of a choice on its own. Student is
+    /// what the enum falls back to, so nothing but an explicit answer can make a profile read as
+    /// a Graduate or a Professional - and reading the date alone would have called those
+    /// profiles unanswered, re-asked them with nothing selected, and let one tap turn a Graduate
+    /// into a Student while keeping the Graduate's answers.
+    ///
+    /// Which leaves exactly one genuinely unknown case: stored as Student, with no date. That
+    /// one is unknowable, and is the one Radar asks about.
+    /// </remarks>
     [BsonIgnore]
-    public bool HasChosenCategory => PersonaChosenAt is not null;
+    public bool HasChosenCategory => PersonaChosenAt is not null || Persona != default;
     public string PrimaryGoal { get; set; } = string.Empty;
     public List<string> Interests { get; set; } = [];
     public string Region { get; set; } = string.Empty;

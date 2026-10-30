@@ -37,8 +37,11 @@ public static class PersonaPriorities
     /// </summary>
     /// <remarks>
     /// Three letters covers the endings a headline actually uses - scholarship/scholarships,
-    /// internship/internships, mentorship/mentorships - and stops short of a different word.
+    /// internship/internships, bursary/bursaries - and stops short of a different word.
     /// The same bound, for the same reason, as <see cref="DomainVocabulary"/>.
+    ///
+    /// It is not free. "grant" reaches "granted", "award" reaches "awarded" and "promotion"
+    /// reaches "promotional" inside it, which is why none of those three is listed on its own.
     /// </remarks>
     private const int MostATermMayGrow = 3;
 
@@ -96,10 +99,14 @@ public static class PersonaPriorities
             "academic competition",
             "student competition",
             "hackathon",
-            "fellowship",
-            "exchange programme",
-            "exchange program",
-            "certification",
+            "research fellowship",
+            "fellowship programme",
+            "fellowship application",
+            "student exchange",
+            "exchange programme for students",
+            "professional certification",
+            "skills certification",
+            "certification course",
             "online course",
             "education policy",
             "student entrepreneurship",
@@ -124,7 +131,9 @@ public static class PersonaPriorities
             "internship",
             "scholarship",
             "postgraduate",
-            "certification",
+            "professional certification",
+            "skills certification",
+            "certification course",
             "in-demand",
             "industry trend",
             "industry outlook",
@@ -148,9 +157,8 @@ public static class PersonaPriorities
             "industry development",
             "industry trend",
             "industry outlook",
-            "industry practice",
+            "industry best practice",
             "market intelligence",
-            "business intelligence",
             "market outlook",
             "grant funding",
             "grant application",
@@ -158,12 +166,12 @@ public static class PersonaPriorities
             "call for tender",
             "tender notice",
             "procurement notice",
-            "contract award",
+            "contract award notice",
             "request for proposal",
             "professional certification",
-            "leadership development",
-            "leadership programme",
-            "leadership program",
+            "leadership development programme",
+            "executive leadership",
+            "management development",
             "career advancement",
             "career progression",
             "emerging technology",
@@ -171,7 +179,7 @@ public static class PersonaPriorities
             "research finding",
             "professional conference",
             "industry conference",
-            "strategic partnership",
+            "strategic partnership agreement",
         ],
 
         [PersonaType.Entrepreneur] =
@@ -189,7 +197,6 @@ public static class PersonaPriorities
             "market expansion",
             "small business policy",
             "customer acquisition",
-            "co-founder",
         ],
 
         // "publication" is absent for the same reason as "promotion": a newspaper is a
@@ -200,8 +207,11 @@ public static class PersonaPriorities
             "research funding",
             "call for papers",
             "academic conference",
-            "fellowship",
-            "peer review",
+            "research fellowship",
+            "fellowship programme",
+            "fellowship application",
+            "peer-reviewed",
+            "peer review process",
             "postdoctoral",
             "preprint",
             "research collaboration",

@@ -428,7 +428,10 @@ public class MeController : ControllerBase
         else if (Enum.TryParse<PersonaType>(request.Persona, ignoreCase: true, out var samePersona))
         {
             profile.Persona = samePersona;
-            profile.PersonaChosenAt = DateTime.UtcNow;
+            // Not reassigned. This branch fires when a request echoes the stored persona back
+            // unchanged, which is a save, not a choice - and overwriting here would turn the
+            // moment-of-choice into "the last time any client sent a persona".
+            profile.PersonaChosenAt ??= DateTime.UtcNow;
         }
     }
 
