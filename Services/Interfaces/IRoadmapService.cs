@@ -15,6 +15,12 @@ public interface IRoadmapService
     /// the AI engine is unavailable or budget-capped.
     /// </summary>
     Task<GrowthRoadmap> CreateAiRoadmapAsync(string userId, UserProfile profile, CancellationToken ct = default);
+
+    /// <summary>Makes one of this learner's paths the one they are on.</summary>
+    Task<GrowthRoadmap?> ActivateRoadmapAsync(string userId, string roadmapId);
+
+    /// <summary>Takes a section out of a path, and renumbers what is left.</summary>
+    Task<GrowthRoadmap?> RemoveSectionAsync(string userId, string roadmapId, string moduleId);
     Task CompleteLessonAsync(string userId, string roadmapId, string moduleId, string lessonId);
     Task CompleteResourceAsync(string userId, string roadmapId, string resourceId);
     Task CompleteExerciseAsync(string userId, string roadmapId, string resourceId);

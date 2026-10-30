@@ -233,6 +233,73 @@ public class MongoRoadmapService : IRoadmapService
         return roadmap;
     }
 
+    /// <summary>
+    /// Makes one of this learner's paths the one they are on.
+    /// </summary>
+    /// <remarks>
+    /// Changing path meant going to Settings, editing the interests a path is derived from, and
+    /// generating a new one - so the paths somebody had already built were unreachable from the
+    /// screen that shows them. A learner moving between two subjects was starting over each time.
+    ///
+    /// Scoped to the owner, so a path id belonging to somebody else reads as a path that is not
+    /// there. Only one is active, which is why the others are cleared first.
+    /// </remarks>
+    public async Task<GrowthRoadmap?> ActivateRoadmapAsync(string userId, string roadmapId)
+    {
+        var wanted = await _db.Roadmaps
+            .Find(r => r.Id == roadmapId && r.UserId == userId)
+            .FirstOrDefaultAsync();
+
+        if (wanted is null) return null;
+
+        await _db.Roadmaps.UpdateManyAsync(
+            r => r.UserId == userId && r.IsActive,
+            Builders<GrowthRoadmap>.Update.Set(r => r.IsActive, false));
+
+        await _db.Roadmaps.UpdateOneAsync(
+            r => r.Id == roadmapId && r.UserId == userId,
+            Builders<GrowthRoadmap>.Update.Set(r => r.IsActive, true));
+
+        wanted.IsActive = true;
+        Normalise(wanted);
+        return wanted;
+    }
+
+    /// <summary>
+    /// Takes a section out of a path.
+    /// </summary>
+    /// <remarks>
+    /// The other half of being able to edit one. Sections could be added and never removed, so a
+    /// path built by trying things accumulated every wrong turn, and the only way back was to
+    /// start again.
+    ///
+    /// The remaining sections are renumbered, because Order is what the screen sorts by and a
+    /// gap in it reads as a missing lesson.
+    /// </remarks>
+    public async Task<GrowthRoadmap?> RemoveSectionAsync(string userId, string roadmapId, string moduleId)
+    {
+        var roadmap = await _db.Roadmaps
+            .Find(r => r.Id == roadmapId && r.UserId == userId)
+            .FirstOrDefaultAsync();
+
+        if (roadmap is null) return null;
+
+        var removed = roadmap.Modules.RemoveAll(m => m.Id == moduleId);
+        if (removed == 0) return roadmap;
+
+        for (var i = 0; i < roadmap.Modules.Count; i++)
+        {
+            roadmap.Modules[i].Order = i + 1;
+        }
+
+        await _db.Roadmaps.UpdateOneAsync(
+            r => r.Id == roadmapId && r.UserId == userId,
+            Builders<GrowthRoadmap>.Update.Set(r => r.Modules, roadmap.Modules));
+
+        Normalise(roadmap);
+        return roadmap;
+    }
+
     public async Task<GrowthRoadmap> CreateAiRoadmapAsync(string userId, UserProfile profile, CancellationToken ct = default)
     {
         var context  = InterestPersonalization.Contexts(profile).FirstOrDefault();

@@ -175,6 +175,45 @@ public class RoadmapsController : ControllerBase
         return Ok(await _roadmaps.GetUserRoadmapsAsync(profile.Id));
     }
 
+    /// <summary>
+    /// Switches to one of the learner's other paths.
+    /// </summary>
+    /// <remarks>
+    /// Changing path meant going to Settings, editing the interests a path is derived from, and
+    /// generating a new one - so paths somebody had already built were unreachable from the
+    /// screen that lists them.
+    /// </remarks>
+    [HttpPost("{roadmapId}/activate")]
+    public async Task<IActionResult> ActivateAsync(string roadmapId)
+    {
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        var activated = await _roadmaps.ActivateRoadmapAsync(profile.Id, roadmapId);
+
+        return activated is null
+            ? NotFound(new { error = "That path is not one of yours." })
+            : Ok(activated);
+    }
+
+    /// <summary>Takes a section out of a path.</summary>
+    /// <remarks>
+    /// Sections could be added and never removed, so a path built by trying things accumulated
+    /// every wrong turn and the only way back was to start again.
+    /// </remarks>
+    [HttpDelete("{roadmapId}/modules/{moduleId}")]
+    public async Task<IActionResult> RemoveSectionAsync(string roadmapId, string moduleId)
+    {
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        var updated = await _roadmaps.RemoveSectionAsync(profile.Id, roadmapId, moduleId);
+
+        return updated is null
+            ? NotFound(new { error = "That path is not one of yours." })
+            : Ok(updated);
+    }
+
     [HttpGet("active")]
     public async Task<IActionResult> GetActiveAsync()
     {
