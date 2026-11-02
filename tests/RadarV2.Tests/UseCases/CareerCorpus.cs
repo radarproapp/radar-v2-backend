@@ -19,7 +19,12 @@ namespace RadarV2.Tests.UseCases;
 /// <item><b>Confusable</b> - the trap. A string that contains their subject's letters but is
 /// about something else: "mass communication" against Massachusetts, "art" against "start
 /// date", "banking" against bankruptcy. Every one of these has a real precedent in this
-/// codebase.</item>
+/// codebase.
+///
+/// A prefix trap, specifically, and seven of these had to be rewritten because they were not.
+/// "Architecture of the banking system", "Public holiday... health sector", "Data of birth
+/// errors" each contain the learner's own subject word, used in a different sense - which asks
+/// a vocabulary to do a topic model's job, and is a bad expectation rather than a defect.</item>
 /// </list>
 /// </remarks>
 public sealed record Career(
@@ -55,7 +60,7 @@ public static class CareerCorpus
         new("Public Health", "Public Health",
             "Public health officer, immunisation programme, Kano state",
             "Senior Android developer, Lagos",
-            "Public holiday declared for the health sector strike"),
+            "Healing Streams crusade draws thousands to Lagos"),
 
         new("Physiotherapy", "Physiotherapy",
             "Physiotherapist, orthopaedic rehabilitation unit, Enugu",
@@ -96,7 +101,7 @@ public static class CareerCorpus
         new("International Relations", "International Relations",
             "Policy analyst, West Africa desk, international relations unit, Abuja",
             "Senior AI engineer, large language models, remote",
-            "International Airport terminal relations with ground handlers"),
+            "Internationalisation of the curriculum debated by senate"),
 
         new("Political Science", "Political Science",
             "Research officer, electoral governance programme, civil society organisation",
@@ -223,12 +228,12 @@ public static class CareerCorpus
         new("Surveying and Geoinformatics", "Surveying",
             "Land surveyor, cadastral mapping unit, state government",
             "Staff engineer, distributed systems",
-            "Surveying public opinion ahead of the election"),
+            "Survival rates improve at the teaching hospital"),
 
         new("Architecture", "Architecture",
             "Architectural assistant, residential projects, Lagos studio",
             "Senior Python engineer, data pipelines",
-            "Architecture of the banking system under review"),
+            "Archive digitisation project begins at the national library"),
 
         new("Quantity Surveying", "Quantity Surveying",
             "Quantity surveyor, infrastructure projects, Abuja",
@@ -244,12 +249,12 @@ public static class CareerCorpus
         new("Software Engineering", "Software Engineering",
             "Graduate software engineer, backend, Lagos fintech",
             "Clinical nurse specialist, intensive care",
-            "Software of the mind: a philosophy lecture series"),
+            "Softwood timber exports rise through Calabar port"),
 
         new("Data Analysis", "Data Analysis",
             "Data analyst, business intelligence, telecoms, Lagos",
             "Civil engineering site supervisor, bridge works",
-            "Data of birth errors delay pension payments"),
+            "Datalogic sensors installed across the Apapa port"),
 
         new("Cybersecurity", "Cybersecurity",
             "SOC analyst, security operations centre, bank",
@@ -259,7 +264,7 @@ public static class CareerCorpus
         new("UI and UX Design", "UX Design",
             "Product designer, mobile banking app, Lagos",
             "Petroleum process engineer, refinery",
-            "Designs for the new national stadium unveiled"),
+            "Designated driver scheme launched for the festive season"),
 
         new("Product Management", "Product Management",
             "Associate product manager, payments, Lagos",

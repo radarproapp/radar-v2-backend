@@ -154,6 +154,28 @@ public static class DomainVocabulary
             new("tax", WholeWord: true), new("taxation"), new("transfer pricing"),
             new("vat", WholeWord: true), new("fiscal policy"),
         ],
+
+        // These three exist because re-requiring the dropped discipline word would otherwise
+        // hide their own adverts: "Librarian, digital collections" contains no "science", and
+        // neither does "Actuarial analyst, life and pensions". The field path runs first, so it
+        // answers before the rule ever applies.
+        ["library science"] =
+        [
+            // Deliberately not a bare "library": it reaches "Library of code dependencies
+            // audited for vulnerabilities", which is a software story.
+            new("librarian"), new("archiv"), new("cataloguing"), new("information science"),
+        ],
+        ["actuarial science"] =
+        [
+            new("actuar"), new("underwrit"), new("life and pensions"),
+        ],
+        ["ux design"] =
+        [
+            // "UX" is two letters, so OwnWords drops it and the subject collapses to a bare
+            // "Design" - which matched "Designs for the new national stadium unveiled".
+            new("product design"), new("user experience"), new("usability"), new("wireframe"),
+            new("ux", WholeWord: true), new("ui", WholeWord: true),
+        ],
     };
 
     /// <summary>Does this text name the given field?</summary>
@@ -201,7 +223,29 @@ public static class DomainVocabulary
         var field = AliasOf(subject) ?? FieldOf(subject);
         if (field is not null && Matches(haystack, field)) return true;
 
-        return WorthMatching(subject).Any(w => MentionsForm(haystack, w));
+        var words = WorthMatching(subject);
+
+        // A dropped discipline word is re-required.
+        //
+        // "Civil Engineering" matches on "civil" alone once "engineering" is dropped, so a civil
+        // engineering student was told "Civil society coalition calls for electoral reform" was
+        // in her field, and a chemical engineering student got "Chemical-free farming pilot
+        // launched in Benue". The qualifier is what tells the disciplines apart; it is not what
+        // makes something engineering.
+        //
+        // Only the discipline words, never the level words. Re-requiring "foundations" or
+        // "introduction" would hide a mathematics teaching job from somebody studying
+        // foundations of Mathematics, and every law firm from somebody taking Introduction to
+        // Law - which is the same failure in the other direction, and is why the two sets are
+        // held apart.
+        var discipline = DroppedDisciplineWords(subject);
+        if (discipline.Length > 0)
+        {
+            return words.Any(w => MentionsForm(haystack, w))
+                   && discipline.Any(d => MentionsForm(haystack, d));
+        }
+
+        return words.Any(w => MentionsForm(haystack, w));
     }
 
     /// <summary>
@@ -226,6 +270,9 @@ public static class DomainVocabulary
         ("fashion", "fashion"),
         ("human resource", "human resources"),
         ("taxation", "taxation"),
+        ("library science", "library science"),
+        ("actuarial", "actuarial science"),
+        ("ux design", "ux design"),
     ];
 
     private static string? AliasOf(string subject)
@@ -259,12 +306,30 @@ public static class DomainVocabulary
         "fundamental", "fundamentals", "basic", "basics", "essential", "essentials",
         "advanced", "intermediate", "beginner", "beginners", "overview", "general",
         "concept", "concepts", "topic", "topics", "studies", "modern", "contemporary", "applied",
+    };
 
-        // The broad word a discipline shares with every other discipline under it. "Civil
-        // Engineering" matched "Software Engineer, frontend team" because both say engineer, and
-        // the word that tells them apart - civil - was not required. For a qualified subject the
-        // qualifier is the subject: mechanical engineering is mechanical, computer science is
-        // computer. Alone they still match, because then they are all the learner gave.
+    /// <summary>
+    /// The broad word a discipline shares with every other discipline under it.
+    /// </summary>
+    /// <remarks>
+    /// "Civil Engineering" matched "Software Engineer, frontend team" because both say engineer,
+    /// and the word that tells them apart - civil - was not required. For a qualified subject
+    /// the qualifier is the subject: mechanical engineering is mechanical, computer science is
+    /// computer. Alone they still match, because then they are all the learner gave.
+    ///
+    /// Held apart from the level words above because dropping them has to be undone differently.
+    /// A dropped discipline word is re-required in the text - civil AND a form of engineer -
+    /// which is what stops "Civil society coalition calls for electoral reform" reading as civil
+    /// engineering work. A dropped level word must never be re-required: demanding the word
+    /// "foundations" of an advert is exactly the Heinrich Boell Foundation failure the comment
+    /// above describes, and demanding "introduction" would hide every law firm from somebody
+    /// taking Introduction to Law.
+    ///
+    /// Measured: re-requiring both sets breaks those two precedents. Re-requiring only this one
+    /// breaks none.
+    /// </remarks>
+    private static readonly HashSet<string> DisciplineWords = new(StringComparer.OrdinalIgnoreCase)
+    {
         "engineer", "engineering", "science", "sciences", "technology", "management",
     };
 
@@ -277,12 +342,30 @@ public static class DomainVocabulary
     /// content from somebody whose stated interest Radar had decided was too vague - a judgement
     /// it is not entitled to make silently.
     /// </remarks>
+    private static bool IsScaffolding(string word) =>
+        CourseScaffolding.Contains(word) || CourseScaffolding.Contains(Stem(word))
+        || DisciplineWords.Contains(word) || DisciplineWords.Contains(Stem(word));
+
+    /// <summary>
+    /// The discipline words a subject names that were dropped from what gets matched.
+    /// </summary>
+    /// <remarks>
+    /// Empty when the discipline word is all the learner gave, because then it is the subject
+    /// and <see cref="WorthMatching"/> has already kept it.
+    /// </remarks>
+    private static string[] DroppedDisciplineWords(string? subject)
+    {
+        var kept = WorthMatching(subject);
+
+        return [.. OwnWords(subject).Where(w => DisciplineWords.Contains(w) && !kept.Contains(w, StringComparer.OrdinalIgnoreCase))];
+    }
+
     public static string[] WorthMatching(string? subject)
     {
         var words = OwnWords(subject);
 
         var distinctive = words
-            .Where(w => !CourseScaffolding.Contains(w) && !CourseScaffolding.Contains(Stem(w)))
+            .Where(w => !IsScaffolding(w))
             .ToArray();
 
         if (distinctive.Length > 0) return distinctive;
@@ -370,6 +453,7 @@ public static class DomainVocabulary
     /// </remarks>
     private static readonly (string Suffix, int MinimumSurvivors)[] Endings =
     [
+        ("ment", 5),
         ("ion", 4),
         ("ing", 4),
         ("ery", 4),
