@@ -82,7 +82,8 @@ public static class UseCaseRunner
         var learner = useCase.Learner();
 
         var theirs = Item(useCase.Career.OnTopic, useCase.Career.Interest);
-        var stageBait = Item("Scholarship applications open for software engineering students", NotTheirs(useCase));
+        var foil = NotTheirs(useCase);
+        var stageBait = Item($"Scholarship applications open for {foil.ToLowerInvariant()} students", foil);
 
         var mine = InterestPersonalization.ContentScore(theirs, learner);
         var bait = InterestPersonalization.ContentScore(stageBait, learner);

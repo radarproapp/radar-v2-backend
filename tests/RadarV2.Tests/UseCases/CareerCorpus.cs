@@ -275,7 +275,7 @@ public static class CareerCorpus
         new("Agriculture", "Agriculture",
             "Agronomist, smallholder extension programme, Kaduna",
             "Senior iOS engineer, fintech",
-            "Agricultural Bank shares suspended from trading"),
+            "Cropped images of the governor circulate online"),
 
         new("Education", "Teaching",
             "Secondary school mathematics teacher, Lagos state",

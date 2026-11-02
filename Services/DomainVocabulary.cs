@@ -25,13 +25,26 @@ public static class DomainVocabulary
     /// social-work learner was handed the cybersecurity curriculum. "excel" is the same trap in
     /// the other direction — it is a prefix of "excellent".
     /// </summary>
-    private sealed record Keyword(string Text, bool WholeWord = false);
+    /// <param name="Grow">
+    /// How many letters the keyword may gain and still be itself. Null means an open prefix,
+    /// which is right for identifying a field - "cyber" has to reach "cybersecurity" eight
+    /// letters along - and wrong for matching a headline, where "account" reached
+    /// "Accountability report criticises ministry spending".
+    ///
+    /// Set per keyword rather than globally, which was measured: bounding them all breaks
+    /// FieldOf("Cybersecurity"), because there is no word boundary inside that word for a
+    /// bounded "securit" to find, and the subject stops being recognised as a cyber subject at
+    /// all.
+    /// </param>
+    private sealed record Keyword(string Text, bool WholeWord = false, int? Grow = null);
 
     private static readonly Dictionary<string, Keyword[]> Fields = new(StringComparer.OrdinalIgnoreCase)
     {
         ["cyber"] =
         [
-            new("cyber"), new("securit"), new("infosec"), new("malware"), new("forensic"),
+            new("cyber"), new("infosec"), new("malware"), new("forensic"),
+            new("information securit"), new("cyber securit"), new("network securit"),
+            new("security operations"), new("security analyst"), new("security engineer"),
             new("penetration"), new("hacking"), new("threat"),
             new("soc", WholeWord: true), new("siem", WholeWord: true), new("pentest", WholeWord: true),
         ],
@@ -69,12 +82,13 @@ public static class DomainVocabulary
         // their own field's work.
         ["accounting"] =
         [
-            new("account"), new("audit"), new("bookkeep"), new("ledger"),
+            new("account", Grow: 3), new("audit"), new("bookkeep"), new("ledger"),
             new("ican", WholeWord: true), new("acca", WholeWord: true),
         ],
         ["criminology"] =
         [
-            new("criminolog"), new("crime"), new("policing"), new("penal"), new("offender"),
+            new("criminolog"), new("crime prevention"), new("crime statistic"),
+            new("criminal justice"), new("policing"), new("penal"), new("offender"),
         ],
         ["sociology"] =
         [
@@ -122,7 +136,8 @@ public static class DomainVocabulary
         ],
         ["agriculture"] =
         [
-            new("agricultur"), new("agronom"), new("smallholder"), new("crop"),
+            new("agricultur", Grow: 3), new("agronom"), new("smallholder"),
+            new("crop production"), new("crop yield"), new("harvest"),
             new("livestock"), new("extension programme"),
         ],
         ["mass communication"] =
@@ -583,9 +598,16 @@ public static class DomainVocabulary
     {
         // \b at the front always: a keyword has to start a word, so "soc" never matches the middle
         // of a word. The closing \b is what separates "stands alone" from "is a prefix".
-        var pattern = keyword.WholeWord
-            ? $@"\b{Regex.Escape(keyword.Text)}\b"
-            : $@"\b{Regex.Escape(keyword.Text)}";
+        var pattern = keyword switch
+        {
+            { WholeWord: true } => $@"\b{Regex.Escape(keyword.Text)}\b",
+
+            // Bounded growth: enough to reach accounts, accountant and accounting, and not
+            // enough to reach "Accountability report criticises ministry spending".
+            { Grow: int grow } => $@"\b{Regex.Escape(keyword.Text)}[a-z]{{0,{grow}}}\b",
+
+            _ => $@"\b{Regex.Escape(keyword.Text)}",
+        };
 
         return Regex.IsMatch(text, pattern, RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100));
     }
