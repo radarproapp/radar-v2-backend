@@ -111,7 +111,7 @@ public class AdminInviteService
             ExpiresAt = DateTime.UtcNow.Add(Lifetime),
         }, cancellationToken: ct);
 
-        if (!await SendAsync(normalised, role, invitedByEmail, token, ct))
+        if (!await SendAsync(normalised, role, token, ct))
         {
             // The link never reached anybody, so the row it points at should not survive.
             await _db.AdminInvites.DeleteManyAsync(i => i.Email == normalised && i.AcceptedAt == null, ct);
@@ -193,27 +193,33 @@ public class AdminInviteService
     /// The message, and the only place the token exists outside the person's inbox.
     /// </summary>
     /// <remarks>
-    /// It names who invited them and what the role is. An email offering to set a password on an
-    /// admin account is exactly the shape of a phishing message, and a name the reader recognises
-    /// beside a claim they can check is the one thing that lets them judge it.
+    /// It does not name who sent it. That was in here on purpose - an email offering to set a
+    /// password on an admin account is exactly the shape of a phishing message, and a colleague's
+    /// name beside the claim was the reader's one way to check it - but it put a staff address
+    /// into every invitation, including ones sent to the wrong person by a typo. Who invited whom
+    /// is still recorded, and still shown on the admin team screen, where only admins see it.
+    ///
+    /// What is left to judge it by: it names the role, it is sent from Radar's own domain, and
+    /// the link is on Radar's own site rather than a redirect. Somebody who was not expecting it
+    /// is told the safe thing to do, which is nothing - no account exists until a password is set
+    /// on that link.
     /// </remarks>
-    private async Task<bool> SendAsync(string email, string role, string invitedByEmail, string token, CancellationToken ct)
+    private async Task<bool> SendAsync(string email, string role, string token, CancellationToken ct)
     {
         var site = PublicSite.From(_config);
         var named = role == AdminRoles.SuperAdmin ? "Super Admin" : "Platform Admin";
-        var from = AdminRoleService.Normalise(invitedByEmail);
 
         var (html, text) = EmailTemplate.Build(
             heading: "Set up your Radar admin account",
-            preheader: $"{named} access, invited by {from}.",
+            preheader: $"{named} access on Radar.",
             paragraphs:
             [
-                $"{from} has invited this address to run Radar as a {named}.",
+                $"You have been invited to run Radar as a {named}.",
                 "Choose a password on the link below. This is a separate account from any ordinary Radar account you use - it has its own password, and it is only for the admin area.",
                 "The link works once and expires in seven days.",
             ],
             action: new EmailTemplate.Action_("Set your admin password", $"{site}/admin/accept?token={token}"),
-            footnote: $"If you were not expecting this, ignore it - no account is created until somebody sets a password on that link. Ask {from} if you are unsure.",
+            footnote: "If you were not expecting this, ignore it. No account is created until somebody sets a password on that link, so doing nothing is enough.",
             publicUrl: site);
 
         return await _email.SendAsync(email, "Set up your Radar admin account", text, html, ct);

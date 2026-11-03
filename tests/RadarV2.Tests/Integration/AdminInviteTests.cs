@@ -334,14 +334,7 @@ public class AdminInviteTests
 
     // -- the invitation ------------------------------------------------------
 
-    /// <summary>
-    /// An invited person is told, and told enough to judge the message.
-    /// </summary>
-    /// <remarks>
-    /// An email offering to set a password on an admin account is exactly the shape of a
-    /// phishing attempt. The one thing that lets somebody judge it is a name they recognise
-    /// beside a claim they can check, so who invited them and what the role is are both in it.
-    /// </remarks>
+    /// <summary>An invited person is sent a link, and told what it is for.</summary>
     [Fact]
     public async Task AnInvitedPersonIsSentALink()
     {
@@ -351,9 +344,41 @@ public class AdminInviteTests
         var message = Assert.Single(_sent.Sent);
 
         Assert.Equal("staff@radar.com", message.To);
-        Assert.Contains("owner@radar.com", message.Text);
         Assert.Contains("Platform Admin", message.Text);
         Assert.Contains("/admin/accept?token=", message.Text);
+    }
+
+    /// <summary>
+    /// The message does not name whoever sent it.
+    /// </summary>
+    /// <remarks>
+    /// It used to, in three places - the preheader, the opening line and the footnote - as a way
+    /// for the reader to tell a real invitation from a phishing attempt. The cost was a staff
+    /// address in every invitation, including ones a typo sent to a stranger. Recorded and shown
+    /// on the admin team screen instead, where only admins see it.
+    /// </remarks>
+    [Fact]
+    public async Task TheMessageDoesNotNameWhoInvitedThem()
+    {
+        await Invites("owner@radar.com").InviteAsync("staff@radar.com", AdminRoles.PlatformAdmin, "owner@radar.com");
+
+        var message = Assert.Single(_sent.Sent);
+
+        Assert.DoesNotContain("owner@radar.com", message.Text, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("owner@radar.com", message.Subject, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>It is still recorded, for the people entitled to know.</summary>
+    [Fact]
+    public async Task WhoInvitedThemIsStillKeptForTheTeamScreen()
+    {
+        await Invites("owner@radar.com").InviteAsync("staff@radar.com", AdminRoles.PlatformAdmin, "owner@radar.com");
+
+        var invite = Assert.Single(await _db.AdminInvites.Find(FilterDefinition<AdminInviteDoc>.Empty).ToListAsync());
+        Assert.Equal("owner@radar.com", invite.InvitedByEmail);
+
+        var member = Assert.Single(await _roles.TeamAsync(), m => m.Email == "staff@radar.com");
+        Assert.Equal("owner@radar.com", member.GrantedByEmail);
     }
 
     /// <summary>The message says the admin account is a separate one with its own password.</summary>
