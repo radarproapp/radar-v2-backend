@@ -42,12 +42,24 @@ public class AuthService : IAuthService
     /// fallback: an account that arrives without a working code is unattributed, and stays
     /// that way. Guessing would put somebody else's sign-ups on a leaderboard.
     /// </remarks>
-    private async Task<UserProfile?> FindReferrerAsync(string? referralCode)
+    /// <summary>
+    /// Whose code this is, if it is anybody's.
+    /// </summary>
+    /// <param name="newProfileId">
+    /// The account about to be created. Passed so a code cannot credit its own owner: nobody can
+    /// reach that today, because the profile does not exist yet when this runs and nothing ever
+    /// writes an attribution afterwards - but a profile whose ReferredByUserId equals its own id
+    /// was measured returning "signed up 1, came back 1" and appearing on its own board row, and
+    /// that is too cheap a check to leave to the ordering of two statements staying as it is.
+    /// </param>
+    private async Task<UserProfile?> FindReferrerAsync(string? referralCode, string newProfileId)
     {
         var code = ReferralCodes.Normalise(referralCode);
         if (code is null) return null;
 
-        return await _db.Profiles.Find(p => p.ReferralCode == code).FirstOrDefaultAsync();
+        var referrer = await _db.Profiles.Find(p => p.ReferralCode == code).FirstOrDefaultAsync();
+
+        return referrer?.Id == newProfileId ? null : referrer;
     }
 
     public async Task<AuthResult> RegisterAsync(string name, string email, string password, string? referralCode = null)
@@ -79,7 +91,7 @@ public class AuthService : IAuthService
         // account rather than a second write that can fail on its own - a sign-up that is
         // attributed to nobody because the follow-up update threw is a participant's work
         // disappearing silently.
-        var referrer = await FindReferrerAsync(referralCode);
+        var referrer = await FindReferrerAsync(referralCode, profileId);
 
         var profile = new UserProfile
         {
@@ -89,7 +101,11 @@ public class AuthService : IAuthService
             Role = role,
             CreatedAt = DateTime.UtcNow,
             ReferredByUserId = referrer?.Id,
-            ReferredByCode = referrer is null ? null : ReferralCodes.Normalise(referralCode),
+
+            // The referrer's own code, not the input parsed a second time. The same value today,
+            // and it cannot drift from the account it was matched against.
+            ReferredByCode = referrer?.ReferralCode,
+
             ReferredAt = referrer is null ? null : DateTime.UtcNow,
         };
 

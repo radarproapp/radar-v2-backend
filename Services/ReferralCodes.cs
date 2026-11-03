@@ -61,16 +61,25 @@ public static class ReferralCodes
     /// lower case, or include the hyphen a design put in for readability. All of those are the
     /// same code, and refusing them loses the sign-up the whole scheme exists to produce.
     /// Characters outside the alphabet are dropped rather than rejected.
+    ///
+    /// Mirrors <c>readCode</c> in the client, which is the point of the exercise: the link in
+    /// the address bar and the code sent on sign-up must not be able to disagree. Both files
+    /// claimed that and neither did it - the client split a query string off and the server did
+    /// not, so three shapes the client's own test suite asserts must work, including the
+    /// "?utm_source=whatsapp" that a share button adds, were rejected here.
     /// </remarks>
     public static string? Normalise(string? code)
     {
         if (string.IsNullOrWhiteSpace(code)) return null;
 
+        // Anything a share button or a chat app appended. "?utm_source=whatsapp" and "#top" are
+        // not part of a code, and leaving them attached was enough to lose the attribution.
+        var segment = code.Trim().Split(['?', '#'], 2)[0].TrimEnd('/');
+
         // The last part of a link, when a link is what was pasted. Somebody sharing their code
         // sends the whole URL, and the person receiving it pastes the whole URL - "radar.app/
         // join/ABC2345" is the commonest form this arrives in, and reading only the final
         // segment is the difference between that working and being told the code is invalid.
-        var segment = code.Trim().TrimEnd('/');
         var lastSlash = segment.LastIndexOf('/');
         if (lastSlash >= 0) segment = segment[(lastSlash + 1)..];
 

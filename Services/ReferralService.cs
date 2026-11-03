@@ -1,3 +1,4 @@
+using MongoDB.Bson;
 using MongoDB.Driver;
 using RadarV2.Data;
 using RadarV2.Models;
@@ -17,8 +18,12 @@ namespace RadarV2.Services;
 /// <item><b>Signed up</b> - arrived with the code and made an account.</item>
 /// <item><b>Personalised</b> - answered the three questions, so Radar has something to show
 /// them. The first point at which the product can do anything for them at all.</item>
-/// <item><b>Came back</b> - did something on a later day than they signed up. The only one of
-/// the three that cannot be produced by standing over somebody's shoulder.</item>
+/// <item><b>Came back</b> - did something on a later day than they signed up. The hardest of
+/// the three to produce by standing over somebody's shoulder, and the closest thing here to a
+/// real user. Not proof of one: nothing verifies an email address, so somebody with throwaway
+/// addresses and two days of patience can manufacture this figure like any other. A prize
+/// awarded on it should be gated on verified addresses, which this service cannot do for
+/// itself.</item>
 /// </list>
 ///
 /// All three are reported. Which one a prize is awarded on is a decision for whoever runs the
@@ -55,8 +60,17 @@ public class ReferralService
 
             try
             {
+                // "No code yet" has to mean the same thing here as in the guard above, which
+                // reads IsNullOrWhiteSpace. A profile holding an empty string satisfied neither
+                // this filter nor that guard, so it burned all five attempts and then threw -
+                // a permanent 500 on the participant's own referral screen. Nothing writes that
+                // shape today; the two definitions disagreeing is the defect.
                 await _db.Profiles.UpdateOneAsync(
-                    p => p.Id == profileId && p.ReferralCode == null,
+                    Builders<UserProfile>.Filter.And(
+                        Builders<UserProfile>.Filter.Eq(p => p.Id, profileId),
+                        Builders<UserProfile>.Filter.Or(
+                            Builders<UserProfile>.Filter.Eq(p => p.ReferralCode, null),
+                            Builders<UserProfile>.Filter.Eq(p => p.ReferralCode, string.Empty))),
                     Builders<UserProfile>.Update.Set(p => p.ReferralCode, code),
                     cancellationToken: ct);
 
@@ -86,8 +100,13 @@ public class ReferralService
     /// </remarks>
     public async Task<Brought> BroughtByAsync(string profileId, CancellationToken ct = default)
     {
+        // Not themselves. Nobody can reach that shape through sign-up - the profile does not
+        // exist yet when its own code would have to be found - but the consequence was measured:
+        // a row attributed to itself reports "signed up 1, came back 1" and lands on its own
+        // board row, so the check sits where the number is produced rather than only where the
+        // attribution is written.
         var referred = await _db.Profiles
-            .Find(p => p.ReferredByUserId == profileId)
+            .Find(p => p.ReferredByUserId == profileId && p.Id != profileId)
             .Project(p => new { p.Id, p.CreatedAt, p.Interests, p.Goals })
             .ToListAsync(ct);
 
@@ -98,21 +117,46 @@ public class ReferralService
             p.Interests.Any(i => !string.IsNullOrWhiteSpace(i))
             && p.Goals.Any(g => !string.IsNullOrWhiteSpace(g)));
 
-        var ids = referred.Select(p => p.Id).ToList();
         var joinedOn = referred.ToDictionary(p => p.Id, p => p.CreatedAt.Date);
+        var lastSeen = await LastSeenAsync(joinedOn.Keys, ct);
 
-        var events = await _db.AnalyticsEvents
-            .Find(Builders<AnalyticsEvent>.Filter.In(e => e.UserId, ids))
-            .Project(e => new { e.UserId, e.CreatedAt })
-            .ToListAsync(ct);
-
-        var cameBack = events
-            .Where(e => joinedOn.TryGetValue(e.UserId, out var joined) && e.CreatedAt.Date > joined)
-            .Select(e => e.UserId)
-            .Distinct()
-            .Count();
+        var cameBack = lastSeen.Count(seen =>
+            joinedOn.TryGetValue(seen.Key, out var joined) && seen.Value.Date > joined);
 
         return new Brought(referred.Count, personalised, cameBack);
+    }
+
+    /// <summary>
+    /// When each of these people last did anything, counted in the database.
+    /// </summary>
+    /// <remarks>
+    /// One row per person rather than one per event. This read every event for every referred
+    /// account into this process and then distinct-counted them in LINQ - five thousand referred
+    /// accounts averaging a hundred events each is half a million rows and roughly thirty-five
+    /// megabytes on the wire, on a screen a participant opens from Settings.
+    ///
+    /// The remaining ceiling is the id list, which goes into the query document: around four
+    /// hundred thousand ids would pass MongoDB's 16 MB command limit. Far beyond the referred
+    /// population this is counting, and the fix when it matters is a last-active date kept on
+    /// the profile, which removes the join entirely.
+    /// </remarks>
+    private async Task<Dictionary<string, DateTime>> LastSeenAsync(IEnumerable<string> profileIds, CancellationToken ct)
+    {
+        var ids = profileIds.ToList();
+        if (ids.Count == 0) return [];
+
+        var rows = await _db.AnalyticsEvents.Aggregate()
+            .Match(Builders<AnalyticsEvent>.Filter.In(e => e.UserId, ids))
+            .Group(new BsonDocument
+            {
+                ["_id"] = "$UserId",
+                ["last"] = new BsonDocument("$max", "$CreatedAt"),
+            })
+            .ToListAsync(ct);
+
+        return rows
+            .Where(row => row["_id"].IsString && row["last"].IsValidDateTime)
+            .ToDictionary(row => row["_id"].AsString, row => row["last"].ToUniversalTime());
     }
 
     /// <summary>One row of the acquisition board.</summary>
@@ -135,22 +179,24 @@ public class ReferralService
         limit = Math.Clamp(limit, 1, 200);
 
         var referred = await _db.Profiles
-            .Find(Builders<UserProfile>.Filter.Ne(p => p.ReferredByUserId, null))
+            .Find(Builders<UserProfile>.Filter.And(
+                Builders<UserProfile>.Filter.Ne(p => p.ReferredByUserId, null),
+
+                // Nobody is their own referrer. Two fields compared against each other, so this
+                // has to be $expr rather than a typed filter.
+                new BsonDocumentFilterDefinition<UserProfile>(new BsonDocument("$expr",
+                    new BsonDocument("$ne", new BsonArray { "$ReferredByUserId", "$_id" })))))
             .Project(p => new { p.Id, p.ReferredByUserId, p.CreatedAt, p.Interests, p.Goals })
             .ToListAsync(ct);
 
         if (referred.Count == 0) return [];
 
-        var events = await _db.AnalyticsEvents
-            .Find(Builders<AnalyticsEvent>.Filter.In(e => e.UserId, referred.Select(p => p.Id)))
-            .Project(e => new { e.UserId, e.CreatedAt })
-            .ToListAsync(ct);
-
         var joinedOn = referred.ToDictionary(p => p.Id, p => p.CreatedAt.Date);
+        var lastSeen = await LastSeenAsync(joinedOn.Keys, ct);
 
-        var returners = events
-            .Where(e => joinedOn.TryGetValue(e.UserId, out var joined) && e.CreatedAt.Date > joined)
-            .Select(e => e.UserId)
+        var returners = lastSeen
+            .Where(seen => joinedOn.TryGetValue(seen.Key, out var joined) && seen.Value.Date > joined)
+            .Select(seen => seen.Key)
             .ToHashSet();
 
         var introducerIds = referred.Select(p => p.ReferredByUserId!).Distinct().ToList();

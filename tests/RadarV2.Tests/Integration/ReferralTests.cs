@@ -220,6 +220,11 @@ public class ReferralTests
     /// <remarks>
     /// All of those are the same code. Refusing them loses the sign-up the whole scheme exists
     /// to produce, over punctuation.
+    ///
+    /// The query-string and fragment shapes are here because the client's own suite already
+    /// asserted them and this did not, so the two "mirrored" normalisers disagreed while both
+    /// files claimed they could not. A share button appending "?utm_source=whatsapp" was enough
+    /// to lose the attribution on the server.
     /// </remarks>
     [Theory]
     [InlineData("ABC2345")]
@@ -227,6 +232,11 @@ public class ReferralTests
     [InlineData(" abc2345 ")]
     [InlineData("abc-2345")]
     [InlineData("radar.app/join/ABC2345")]
+    [InlineData("https://www.radarproapp.com/join/ABC2345")]
+    [InlineData("https://www.radarproapp.com/join/ABC2345/")]
+    [InlineData("radar.app/join/ABC2345?utm_source=whatsapp")]
+    [InlineData("radar.app/join/ABC2345?ref=x")]
+    [InlineData("radar.app/join/ABC2345#top")]
     public void ACodeIsReadHoweverItWasTyped(string typed)
     {
         Assert.Equal("ABC2345", ReferralCodes.Normalise(typed));
@@ -260,5 +270,49 @@ public class ReferralTests
 
             Assert.DoesNotContain(code, c => c is 'O' or '0' or 'I' or '1' or 'L');
         }
+    }
+
+    // ── what review found ────────────────────────────────────────────────────
+
+    /// <summary>
+    /// A profile holding an empty code is issued one rather than wedged.
+    /// </summary>
+    /// <remarks>
+    /// The guard read IsNullOrWhiteSpace and the update filter read == null, so a profile
+    /// holding "" satisfied neither: all five attempts missed, the re-read never cleared the
+    /// guard, and the method threw - a permanent 500 on that participant's own referral screen.
+    /// Nothing writes that shape today; the two definitions disagreeing was the defect.
+    /// </remarks>
+    [Fact]
+    public async Task AProfileHoldingAnEmptyCodeIsStillIssuedOne()
+    {
+        await _db.Profiles.InsertOneAsync(new UserProfile { Id = "blank", Name = "Blank", ReferralCode = "" });
+
+        var code = await _referrals.CodeForAsync("blank");
+
+        Assert.Equal(7, code.Length);
+        Assert.Equal(code, await _referrals.CodeForAsync("blank"));
+    }
+
+    /// <summary>
+    /// Nobody is ever their own referrer.
+    /// </summary>
+    /// <remarks>
+    /// Unreachable through sign-up, because the profile does not exist yet when its own code
+    /// would have to be found, and nothing writes an attribution afterwards. Asserted anyway
+    /// because the consequence was measured: a profile whose ReferredByUserId equals its own id
+    /// reports "signed up 1, came back 1" and appears on its own board row.
+    /// </remarks>
+    [Fact]
+    public async Task AProfileAttributedToItselfIsNotCountedAsHavingBroughtAnybody()
+    {
+        var self = await Joined("ada", "Ada", broughtBy: "ada", daysAgo: 3, personalised: true);
+        await Did(self.Id, daysAgo: 1);
+
+        var brought = await _referrals.BroughtByAsync("ada");
+
+        Assert.Equal(0, brought.SignedUp);
+        Assert.Equal(0, brought.CameBack);
+        Assert.DoesNotContain("ada", (await _referrals.BoardAsync()).Select(row => row.ProfileId));
     }
 }
