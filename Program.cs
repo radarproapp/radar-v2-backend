@@ -335,6 +335,9 @@ builder.Services.AddScoped<IAskRadarService, OpenRouterAskRadarService>();
 // reads configuration per call rather than caching a model id - so a route can be moved from
 // the Railway dashboard without a restart, which is the difference between an experiment
 // somebody runs and one they only talk about.
+// Reads the events the product has always recorded and nothing has ever looked at.
+builder.Services.AddScoped<AdminInsightsService>();
+
 builder.Services.AddSingleton<ModelRouter>();
 builder.Services.AddSingleton<IAiEngine, OpenRouterAiEngine>();
 builder.Services.AddScoped<ILibraryService, MongoLibraryService>();

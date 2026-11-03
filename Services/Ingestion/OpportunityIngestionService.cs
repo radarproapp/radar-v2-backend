@@ -366,7 +366,16 @@ public partial class OpportunityIngestionService
             return null;
         }
 
-        return parsed > DateTime.UtcNow && parsed < DateTime.UtcNow.AddYears(3) ? parsed : null;
+        // From the start of today, not from this moment.
+        //
+        // A date parses to midnight, so "Deadline: 3rd November 2026" read on the third of
+        // November is not greater than a UtcNow of mid-morning, and was dropped. An opportunity
+        // with no stored deadline reads as one that never closes - so the single most urgent
+        // posting there is, the one closing today, was the one that lost its urgency entirely.
+        //
+        // Found by a test that asserted the parsed date was still in the future and failed on
+        // the morning its own example became today.
+        return parsed.Date >= DateTime.UtcNow.Date && parsed < DateTime.UtcNow.AddYears(3) ? parsed : null;
     }
 
     private static string? Value(XElement element, XName name) => element.Element(name)?.Value;

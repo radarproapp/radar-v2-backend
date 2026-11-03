@@ -29,17 +29,23 @@ public class OpportunityIngestionTests
     /// no urgency on a posting that shuts in three days, and a row that never expires out of the
     /// scoring window.
     /// </remarks>
+    /// <remarks>
+    /// Asserting the date rather than that it is still in the future, which is what this did.
+    /// "Deadline: 3rd November 2026" was a future date when it was written and is today as I
+    /// write this, so the test failed on a morning when nothing had changed - and the thing it
+    /// was actually checking, that the ordinal parses at all, was never in doubt.
+    /// </remarks>
     [Theory]
-    [InlineData("Application Closing Date: 30th November, 2026")]
-    [InlineData("Application Deadline: 1st December 2026")]
-    [InlineData("Closing Date: 22nd December, 2026")]
-    [InlineData("Deadline: 3rd November 2026")]
-    public void AnOrdinalDateIsStillADeadline(string text)
+    [InlineData("Application Closing Date: 30th November, 2026", 2026, 11, 30)]
+    [InlineData("Application Deadline: 1st December 2026", 2026, 12, 1)]
+    [InlineData("Closing Date: 22nd December, 2026", 2026, 12, 22)]
+    [InlineData("Deadline: 3rd November 2026", 2026, 11, 3)]
+    public void AnOrdinalDateIsStillADeadline(string text, int year, int month, int day)
     {
         var found = OpportunityIngestionService.FindDeadline(text);
 
         Assert.NotNull(found);
-        Assert.True(found > DateTime.UtcNow, $"{text} parsed to {found}.");
+        Assert.Equal(new DateTime(year, month, day), found!.Value.Date);
     }
 
     /// <summary>

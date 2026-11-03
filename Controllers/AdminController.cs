@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MongoDB.Driver;
 using RadarV2.Data;
+using RadarV2.Services;
 
 namespace RadarV2.Controllers;
 
@@ -11,8 +12,15 @@ namespace RadarV2.Controllers;
 public class AdminController : ControllerBase
 {
     private readonly RadarDatabase _db;
+    private readonly AdminInsightsService _insights;
+    private readonly ILogger<AdminController> _log;
 
-    public AdminController(RadarDatabase db) => _db = db;
+    public AdminController(RadarDatabase db, AdminInsightsService insights, ILogger<AdminController> log)
+    {
+        _db = db;
+        _insights = insights;
+        _log = log;
+    }
 
     /// <summary>
     /// The most recent unhandled exceptions, newest first.
@@ -198,5 +206,115 @@ public class AdminController : ControllerBase
             Builders<Models.ContentReport>.Update.Set(report => report.IsResolved, true),
             cancellationToken: ct);
         return NoContent();
+    }
+
+    // ── what is actually happening ───────────────────────────────────────────
+
+    /// <summary>
+    /// Events and distinct people per day.
+    /// </summary>
+    /// <remarks>
+    /// Eighteen kinds of event were already being recorded and nothing in the admin area read
+    /// any of them, so "what are people engaging with" was a question the database could answer
+    /// and the product could not.
+    /// </remarks>
+    [HttpGet("activity")]
+    public async Task<IActionResult> GetActivityAsync([FromQuery] int days = 30, CancellationToken ct = default)
+    {
+        return Ok(new
+        {
+            days,
+            byDay = await _insights.ActivityByDayAsync(days, ct),
+            mix = await _insights.EventMixAsync(days, ct),
+            funnel = await _insights.FunnelAsync(days, ct),
+
+            // Said out loud, because the numbers above are only as good as what the client
+            // sends - and today it fires seven of the eighteen kinds. A dashboard that does not
+            // say so invites its own figures to be read as the whole picture.
+            recorded = Enum.GetValues<Models.AnalyticsEventType>().Select(type => type.ToString()),
+        });
+    }
+
+    /// <summary>What people opened and saved, and which sources earned it.</summary>
+    [HttpGet("engagement")]
+    public async Task<IActionResult> GetEngagementAsync([FromQuery] int days = 30, CancellationToken ct = default)
+    {
+        return Ok(new
+        {
+            days,
+            items = await _insights.MostEngagedAsync(days, 20, ct),
+            sources = await _insights.BySourceAsync(days, 25, ct),
+        });
+    }
+
+    /// <summary>
+    /// One person: what they told Radar, and what they have done since.
+    /// </summary>
+    /// <remarks>
+    /// SuperAdmin only, and logged. The rest of this controller is aggregate; this is one named
+    /// person's reading history, which is a different thing to hold and a different thing to
+    /// justify. It exists because support and abuse questions cannot be answered from totals -
+    /// and the audit line is so that looking at it is itself a recorded act, rather than a
+    /// capability nobody can see being used.
+    /// </remarks>
+    [Authorize(Roles = "SuperAdmin")]
+    [HttpGet("users/{id}")]
+    public async Task<IActionResult> GetUserAsync(string id, CancellationToken ct = default)
+    {
+        var profile = await _db.Profiles.Find(p => p.Id == id).FirstOrDefaultAsync(ct);
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        var who = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "unknown";
+        _log.LogInformation("Admin {Admin} opened the detail for profile {Profile}", who, id);
+
+        var events = await _db.AnalyticsEvents
+            .Find(e => e.UserId == id)
+            .SortByDescending(e => e.CreatedAt)
+            .Limit(100)
+            .ToListAsync(ct);
+
+        var contentIds = events.Where(e => e.ContentItemId is not null).Select(e => e.ContentItemId!).Distinct().ToList();
+
+        var titles = contentIds.Count == 0
+            ? []
+            : await _db.ContentItems
+                .Find(Builders<Models.ContentItem>.Filter.In(item => item.Id, contentIds))
+                .Project(item => new { item.Id, item.Title, item.Source })
+                .ToListAsync(ct);
+
+        var titleOf = titles.ToDictionary(t => t.Id);
+
+        return Ok(new
+        {
+            profile = new
+            {
+                profile.Id,
+                profile.Name,
+                profile.Email,
+                persona = profile.Persona.ToString(),
+                chosenCategory = profile.HasChosenCategory,
+                profile.Interests,
+                profile.Goals,
+                problems = profile.Problems,
+                profile.PrimaryGoal,
+                profile.IsPersonalised,
+                profile.OnboardingComplete,
+                profile.CreatedAt,
+            },
+
+            // Last seen is the newest event there is. Null rather than a guess when they have
+            // done nothing: an account that has never acted has no last-seen, and showing their
+            // sign-up date in that column would read as activity.
+            lastSeen = events.Count > 0 ? events[0].CreatedAt : (DateTime?)null,
+
+            recent = events.Select(e => new
+            {
+                type = e.Type.ToString(),
+                at = e.CreatedAt,
+                contentItemId = e.ContentItemId,
+                title = e.ContentItemId is not null && titleOf.TryGetValue(e.ContentItemId, out var item) ? item.Title : null,
+                source = e.ContentItemId is not null && titleOf.TryGetValue(e.ContentItemId, out var where) ? where.Source : null,
+            }),
+        });
     }
 }
