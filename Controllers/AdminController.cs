@@ -209,6 +209,16 @@ public class AdminController : ControllerBase
             // the people it will work for rather than to everybody.
             canInvite = User.IsInRole(Services.AdminRoles.SuperAdmin),
 
+            // Inviting sends an email and will not grant access without one, so a deployment with
+            // no email configured cannot invite at all. Reported before the attempt rather than
+            // after it, so the form is not offered for something that cannot work.
+            canEmail = _roles.CanEmail,
+
+            // A test key answers 201 and delivers nothing, so the send succeeds and the person is
+            // never told. Said out loud, because a clean success for a message that went nowhere
+            // is the worst version of this.
+            emailIsSandboxed = _roles.EmailIsSandboxed,
+
             you = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "User",
 
             // How a row that cannot be removed here is removed, on the screen that shows it.
@@ -258,7 +268,13 @@ public class AdminController : ControllerBase
             {
                 AdminRoleService.GrantResult.NotAnEmail => "That does not look like an email address.",
                 AdminRoleService.GrantResult.NotARole => "A role is either SuperAdmin or PlatformAdmin.",
-                _ => "That address already has admin access from the deployment configuration.",
+                AdminRoleService.GrantResult.AlreadyHasIt => "That address already has admin access from the deployment configuration.",
+
+                // Both of these mean nothing was written. Said so explicitly, because "could not
+                // send" is otherwise read as "they have access but missed the email".
+                AdminRoleService.GrantResult.EmailNotConfigured =>
+                    "No email is configured for this deployment, so nobody can be invited. Add the address to Auth__SuperAdminEmails__n or Auth__AdminEmails__n instead.",
+                _ => "The invite email could not be sent, so no access was given. Check the address and try again.",
             },
         });
     }

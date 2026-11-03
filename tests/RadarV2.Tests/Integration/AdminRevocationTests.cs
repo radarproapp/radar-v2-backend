@@ -27,6 +27,15 @@ public class AdminRevocationTests
 
     public AdminRevocationTests(RadarDatabaseFixture fixture) => _db = fixture.Database("admin-revocation");
 
+    /// <summary>A sender nothing in this class reaches.</summary>
+    private sealed class SilentPost : IEmailSender
+    {
+        public bool IsConfigured => true;
+
+        public Task<bool> SendAsync(string to, string subject, string text, string? html = null, CancellationToken ct = default) =>
+            Task.FromResult(true);
+    }
+
     private static ClaimsPrincipal Token(string userId, string role, int version = 0) =>
         new(new ClaimsIdentity([
             new Claim(ClaimTypes.NameIdentifier, userId),
@@ -45,7 +54,9 @@ public class AdminRevocationTests
         return new SessionVersionGuard(
             _db,
             new MemoryCache(new MemoryCacheOptions()),
-            new AdminRoleService(_db, config, new MemoryCache(new MemoryCacheOptions())),
+            // Nothing here invites anybody, so the sender is never reached. Present because
+            // granting is the one path that needs it.
+            new AdminRoleService(_db, config, new MemoryCache(new MemoryCacheOptions()), new SilentPost()),
             NullLogger<SessionVersionGuard>.Instance);
     }
 

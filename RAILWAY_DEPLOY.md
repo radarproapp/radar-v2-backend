@@ -89,11 +89,25 @@ committed list of admin addresses is a list of accounts worth attacking.
 ### Everybody after that
 
 Use **Admin Team** in the dashboard. A Super Admin types an address, picks a role, and that is it —
-no redeploy. The person does not need a Radar account yet; the access waits for the address, and
-somebody who is already signed in gets it the next time they sign in.
+no redeploy.
+
+They get an email saying who gave them access and what the role is. It carries no token and grants
+nothing on its own: it points at `/admin/login`, and they get in the ordinary way. If they have no
+Radar account they create one with that same address and **choose their own password** through the
+normal sign-up — there is no separate invite account-creation path to keep hardened.
+
+Access is only granted once that email is sent. If it cannot be sent, nothing is written and the
+screen says so, rather than leaving an address with access that was never told. Two consequences
+worth knowing:
+
+- **No email configured → nobody can be invited.** The screen says so instead of offering a form
+  that cannot work. Use the variables above until email is set up.
+- **A SendByte `sk_test_` key accepts every message and delivers none.** The invite would report
+  success and arrive nowhere, so the screen warns when the sender is in that state. Check
+  `emailSandbox` on `GET /api/version`.
 
 Keep at least one address in `Auth__SuperAdminEmails__0` anyway. It is the account that can still
-get in when the database is wrong.
+get in when the database is wrong, or when email is down.
 
 ### The two roles
 

@@ -24,6 +24,7 @@ public class AdminInviteTests
 {
     private readonly RadarDatabase _db;
     private readonly AdminRoleService _roles;
+    private readonly Postbox _sent = new();
 
     public AdminInviteTests(RadarDatabaseFixture fixture)
     {
@@ -37,6 +38,28 @@ public class AdminInviteTests
         _roles = Service("owner@radar.com");
     }
 
+    /// <summary>
+    /// A sender that keeps what it was asked to send, and can be told to fail.
+    /// </summary>
+    /// <remarks>
+    /// The real one returns false rather than throwing, which is the case worth testing here: an
+    /// invite that cannot be delivered must not leave access behind it.
+    /// </remarks>
+    private sealed class Postbox : IEmailSender
+    {
+        public bool IsConfigured { get; set; } = true;
+        public bool Delivers { get; set; } = true;
+        public List<(string To, string Subject, string Text)> Sent { get; } = [];
+
+        public Task<bool> SendAsync(string to, string subject, string text, string? html = null, CancellationToken ct = default)
+        {
+            if (!Delivers) return Task.FromResult(false);
+
+            Sent.Add((to, subject, text));
+            return Task.FromResult(true);
+        }
+    }
+
     /// <summary>A service whose configuration lists these addresses as super admins.</summary>
     private AdminRoleService Service(params string[] configuredSuperAdmins)
     {
@@ -47,7 +70,8 @@ public class AdminInviteTests
         return new AdminRoleService(
             _db,
             new ConfigurationBuilder().AddInMemoryCollection(values).Build(),
-            new MemoryCache(new MemoryCacheOptions()));
+            new MemoryCache(new MemoryCacheOptions()),
+            _sent);
     }
 
     // ── inviting ─────────────────────────────────────────────────────────────
@@ -279,5 +303,106 @@ public class AdminInviteTests
 
         Assert.Empty(await roles.TeamAsync());
         Assert.Equal(AdminRoles.User, await roles.RoleForAsync("anybody@radar.com"));
+    }
+
+    // -- telling them --------------------------------------------------------
+
+    /// <summary>
+    /// An invited person is told, and told enough to judge the message.
+    /// </summary>
+    /// <remarks>
+    /// An email granting admin rights is exactly the shape of a phishing message. The one thing
+    /// that lets somebody judge it is a name they recognise beside a claim they can check, so
+    /// who granted it and what the role is are both in the text.
+    /// </remarks>
+    [Fact]
+    public async Task AnInvitedPersonIsTold()
+    {
+        await _roles.GrantAsync("staff@radar.com", AdminRoles.PlatformAdmin, "owner@radar.com");
+
+        var message = Assert.Single(_sent.Sent);
+
+        Assert.Equal("staff@radar.com", message.To);
+        Assert.Contains("admin access", message.Subject, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("owner@radar.com", message.Text);
+        Assert.Contains("Platform Admin", message.Text);
+    }
+
+    /// <summary>It says how to get in both ways, because Radar cannot tell which applies.</summary>
+    [Fact]
+    public async Task TheMessageSaysWhatToDoWithOrWithoutAnAccount()
+    {
+        await _roles.GrantAsync("staff@radar.com", AdminRoles.SuperAdmin, "owner@radar.com");
+
+        var message = Assert.Single(_sent.Sent).Text;
+
+        Assert.Contains("sign in again", message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("create one with this same email", message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("your own password", message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// A message that could not be sent leaves no access behind it.
+    /// </summary>
+    /// <remarks>
+    /// The invite is the message. An address granted access and never told has a row on a screen
+    /// and no idea it exists, which is indistinguishable from a typo - so the send happens first
+    /// and the write only follows it.
+    /// </remarks>
+    [Fact]
+    public async Task AFailedSendGrantsNothing()
+    {
+        _sent.Delivers = false;
+
+        Assert.Equal(AdminRoleService.GrantResult.CouldNotSend,
+            await _roles.GrantAsync("staff@radar.com", AdminRoles.PlatformAdmin, "owner@radar.com"));
+
+        Assert.Equal(AdminRoles.User, await _roles.RoleForAsync("staff@radar.com"));
+        Assert.Empty(await _db.AdminGrants.Find(FilterDefinition<AdminGrant>.Empty).ToListAsync());
+    }
+
+    /// <summary>A deployment with no email cannot invite, and says so rather than failing oddly.</summary>
+    [Fact]
+    public async Task ADeploymentWithNoEmailCannotInvite()
+    {
+        _sent.IsConfigured = false;
+
+        Assert.Equal(AdminRoleService.GrantResult.EmailNotConfigured,
+            await _roles.GrantAsync("staff@radar.com", AdminRoles.PlatformAdmin, "owner@radar.com"));
+
+        Assert.Empty(await _db.AdminGrants.Find(FilterDefinition<AdminGrant>.Empty).ToListAsync());
+        Assert.False(_roles.CanEmail);
+    }
+
+    /// <summary>A refused invite sends nothing at all.</summary>
+    /// <remarks>
+    /// Validation runs before the send, so a typo does not email a stranger about access they
+    /// were never going to get.
+    /// </remarks>
+    [Theory]
+    [InlineData("not-an-address", AdminRoles.PlatformAdmin)]
+    [InlineData("staff@radar.com", "User")]
+    [InlineData("owner@radar.com", AdminRoles.PlatformAdmin)]
+    public async Task NothingIsSentForAnInviteThatWasRefused(string email, string role)
+    {
+        await _roles.GrantAsync(email, role, "somebody-else@radar.com");
+
+        Assert.Empty(_sent.Sent);
+    }
+
+    /// <summary>Revoking tells nobody, which is deliberate.</summary>
+    /// <remarks>
+    /// There is no message worth sending: somebody whose access was removed finds out by it not
+    /// being there, and an email about it is a notification that cannot be acted on.
+    /// </remarks>
+    [Fact]
+    public async Task RevokingSendsNothing()
+    {
+        await _roles.GrantAsync("staff@radar.com", AdminRoles.PlatformAdmin, "owner@radar.com");
+        _sent.Sent.Clear();
+
+        await _roles.RevokeAsync("staff@radar.com", "owner@radar.com");
+
+        Assert.Empty(_sent.Sent);
     }
 }
