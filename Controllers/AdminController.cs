@@ -214,7 +214,7 @@ public class AdminController : ControllerBase
     /// Events and distinct people per day.
     /// </summary>
     /// <remarks>
-    /// Eighteen kinds of event were already being recorded and nothing in the admin area read
+    /// Seventeen kinds of event were already being recorded and nothing in the admin area read
     /// any of them, so "what are people engaging with" was a question the database could answer
     /// and the product could not.
     /// </remarks>
@@ -223,14 +223,21 @@ public class AdminController : ControllerBase
     {
         return Ok(new
         {
-            days,
+            // The window that was used, not the one that was asked for. The service clamps to
+            // 180 days; echoing the request back put "nothing recorded in the last 10000 days"
+            // above half a year of data, which is a sentence nothing produced.
+            days = Services.AdminInsightsService.WindowFor(days),
+
             byDay = await _insights.ActivityByDayAsync(days, ct),
             mix = await _insights.EventMixAsync(days, ct),
             funnel = await _insights.FunnelAsync(days, ct),
 
-            // Said out loud, because the numbers above are only as good as what the client
-            // sends - and today it fires seven of the eighteen kinds. A dashboard that does not
-            // say so invites its own figures to be read as the whole picture.
+            // Every kind of event Radar knows how to record, so the screen can name the ones it
+            // has seen nothing of. The numbers above are only as good as what the client
+            // actually sends, and a dashboard that does not say which kinds never arrive invites
+            // its own figures to be read as the whole picture. Which kinds those are is worked
+            // out by comparing this list against the mix, rather than claimed here - a count
+            // written into a comment goes stale the first time an event is wired up.
             recorded = Enum.GetValues<Models.AnalyticsEventType>().Select(type => type.ToString()),
         });
     }
@@ -241,7 +248,7 @@ public class AdminController : ControllerBase
     {
         return Ok(new
         {
-            days,
+            days = Services.AdminInsightsService.WindowFor(days),
             items = await _insights.MostEngagedAsync(days, 20, ct),
             sources = await _insights.BySourceAsync(days, 25, ct),
         });

@@ -340,6 +340,13 @@ public class RadarDatabase
                     .Ascending(e => e.UserId)
                     .Descending(e => e.CreatedAt)));
 
+        // The window on its own. CreatedAt is a suffix in both indexes above, so neither of them
+        // helps a query that filters on nothing but the date - and the admin activity chart does
+        // exactly that. Measured: a collection scan over 60,000 events, every document examined.
+        AnalyticsEvents.Indexes.CreateOne(
+            new CreateIndexModel<AnalyticsEvent>(
+                Builders<AnalyticsEvent>.IndexKeys.Descending(e => e.CreatedAt)));
+
         UserContentWhys.Indexes.CreateOne(
             new CreateIndexModel<UserContentWhy>(
                 Builders<UserContentWhy>.IndexKeys
