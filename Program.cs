@@ -339,6 +339,11 @@ builder.Services.AddScoped<IAskRadarService, OpenRouterAskRadarService>();
 builder.Services.AddScoped<AdminInsightsService>();
 builder.Services.AddScoped<ReferralService>();
 
+// The other half of the same campaign, deliberately a separate service with a separate board:
+// nothing here can see a video on somebody else's platform, so every number it reports came
+// from a person who watched it.
+builder.Services.AddScoped<ContentSubmissionService>();
+
 builder.Services.AddSingleton<ModelRouter>();
 builder.Services.AddSingleton<IAiEngine, OpenRouterAiEngine>();
 builder.Services.AddScoped<ILibraryService, MongoLibraryService>();

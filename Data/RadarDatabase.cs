@@ -83,6 +83,9 @@ public class RadarDatabase
     public IMongoCollection<StudioProject>      UserProjects    => _db.GetCollection<StudioProject>("user_projects");
     public IMongoCollection<UserSubscriptionDoc> UserSubscriptions => _db.GetCollection<UserSubscriptionDoc>("user_subscriptions");
     public IMongoCollection<AnalyticsEvent> AnalyticsEvents => _db.GetCollection<AnalyticsEvent>("analytics_events");
+
+    /// <summary>What participants made about Radar, somewhere else.</summary>
+    public IMongoCollection<ContentSubmission> ContentSubmissions => _db.GetCollection<ContentSubmission>("content_submissions");
     public IMongoCollection<UserContentWhy> UserContentWhys => _db.GetCollection<UserContentWhy>("user_content_why");
     public IMongoCollection<ContentReport> ContentReports => _db.GetCollection<ContentReport>("content_reports");
     public IMongoCollection<BehavioralSignal> BehavioralSignals => _db.GetCollection<BehavioralSignal>("behavioral_signals");
@@ -308,6 +311,17 @@ public class RadarDatabase
             new CreateIndexModel<UserProfile>(
                 Builders<UserProfile>.IndexKeys.Ascending(p => p.ReferralCode),
                 new CreateIndexOptions { Unique = true, Sparse = true }));
+
+        // A participant's own submissions, newest first, and the reviewer's queue.
+        ContentSubmissions.Indexes.CreateOne(
+            new CreateIndexModel<ContentSubmission>(
+                Builders<ContentSubmission>.IndexKeys
+                    .Ascending(c => c.ProfileId)
+                    .Descending(c => c.SubmittedAt)));
+
+        ContentSubmissions.Indexes.CreateOne(
+            new CreateIndexModel<ContentSubmission>(
+                Builders<ContentSubmission>.IndexKeys.Descending(c => c.SubmittedAt)));
 
         // The acquisition board groups by who brought somebody in.
         Profiles.Indexes.CreateOne(
