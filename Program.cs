@@ -337,6 +337,7 @@ builder.Services.AddScoped<IAskRadarService, OpenRouterAskRadarService>();
 // somebody runs and one they only talk about.
 // Reads the events the product has always recorded and nothing has ever looked at.
 builder.Services.AddScoped<AdminInsightsService>();
+builder.Services.AddScoped<ReferralService>();
 
 builder.Services.AddSingleton<ModelRouter>();
 builder.Services.AddSingleton<IAiEngine, OpenRouterAiEngine>();

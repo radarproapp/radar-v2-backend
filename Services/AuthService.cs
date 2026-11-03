@@ -25,7 +25,32 @@ public class AuthService : IAuthService
         _log = log;
     }
 
-    public async Task<AuthResult> RegisterAsync(string name, string email, string password)
+    /// <summary>
+    /// Creates an account, attributing it to a referral code when one actually arrived with it.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="referralCode"/> is whatever the sign-up form carried, in whatever shape
+    /// the person typed it. A code that matches nobody is ignored rather than refused: a wrong
+    /// code is somebody mistyping a friend's link, and losing their sign-up over it would cost
+    /// the thing the scheme exists to produce.
+    /// </remarks>
+    /// <summary>
+    /// The participant whose code this is, or null.
+    /// </summary>
+    /// <remarks>
+    /// Null for a code nobody holds, and null for no code at all. There is deliberately no
+    /// fallback: an account that arrives without a working code is unattributed, and stays
+    /// that way. Guessing would put somebody else's sign-ups on a leaderboard.
+    /// </remarks>
+    private async Task<UserProfile?> FindReferrerAsync(string? referralCode)
+    {
+        var code = ReferralCodes.Normalise(referralCode);
+        if (code is null) return null;
+
+        return await _db.Profiles.Find(p => p.ReferralCode == code).FirstOrDefaultAsync();
+    }
+
+    public async Task<AuthResult> RegisterAsync(string name, string email, string password, string? referralCode = null)
     {
         var existing = await _db.Users
             .Find(u => u.Email == email.ToLowerInvariant())
@@ -48,13 +73,24 @@ public class AuthService : IAuthService
             CreatedAt = DateTime.UtcNow
         };
 
+        // Who brought them, if anybody did.
+        //
+        // Resolved before the profile is written so attribution is part of creating the
+        // account rather than a second write that can fail on its own - a sign-up that is
+        // attributed to nobody because the follow-up update threw is a participant's work
+        // disappearing silently.
+        var referrer = await FindReferrerAsync(referralCode);
+
         var profile = new UserProfile
         {
             Id = profileId,
             Name = name,
             Email = email.ToLowerInvariant(),
             Role = role,
-            CreatedAt = DateTime.UtcNow
+            CreatedAt = DateTime.UtcNow,
+            ReferredByUserId = referrer?.Id,
+            ReferredByCode = referrer is null ? null : ReferralCodes.Normalise(referralCode),
+            ReferredAt = referrer is null ? null : DateTime.UtcNow,
         };
 
         await _db.Users.InsertOneAsync(user);

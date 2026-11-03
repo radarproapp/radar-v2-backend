@@ -301,6 +301,19 @@ public class RadarDatabase
                     .Ascending(s => s.UserId),
                 new CreateIndexOptions { Unique = true }));
 
+        // A referral code is unique, and most profiles do not have one - issued on request
+        // rather than at sign-up. Sparse for that reason: without it, every profile without a
+        // code would collide on null with every other one.
+        Profiles.Indexes.CreateOne(
+            new CreateIndexModel<UserProfile>(
+                Builders<UserProfile>.IndexKeys.Ascending(p => p.ReferralCode),
+                new CreateIndexOptions { Unique = true, Sparse = true }));
+
+        // The acquisition board groups by who brought somebody in.
+        Profiles.Indexes.CreateOne(
+            new CreateIndexModel<UserProfile>(
+                Builders<UserProfile>.IndexKeys.Ascending(p => p.ReferredByUserId)));
+
         AnalyticsEvents.Indexes.CreateOne(
             new CreateIndexModel<AnalyticsEvent>(
                 Builders<AnalyticsEvent>.IndexKeys

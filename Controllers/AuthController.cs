@@ -36,6 +36,16 @@ public class AuthController : ControllerBase
         [Required, MinLength(1)] public string Name { get; set; } = string.Empty;
         [Required, EmailAddress] public string Email { get; set; } = string.Empty;
         [Required, MinLength(8)] public string Password { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Whose code brought them, if a code brought them.
+        /// </summary>
+        /// <remarks>
+        /// Optional, and not validated. A code matching nobody is ignored rather than refused:
+        /// a wrong code is somebody mistyping a friend's link, and turning that into a failed
+        /// sign-up costs the exact thing the scheme exists to produce.
+        /// </remarks>
+        public string? ReferralCode { get; set; }
     }
 
     public sealed class LoginRequest
@@ -51,7 +61,7 @@ public class AuthController : ControllerBase
     {
         if (!ModelState.IsValid) return ValidationProblem();
 
-        var result = await _auth.RegisterAsync(request.Name.Trim(), request.Email.Trim(), request.Password);
+        var result = await _auth.RegisterAsync(request.Name.Trim(), request.Email.Trim(), request.Password, request.ReferralCode);
         if (!result.Success)
             return Conflict(new { error = result.Error });
 

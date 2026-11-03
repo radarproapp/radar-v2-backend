@@ -45,6 +45,41 @@ public class UserProfile
     /// </remarks>
     public DateTime? PersonaChosenAt { get; set; }
 
+    /// <summary>
+    /// The code this person shares to bring others in.
+    /// </summary>
+    /// <remarks>
+    /// Issued on request rather than at sign-up, so the collection is not filled with codes for
+    /// accounts that will never share one. Unique and sparse: a profile without one stores
+    /// nothing, and two profiles can never hold the same code.
+    /// </remarks>
+    /// <remarks>
+    /// Omitted when null rather than written as a BSON null, which is what makes the unique
+    /// sparse index work. A sparse index skips documents where the field is <em>absent</em>,
+    /// not where it is present and null - and the driver writes an explicit null by default.
+    /// Without this, the second account anybody created failed to register, because its null
+    /// collided with the first account's null on a unique index. Caught by a test; it would
+    /// have been a total outage on the second sign-up.
+    /// </remarks>
+    [BsonIgnoreIfNull]
+    public string? ReferralCode { get; set; }
+
+    /// <summary>Whose code brought this person in, and when.</summary>
+    /// <remarks>
+    /// Set once, at sign-up, from a code they actually arrived with. Never inferred later -
+    /// there is no fingerprinting and no last-touch guess from a header, so an unattributed
+    /// sign-up stays unattributed rather than being awarded to whoever seems most likely.
+    ///
+    /// The id and the code are both stored. The id is what everything counts by; the code is
+    /// what the person typed, kept so a dispute about whose link was used can be answered with
+    /// what actually arrived rather than with a lookup that may since have changed.
+    /// </remarks>
+    public string? ReferredByUserId { get; set; }
+
+    public string? ReferredByCode { get; set; }
+
+    public DateTime? ReferredAt { get; set; }
+
     /// <summary>Whether the category is theirs or merely the enum's default.</summary>
     /// <remarks>
     /// A stored category that is not the default is proof of a choice on its own. Student is

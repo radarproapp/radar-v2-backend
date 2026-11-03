@@ -14,6 +14,14 @@ public class AuthResult
 
 public interface IAuthService
 {
-    Task<AuthResult> RegisterAsync(string name, string email, string password);
+    /// <summary>
+    /// Creates an account, attributing it to a referral code when one arrived with it.
+    /// </summary>
+    /// <remarks>
+    /// Optional, so every existing caller is unchanged and an account created without one is
+    /// simply unattributed - which is the honest state for somebody who found Radar on their
+    /// own.
+    /// </remarks>
+    Task<AuthResult> RegisterAsync(string name, string email, string password, string? referralCode = null);
     Task<AuthResult> LoginAsync(string email, string password);
 }
