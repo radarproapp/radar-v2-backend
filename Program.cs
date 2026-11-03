@@ -102,9 +102,14 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 var guard = context.HttpContext.RequestServices
                     .GetRequiredService<SessionVersionGuard>();
 
-                if (!await guard.IsStillValidAsync(context.Principal, context.HttpContext.RequestAborted))
+                // Two questions, one cached read: was this token issued before a password reset,
+                // and does the configuration still grant it the role it claims. The second is
+                // what makes removing an address from the admin lists take effect now rather
+                // than whenever that person happens to sign in again.
+                var verdict = await guard.CheckAsync(context.Principal, context.HttpContext.RequestAborted);
+                if (!verdict.Ok)
                 {
-                    context.Fail("This session ended when the account password was changed.");
+                    context.Fail(verdict.Reason ?? "This session is no longer valid.");
                 }
             },
 

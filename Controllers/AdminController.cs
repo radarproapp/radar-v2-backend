@@ -13,12 +13,14 @@ public class AdminController : ControllerBase
 {
     private readonly RadarDatabase _db;
     private readonly AdminInsightsService _insights;
+    private readonly IConfiguration _config;
     private readonly ILogger<AdminController> _log;
 
-    public AdminController(RadarDatabase db, AdminInsightsService insights, ILogger<AdminController> log)
+    public AdminController(RadarDatabase db, AdminInsightsService insights, IConfiguration config, ILogger<AdminController> log)
     {
         _db = db;
         _insights = insights;
+        _config = config;
         _log = log;
     }
 
@@ -118,6 +120,78 @@ public class AdminController : ControllerBase
             publishedContent = await _db.ContentItems.CountDocumentsAsync(FilterDefinition<Models.ContentItem>.Empty, cancellationToken: ct),
             openReports,
             role = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "User"
+        });
+    }
+
+    /// <summary>
+    /// Who can get into the admin area, and what each of them is allowed to do.
+    /// </summary>
+    /// <remarks>
+    /// This screen listed four named admins with email addresses and last-active times, written
+    /// into the page - Chidi, Blessing and Yusuf did not have accounts. There was no endpoint
+    /// behind it, and so no way to answer "who can get in here", which is a question the owner of
+    /// a product has to be able to ask.
+    ///
+    /// Read from configuration rather than from the accounts collection, because configuration is
+    /// what grants the role: an address added to a list is an admin whether or not anybody has
+    /// signed in with it yet, and that pending access is exactly what a review of this screen
+    /// needs to see. Each row is then matched against the accounts, so the answer separates "has
+    /// an account and can sign in" from "has been granted access and never used it".
+    ///
+    /// Visible to both admin roles. Which addresses hold the keys is not one person's private
+    /// data - it is the shape of the trusted set, and an admin who cannot see who else is an
+    /// admin cannot notice an address that should not be there.
+    /// </remarks>
+    [HttpGet("team")]
+    public async Task<IActionResult> GetTeamAsync(CancellationToken ct = default)
+    {
+        var configured = Services.AdminRoles.Configured(_config).ToList();
+
+        var emails = configured.Select(entry => entry.Email).ToList();
+
+        var accounts = emails.Count == 0
+            ? []
+            : await _db.Users
+                .Find(Builders<Data.Documents.UserDocument>.Filter.In(u => u.Email, emails.Select(e => e.ToLowerInvariant())))
+                .Project(u => new { u.Email, u.ProfileId, u.CreatedAt })
+                .ToListAsync(ct);
+
+        var byEmail = accounts
+            .GroupBy(account => account.Email, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+
+        var team = configured.Select(entry =>
+        {
+            var account = byEmail.GetValueOrDefault(entry.Email);
+
+            return new
+            {
+                email = entry.Email,
+                role = entry.Role,
+
+                // Whether anybody has actually signed up with this address. An address granted
+                // access that has never been used is not a person on the team yet, and showing
+                // it as one would overstate who is watching the product.
+                hasAccount = account is not null,
+                joinedAt = account?.CreatedAt,
+            };
+        }).ToList();
+
+        return Ok(new
+        {
+            team,
+
+            // Said rather than left to be inferred from an empty list. No configured admin at all
+            // is the state this deployment starts in, and it is indistinguishable from a failed
+            // read unless the screen says which it is.
+            configuredCount = team.Count,
+
+            // How the list is changed, on the screen that shows it. The alternative is that
+            // somebody looks for a button to add an admin, does not find one, and concludes the
+            // feature is missing rather than deliberately out of the product.
+            grantedBy = "Auth__SuperAdminEmails__n and Auth__AdminEmails__n in the deployment environment",
+
+            you = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "User",
         });
     }
 

@@ -1,3 +1,4 @@
+using MongoDB.Driver;
 using EphemeralMongo;
 using Microsoft.Extensions.Configuration;
 using RadarV2.Data;
@@ -32,17 +33,43 @@ public sealed class RadarDatabaseFixture : IDisposable
         {
             UseSingleNodeReplicaSet = false,
         });
+
+        _client = new Lazy<IMongoClient>(() => new MongoClient(_runner.ConnectionString));
     }
 
-    /// <summary>A database nobody else is using, for one test class.</summary>
+    /// <summary>
+    /// One client for the whole run, shared by every database handed out.
+    /// </summary>
+    /// <remarks>
+    /// A MongoClient is a connection pool, forty sockets wide by default, and
+    /// <see cref="RadarDatabase"/>'s ordinary constructor opens one per instance. xUnit builds
+    /// the test class once per test case, so the suite was opening a pool per test and asking
+    /// one mongod for several thousand connections - which it refused, failing twenty-three
+    /// unrelated tests with "Timed out waiting for a connection" the moment the suite grew past
+    /// the threshold. One client, one pool, and the failures are about the code again.
+    /// </remarks>
+    private readonly Lazy<IMongoClient> _client;
+
+    /// <summary>
+    /// A database nobody else is using, for one test.
+    /// </summary>
+    /// <remarks>
+    /// Per test, not per class: xUnit constructs the test class once per test case, so each one
+    /// calls this and gets its own name. That is what makes a test asserting an empty collection
+    /// safe to write.
+    /// </remarks>
     public RadarDatabase Database(string name) =>
-        new(new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["MongoDB:ConnectionString"] = _runner.ConnectionString,
-                ["MongoDB:DatabaseName"] = $"radar-test-{name}-{Guid.NewGuid():N}",
-            })
-            .Build());
+        new(_client.Value,
+            $"radar-test-{name}-{Guid.NewGuid():N}",
+            new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    // Off. Forty-three index creations against a database holding four documents
+                    // and about to be dropped is pure cost, and the tests that need an index
+                    // build it themselves rather than race the background task that would.
+                    ["MongoDB:EnsureIndexes"] = "false",
+                })
+                .Build());
 
     public void Dispose() => _runner.Dispose();
 }

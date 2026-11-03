@@ -172,11 +172,23 @@ public class AuthService : IAuthService
             .Find(p => p.Id == user.ProfileId)
             .FirstOrDefaultAsync();
 
-        var role = ResolveRole(email, user.Role);
+        var role = ResolveRole(email);
+
         if (profile is not null && profile.Role != role)
         {
             profile.Role = role;
             await _db.Profiles.ReplaceOneAsync(p => p.Id == profile.Id, profile);
+        }
+
+        // The account row as well as the profile. Only the profile was being brought into line,
+        // so the role stored beside the password drifted from the one the product acted on - and
+        // it is the row an admin screen reads when it wants to know who holds what.
+        if (user.Role != role)
+        {
+            user.Role = role;
+            await _db.Users.UpdateOneAsync(
+                u => u.Id == user.Id,
+                Builders<UserDocument>.Update.Set(u => u.Role, role));
         }
 
         return new AuthResult
@@ -192,15 +204,15 @@ public class AuthService : IAuthService
         };
     }
 
-    private string ResolveRole(string email, string existingRole = "User")
-    {
-        var normalized = email.Trim().ToLowerInvariant();
-        var superAdmins = _config.GetSection("Auth:SuperAdminEmails").Get<string[]>() ?? [];
-        if (superAdmins.Any(x => x.Equals(normalized, StringComparison.OrdinalIgnoreCase))) return "SuperAdmin";
-
-        var admins = _config.GetSection("Auth:AdminEmails").Get<string[]>() ?? [];
-        if (admins.Any(x => x.Equals(normalized, StringComparison.OrdinalIgnoreCase))) return "PlatformAdmin";
-
-        return existingRole is "SuperAdmin" or "PlatformAdmin" ? existingRole : "User";
-    }
+    /// <summary>
+    /// The role this address is entitled to, from configuration and nothing else.
+    /// </summary>
+    /// <remarks>
+    /// This used to fall back to the role already stored on the account, so a role survived its
+    /// address being removed from the configuration forever and the only way to take it back was
+    /// editing MongoDB by hand. Removing an address now demotes the account the next time it
+    /// signs in - and <see cref="SessionVersionGuard"/> refuses the admin token it is already
+    /// holding, so it does not have to wait for that.
+    /// </remarks>
+    private string ResolveRole(string email) => AdminRoles.For(_config, email);
 }

@@ -42,6 +42,36 @@ public class RadarDatabase
         var client = new MongoClient(settings);
         _db = client.GetDatabase(databaseName);
 
+        Start(config);
+    }
+
+    /// <summary>
+    /// A database on a client somebody else owns.
+    /// </summary>
+    /// <remarks>
+    /// For tests, which build one of these per test case against a throwaway database. The
+    /// ordinary constructor opens a <see cref="MongoClient"/> each time, and a client is a
+    /// connection pool - forty sockets by default - so a suite of a hundred and thirty
+    /// integration tests asked one mongod for several thousand connections and got
+    /// "Timed out waiting for a connection" across twenty-three unrelated tests. Sharing the
+    /// client shares the pool.
+    /// </remarks>
+    public RadarDatabase(IMongoClient client, string databaseName, IConfiguration config)
+    {
+        _db = client.GetDatabase(databaseName);
+        Start(config);
+    }
+
+    private void Start(IConfiguration config)
+    {
+        // Skippable, for tests.
+        //
+        // Forty-three index creations per database is wasted work against a database that holds
+        // a handful of documents and is thrown away at the end of the test. The tests that
+        // genuinely depend on an index build it themselves in their own constructor, and say why:
+        // this runs fire-and-forget, so relying on it would make the test a race.
+        if (!config.GetValue("MongoDB:EnsureIndexes", true)) return;
+
         // Run index creation in background so cold boot and the first HTTP request are instantaneous
         _ = Task.Run(() =>
         {

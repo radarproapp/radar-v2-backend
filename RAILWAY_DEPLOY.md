@@ -47,6 +47,8 @@ Set these on the Railway service (**Variables**):
 | `Auth__Jwt__Key` | a long random secret — **required** in Production (the app refuses to start with the checked-in dev key) |
 | `Auth__Jwt__Issuer` | `Radar` (optional; defaults to `Radar`) |
 | `Auth__Jwt__Audience` | `Radar` (optional; defaults to `Radar`) |
+| `Auth__SuperAdminEmails__0` | an email address — **required for anyone to reach `/admin` at all** (see below) |
+| `Auth__AdminEmails__0` | an email address granted the lesser admin role (optional) |
 | `OpenRouter__ApiKey` | your OpenRouter key (optional — AI features fall back deterministically when empty) |
 | `Cors__AllowedOrigins__0` | your SPA origin, e.g. `https://your-app.netlify.app` |
 | `ASPNETCORE_ENVIRONMENT` | `Production` |
@@ -56,6 +58,48 @@ Set these on the Railway service (**Variables**):
 - `https://*.vercel.app` and `https://*.netlify.app` origins are always allowed by the
   CORS policy (`Program.cs`), so `Cors__AllowedOrigins__0` is only needed for a custom
   domain.
+
+---
+
+## Admin access
+
+There is **no screen that makes somebody an admin**, and no field to edit. Both admin roles come
+from the two lists above and nowhere else (`Services/AdminRoles.cs`), so the set of people who can
+read every account cannot be widened by whoever is already signed in.
+
+Ship with both lists empty and **nobody can get in** — `/admin/login` answers *"Invalid email or
+password"* for every credential, including a correct one, because it refuses to issue a token for a
+non-admin result.
+
+### Granting it
+
+1. Sign up through the ordinary flow with the address you want to use.
+2. Set `Auth__SuperAdminEmails__0` to that address in the Railway **Variables** tab, and redeploy.
+3. Sign out, then sign in at `/admin/login` with the same password.
+
+The role is resolved on **every login**, not just at sign-up, so step 3 is all it takes — there is
+nothing to change in the database. Add more with `__1`, `__2`, and so on.
+
+Put these in the Railway dashboard, not in `appsettings.json`. Both repos are public, and a
+committed list of admin addresses is a list of accounts worth attacking.
+
+### The two roles
+
+| | Platform Admin | Super Admin |
+|---|---|---|
+| Review queue, sources, moderation, activity, engagement | yes | yes |
+| Campaign board and judging, referral board | yes | yes |
+| `GET /api/admin/users/{id}` — one named person's reading history | **no** | yes, and logged |
+
+### Taking it away
+
+Remove the address from the list and redeploy. That is enough: the role is re-checked against the
+configuration on every request, so an admin token already in circulation stops working within
+thirty seconds (the cache window) rather than lasting out its thirty-day expiry.
+
+Check who currently has access under **Admin Team** in the dashboard, or at `GET /api/admin/team`.
+It lists addresses that have been granted access but never signed in, which is access nobody is
+watching.
 
 ---
 

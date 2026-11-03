@@ -7,7 +7,7 @@ using RadarV2.Data.Documents;
 namespace RadarV2.Services;
 
 /// <summary>
-/// Lets an account end the sessions that are already open on it.
+/// Decides whether a token that is correctly signed should still be served.
 /// </summary>
 /// <remarks>
 /// A JWT is a signed assertion, not a row somewhere: once issued it is good until it expires, and
@@ -33,6 +33,13 @@ namespace RadarV2.Services;
 /// database hiccup signs out everybody on the platform, and to exploit the open side you need a
 /// stolen token and an outage at the same moment. Logged as a warning so it is not silent.</item>
 /// </list>
+///
+/// It answers a second question on the same cached read: whether the configuration still grants
+/// this account the role its token claims. Admin roles come from two lists of addresses in
+/// configuration, and removing an address only demoted the account at its next sign-in - which
+/// is no use against the one case that matters, somebody whose access is being withdrawn and who
+/// has no reason to sign in again. They kept full admin for the remaining thirty days of the
+/// token they were already holding.
 /// </remarks>
 public class SessionVersionGuard
 {
@@ -53,16 +60,29 @@ public class SessionVersionGuard
 
     private readonly RadarDatabase _db;
     private readonly IMemoryCache _cache;
+    private readonly IConfiguration _config;
     private readonly ILogger<SessionVersionGuard> _log;
 
-    public SessionVersionGuard(RadarDatabase db, IMemoryCache cache, ILogger<SessionVersionGuard> log)
+    public SessionVersionGuard(RadarDatabase db, IMemoryCache cache, IConfiguration config, ILogger<SessionVersionGuard> log)
     {
         _db = db;
         _cache = cache;
+        _config = config;
         _log = log;
     }
 
     private static string CacheKey(string userId) => $"session-version:{userId}";
+
+    /// <summary>
+    /// The little of an account this guard needs, cached together.
+    /// </summary>
+    /// <remarks>
+    /// The address as well as the version, because the second question asked here is whether the
+    /// configuration still grants this account the role its token claims - and the token carries
+    /// no email, only an id. One cached read answers both; two separate reads on the auth path
+    /// would not be worth a second question.
+    /// </remarks>
+    private sealed record Account(int TokenVersion, string Email);
 
     /// <summary>
     /// The version this token was stamped with. Zero when there is no stamp or it is unreadable.
@@ -78,10 +98,10 @@ public class SessionVersionGuard
         return int.TryParse(raw, out var version) ? version : 0;
     }
 
-    /// <summary>The version an account's tokens must be at or above to be accepted.</summary>
-    private async Task<int> CurrentVersionAsync(string userId, CancellationToken ct = default)
+    /// <summary>The stored version and address for an account.</summary>
+    private async Task<Account> AccountAsync(string userId, CancellationToken ct = default)
     {
-        if (_cache.TryGetValue(CacheKey(userId), out int cached)) return cached;
+        if (_cache.TryGetValue(CacheKey(userId), out Account? cached) && cached is not null) return cached;
 
         // The whole document rather than a projection of the one field. Every account that
         // existed before this has no such field stored at all, and what a server-side projection
@@ -90,13 +110,13 @@ public class SessionVersionGuard
         // this needs it to be.
         var stored = await _db.Users.Find(u => u.Id == userId).FirstOrDefaultAsync(ct);
 
-        // No such user reads as zero. Nothing in Radar deletes a user row, so the only way here is
-        // a manual delete, and inventing a lockout for a case the product cannot reach would make
-        // a transient miss look like a compromise.
-        var version = stored?.TokenVersion ?? 0;
+        // No such user reads as zero, with no address. Nothing in Radar deletes a user row, so the
+        // only way here is a manual delete, and inventing a lockout for a case the product cannot
+        // reach would make a transient miss look like a compromise.
+        var account = new Account(stored?.TokenVersion ?? 0, stored?.Email ?? string.Empty);
 
-        _cache.Set(CacheKey(userId), version, CacheFor);
-        return version;
+        _cache.Set(CacheKey(userId), account, CacheFor);
+        return account;
     }
 
     /// <summary>
@@ -138,24 +158,69 @@ public class SessionVersionGuard
     /// </remarks>
     public static bool Accepts(int presented, int current) => presented >= current;
 
+    /// <summary>Whether to keep serving a token, and what to say when not.</summary>
+    public sealed record Verdict(bool Ok, string? Reason = null)
+    {
+        public static readonly Verdict Serve = new(true);
+    }
+
+    /// <summary>
+    /// Whether a token claims a role the configuration no longer grants.
+    /// </summary>
+    /// <remarks>
+    /// The missing half of revocation. Taking an address out of the admin lists demoted the
+    /// account the next time it signed in, which is no use at all against the case that matters:
+    /// somebody whose access is being withdrawn is holding a thirty-day token and has no reason
+    /// to sign in again. Their existing token kept full admin for a month.
+    ///
+    /// Checked on the claim rather than on the stored role, because the claim is what
+    /// authorisation actually reads. Only ever takes access away - a token claiming User is left
+    /// alone even if the address has since been granted admin, because widening a live session's
+    /// powers from a background config read is not something this should be able to do. A new
+    /// admin signs in again and gets a token that says so.
+    /// </remarks>
+    private bool StillEntitled(ClaimsPrincipal principal, Account account)
+    {
+        var claimed = principal.FindFirst(ClaimTypes.Role)?.Value;
+        if (!AdminRoles.IsAdmin(claimed)) return true;
+
+        // An account row with no address cannot be checked against a list of addresses. Left
+        // alone rather than demoted, for the same reason a missing row reads as version zero.
+        if (string.IsNullOrEmpty(account.Email)) return true;
+
+        var entitled = AdminRoles.For(_config, account.Email);
+
+        // Super admin keeps a platform admin token working. The claim is the lesser power, and
+        // refusing it would sign out somebody who had just been promoted.
+        return entitled == claimed || entitled == AdminRoles.SuperAdmin;
+    }
+
     /// <summary>
     /// Whether a request carrying this token should still be served.
     /// </summary>
-    public async Task<bool> IsStillValidAsync(ClaimsPrincipal? principal, CancellationToken ct = default)
+    public async Task<Verdict> CheckAsync(ClaimsPrincipal? principal, CancellationToken ct = default)
     {
         var userId = principal?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (string.IsNullOrWhiteSpace(userId)) return true;
+        if (principal is null || string.IsNullOrWhiteSpace(userId)) return Verdict.Serve;
 
         try
         {
-            return Accepts(VersionOf(principal), await CurrentVersionAsync(userId, ct));
+            var account = await AccountAsync(userId, ct);
+
+            if (!Accepts(VersionOf(principal), account.TokenVersion))
+                return new Verdict(false, "This session ended when the account password was changed.");
+
+            if (!StillEntitled(principal, account))
+                return new Verdict(false, "This account no longer has admin access.");
+
+            return Verdict.Serve;
         }
         catch (Exception ex)
         {
             // See the fail-open note on the class. Signing out the platform over a dropped
             // connection is the worse failure.
             _log.LogWarning(ex, "Could not check whether a session is still current; allowing it.");
-            return true;
+            return Verdict.Serve;
         }
     }
 }
