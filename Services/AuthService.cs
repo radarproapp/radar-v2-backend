@@ -11,17 +11,20 @@ public class AuthService : IAuthService
     private readonly RadarDatabase _db;
     private readonly IConfiguration _config;
     private readonly IEmailSender _email;
+    private readonly AdminRoleService _roles;
     private readonly ILogger<AuthService> _log;
 
     public AuthService(
         RadarDatabase db,
         IConfiguration config,
         IEmailSender email,
+        AdminRoleService roles,
         ILogger<AuthService> log)
     {
         _db = db;
         _config = config;
         _email = email;
+        _roles = roles;
         _log = log;
     }
 
@@ -73,7 +76,7 @@ public class AuthService : IAuthService
 
         var profileId = Guid.NewGuid().ToString();
         var userId = Guid.NewGuid().ToString();
-        var role = ResolveRole(email);
+        var role = await ResolveRoleAsync(email);
 
         var user = new UserDocument
         {
@@ -172,7 +175,7 @@ public class AuthService : IAuthService
             .Find(p => p.Id == user.ProfileId)
             .FirstOrDefaultAsync();
 
-        var role = ResolveRole(email);
+        var role = await ResolveRoleAsync(email);
 
         if (profile is not null && profile.Role != role)
         {
@@ -209,10 +212,14 @@ public class AuthService : IAuthService
     /// </summary>
     /// <remarks>
     /// This used to fall back to the role already stored on the account, so a role survived its
-    /// address being removed from the configuration forever and the only way to take it back was
-    /// editing MongoDB by hand. Removing an address now demotes the account the next time it
-    /// signs in - and <see cref="SessionVersionGuard"/> refuses the admin token it is already
-    /// holding, so it does not have to wait for that.
+    /// address being removed forever and the only way to take it back was editing MongoDB by
+    /// hand. Taking it away now demotes the account the next time it signs in - and
+    /// <see cref="SessionVersionGuard"/> refuses the admin token it is already holding, so it
+    /// does not have to wait for that.
+    ///
+    /// Through <see cref="AdminRoleService"/> rather than straight at the configuration, so a
+    /// person invited from inside the product gets the role too - and so this and the guard
+    /// cannot disagree about who is an admin.
     /// </remarks>
-    private string ResolveRole(string email) => AdminRoles.For(_config, email);
+    private Task<string> ResolveRoleAsync(string email) => _roles.RoleForAsync(email);
 }

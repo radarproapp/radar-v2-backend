@@ -40,10 +40,12 @@ public class AdminRevocationTests
             .Select((email, index) => (email, index))
             .ToDictionary(entry => $"Auth:SuperAdminEmails:{entry.index}", entry => (string?)entry.email);
 
+        var config = new ConfigurationBuilder().AddInMemoryCollection(values).Build();
+
         return new SessionVersionGuard(
             _db,
             new MemoryCache(new MemoryCacheOptions()),
-            new ConfigurationBuilder().AddInMemoryCollection(values).Build(),
+            new AdminRoleService(_db, config, new MemoryCache(new MemoryCacheOptions())),
             NullLogger<SessionVersionGuard>.Instance);
     }
 

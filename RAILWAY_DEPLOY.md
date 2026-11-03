@@ -63,15 +63,18 @@ Set these on the Railway service (**Variables**):
 
 ## Admin access
 
-There is **no screen that makes somebody an admin**, and no field to edit. Both admin roles come
-from the two lists above and nowhere else (`Services/AdminRoles.cs`), so the set of people who can
-read every account cannot be widened by whoever is already signed in.
+Admin access comes from two places, and they are deliberately not equal:
 
-Ship with both lists empty and **nobody can get in** — `/admin/login` answers *"Invalid email or
-password"* for every credential, including a correct one, because it refuses to issue a token for a
-non-admin result.
+- **These environment variables.** Only a deploy can change them. They are the way back in if the
+  grants below are ever wrong, and nothing inside the product will edit them.
+- **Invites from the Admin Team screen.** A Super Admin adds an address, it is stored in the
+  database, and it takes effect without a redeploy.
 
-### Granting it
+Ship with both lists empty and no invites, and **nobody can get in** — `/admin/login` answers
+*"Invalid email or password"* for every credential, including a correct one, because it refuses to
+issue a token for a non-admin result. So the first admin has to come from here.
+
+### The first admin
 
 1. Sign up through the ordinary flow with the address you want to use.
 2. Set `Auth__SuperAdminEmails__0` to that address in the Railway **Variables** tab, and redeploy.
@@ -82,6 +85,36 @@ nothing to change in the database. Add more with `__1`, `__2`, and so on.
 
 Put these in the Railway dashboard, not in `appsettings.json`. Both repos are public, and a
 committed list of admin addresses is a list of accounts worth attacking.
+
+### Everybody after that
+
+Use **Admin Team** in the dashboard. A Super Admin types an address, picks a role, and that is it —
+no redeploy. The person does not need a Radar account yet; the access waits for the address, and
+somebody who is already signed in gets it the next time they sign in.
+
+Keep at least one address in `Auth__SuperAdminEmails__0` anyway. It is the account that can still
+get in when the database is wrong.
+
+### The two roles
+
+| | Platform Admin | Super Admin |
+|---|---|---|
+| Review queue, sources, moderation, activity, engagement | yes | yes |
+| Campaign board and judging, referral board | yes | yes |
+| `GET /api/admin/users/{id}` — one named person's reading history | **no** | yes, and logged |
+| Invite and remove admins | **no** | yes, and logged |
+
+### Taking it away
+
+For an invited admin, press **Remove** on the Admin Team screen. For one of these variables, take
+the address out and redeploy.
+
+Either way it takes effect within about thirty seconds, not at that person's next sign-in: the role
+a token claims is re-checked against both sources on every request, so an admin token already in
+circulation stops working rather than lasting out its thirty-day expiry.
+
+Two rules the screen enforces, both so the set can never empty: nobody can remove their own access,
+and nobody can remove an address granted by these variables.
 
 ### The two roles
 

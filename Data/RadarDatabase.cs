@@ -183,6 +183,7 @@ public class RadarDatabase
 
     /// <summary>What participants made about Radar, somewhere else.</summary>
     public IMongoCollection<ContentSubmission> ContentSubmissions => _db.GetCollection<ContentSubmission>("content_submissions");
+    public IMongoCollection<AdminGrant> AdminGrants => _db.GetCollection<AdminGrant>("admin_grants");
     public IMongoCollection<UserContentWhy> UserContentWhys => _db.GetCollection<UserContentWhy>("user_content_why");
     public IMongoCollection<ContentReport> ContentReports => _db.GetCollection<ContentReport>("content_reports");
     public IMongoCollection<BehavioralSignal> BehavioralSignals => _db.GetCollection<BehavioralSignal>("behavioral_signals");
@@ -440,6 +441,14 @@ public class RadarDatabase
                 Builders<ContentSubmission>.IndexKeys
                     .Ascending(c => c.ProfileId)
                     .Ascending(c => c.LinkKey),
+                new CreateIndexOptions { Unique = true })));
+
+        // One row per address, so granting twice updates rather than duplicates. Not partial on
+        // RevokedAt: a revoked grant keeps the address, and re-granting the same person has to
+        // land on the row that already carries their history rather than beside it.
+        Safely("AdminGrants", () => AdminGrants.Indexes.CreateOne(
+            new CreateIndexModel<AdminGrant>(
+                Builders<AdminGrant>.IndexKeys.Ascending(g => g.Email),
                 new CreateIndexOptions { Unique = true })));
 
         // The acquisition board groups by who brought somebody in.

@@ -13,15 +13,32 @@ public class AdminController : ControllerBase
 {
     private readonly RadarDatabase _db;
     private readonly AdminInsightsService _insights;
-    private readonly IConfiguration _config;
+    private readonly AdminRoleService _roles;
     private readonly ILogger<AdminController> _log;
 
-    public AdminController(RadarDatabase db, AdminInsightsService insights, IConfiguration config, ILogger<AdminController> log)
+    public AdminController(RadarDatabase db, AdminInsightsService insights, AdminRoleService roles, ILogger<AdminController> log)
     {
         _db = db;
         _insights = insights;
-        _config = config;
+        _roles = roles;
         _log = log;
+    }
+
+    /// <summary>
+    /// The signed-in admin's own address, for recording who granted or revoked what.
+    /// </summary>
+    /// <remarks>
+    /// Read from the account rather than off the token, because the token carries a display name
+    /// and an id but no address - and "who let them in" has to be answerable by somebody who was
+    /// not here, which an internal id is not.
+    /// </remarks>
+    private async Task<string> MyEmailAsync(CancellationToken ct)
+    {
+        var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrWhiteSpace(userId)) return string.Empty;
+
+        var me = await _db.Users.Find(u => u.Id == userId).FirstOrDefaultAsync(ct);
+        return me?.Email ?? string.Empty;
     }
 
     /// <summary>
@@ -132,11 +149,10 @@ public class AdminController : ControllerBase
     /// behind it, and so no way to answer "who can get in here", which is a question the owner of
     /// a product has to be able to ask.
     ///
-    /// Read from configuration rather than from the accounts collection, because configuration is
-    /// what grants the role: an address added to a list is an admin whether or not anybody has
-    /// signed in with it yet, and that pending access is exactly what a review of this screen
-    /// needs to see. Each row is then matched against the accounts, so the answer separates "has
-    /// an account and can sign in" from "has been granted access and never used it".
+    /// Rows come from both places that can grant access: the deployment's configuration, and
+    /// grants made here by a super admin. Each row says which, because the two are not equally
+    /// removable - a configured one is the way back in and nothing in this controller will touch
+    /// it.
     ///
     /// Visible to both admin roles. Which addresses hold the keys is not one person's private
     /// data - it is the shape of the trusted set, and an admin who cannot see who else is an
@@ -145,54 +161,141 @@ public class AdminController : ControllerBase
     [HttpGet("team")]
     public async Task<IActionResult> GetTeamAsync(CancellationToken ct = default)
     {
-        var configured = Services.AdminRoles.Configured(_config).ToList();
-
-        var emails = configured.Select(entry => entry.Email).ToList();
+        var members = await _roles.TeamAsync(ct);
+        var emails = members.Select(member => member.Email).ToList();
 
         var accounts = emails.Count == 0
             ? []
             : await _db.Users
-                .Find(Builders<Data.Documents.UserDocument>.Filter.In(u => u.Email, emails.Select(e => e.ToLowerInvariant())))
-                .Project(u => new { u.Email, u.ProfileId, u.CreatedAt })
+                .Find(Builders<Data.Documents.UserDocument>.Filter.In(u => u.Email, emails))
+                .Project(u => new { u.Email, u.CreatedAt })
                 .ToListAsync(ct);
 
         var byEmail = accounts
             .GroupBy(account => account.Email, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
 
-        var team = configured.Select(entry =>
-        {
-            var account = byEmail.GetValueOrDefault(entry.Email);
-
-            return new
-            {
-                email = entry.Email,
-                role = entry.Role,
-
-                // Whether anybody has actually signed up with this address. An address granted
-                // access that has never been used is not a person on the team yet, and showing
-                // it as one would overstate who is watching the product.
-                hasAccount = account is not null,
-                joinedAt = account?.CreatedAt,
-            };
-        }).ToList();
+        var me = await MyEmailAsync(ct);
 
         return Ok(new
         {
-            team,
+            team = members.Select(member =>
+            {
+                var account = byEmail.GetValueOrDefault(member.Email);
 
-            // Said rather than left to be inferred from an empty list. No configured admin at all
-            // is the state this deployment starts in, and it is indistinguishable from a failed
-            // read unless the screen says which it is.
-            configuredCount = team.Count,
+                return new
+                {
+                    email = member.Email,
+                    role = member.Role,
+                    fromConfiguration = member.FromConfiguration,
+                    grantedByEmail = member.GrantedByEmail,
+                    grantedAt = member.GrantedAt,
 
-            // How the list is changed, on the screen that shows it. The alternative is that
-            // somebody looks for a button to add an admin, does not find one, and concludes the
-            // feature is missing rather than deliberately out of the product.
-            grantedBy = "Auth__SuperAdminEmails__n and Auth__AdminEmails__n in the deployment environment",
+                    // Whether anybody has actually signed up with this address. An address
+                    // granted access that has never been used is not a person on the team yet,
+                    // and showing it as one would overstate who is watching the product.
+                    hasAccount = account is not null,
+                    joinedAt = account?.CreatedAt,
+
+                    // Said per row, so the screen does not have to work out the rules again and
+                    // get them subtly different. A configured row is the way back in; your own
+                    // row is what guarantees somebody is always left.
+                    canRevoke = !member.FromConfiguration
+                                && !string.Equals(member.Email, me, StringComparison.OrdinalIgnoreCase),
+                };
+            }),
+
+            // Whether this admin may change the list at all, so the screen can show the form to
+            // the people it will work for rather than to everybody.
+            canInvite = User.IsInRole(Services.AdminRoles.SuperAdmin),
 
             you = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "User",
+
+            // How a row that cannot be removed here is removed, on the screen that shows it.
+            configuredBy = "Auth__SuperAdminEmails__n and Auth__AdminEmails__n in the deployment environment",
         });
+    }
+
+    public sealed class TeamInviteRequest
+    {
+        [System.ComponentModel.DataAnnotations.Required]
+        public string Email { get; set; } = string.Empty;
+
+        /// <summary>Which of the two roles. Anything else is refused rather than defaulted.</summary>
+        [System.ComponentModel.DataAnnotations.Required]
+        public string Role { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// Gives an address admin access.
+    /// </summary>
+    /// <remarks>
+    /// Super admin only, and logged. Granting admin is the one action here that widens who can
+    /// see everything, so the lesser role cannot take it - a platform admin who could appoint a
+    /// super admin would be a super admin with extra steps.
+    ///
+    /// By address rather than by account, because the person usually does not have one yet. The
+    /// grant waits until they sign up, or until they next sign in if they already use Radar.
+    /// </remarks>
+    [Authorize(Roles = Services.AdminRoles.SuperAdmin)]
+    [HttpPost("team")]
+    public async Task<IActionResult> InviteAsync([FromBody] TeamInviteRequest request, CancellationToken ct = default)
+    {
+        var me = await MyEmailAsync(ct);
+        var email = AdminRoleService.Normalise(request.Email);
+
+        var result = await _roles.GrantAsync(email, request.Role, me, ct);
+
+        if (result is AdminRoleService.GrantResult.Granted)
+        {
+            _log.LogInformation("Admin {Admin} granted {Role} to {Email}", me, request.Role, email);
+            return NoContent();
+        }
+
+        return BadRequest(new
+        {
+            error = result switch
+            {
+                AdminRoleService.GrantResult.NotAnEmail => "That does not look like an email address.",
+                AdminRoleService.GrantResult.NotARole => "A role is either SuperAdmin or PlatformAdmin.",
+                _ => "That address already has admin access from the deployment configuration.",
+            },
+        });
+    }
+
+    /// <summary>
+    /// Takes admin access back.
+    /// </summary>
+    /// <remarks>
+    /// Takes effect within the half-minute the grant table is cached, not at that person's next
+    /// sign-in - the role a token claims is re-checked against this on every request, so an
+    /// admin token already in circulation stops working rather than lasting out its thirty days.
+    /// </remarks>
+    [Authorize(Roles = Services.AdminRoles.SuperAdmin)]
+    [HttpDelete("team/{email}")]
+    public async Task<IActionResult> RevokeAsync(string email, CancellationToken ct = default)
+    {
+        var me = await MyEmailAsync(ct);
+        var result = await _roles.RevokeAsync(email, me, ct);
+
+        if (result is AdminRoleService.RevokeResult.Revoked)
+        {
+            _log.LogInformation("Admin {Admin} revoked admin access for {Email}", me, AdminRoleService.Normalise(email));
+            return NoContent();
+        }
+
+        return result switch
+        {
+            AdminRoleService.RevokeResult.NotGranted => NotFound(new { error = "That address does not have a grant to remove." }),
+            AdminRoleService.RevokeResult.CannotRevokeYourself => BadRequest(new
+            {
+                error = "You cannot remove your own access. Ask another Super Admin to do it.",
+            }),
+            _ => BadRequest(new
+            {
+                error = "That address is an admin because of the deployment configuration, so it has to be removed there.",
+            }),
+        };
     }
 
     [HttpGet("queue")]

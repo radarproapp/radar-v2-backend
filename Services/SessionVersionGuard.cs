@@ -60,14 +60,14 @@ public class SessionVersionGuard
 
     private readonly RadarDatabase _db;
     private readonly IMemoryCache _cache;
-    private readonly IConfiguration _config;
+    private readonly AdminRoleService _roles;
     private readonly ILogger<SessionVersionGuard> _log;
 
-    public SessionVersionGuard(RadarDatabase db, IMemoryCache cache, IConfiguration config, ILogger<SessionVersionGuard> log)
+    public SessionVersionGuard(RadarDatabase db, IMemoryCache cache, AdminRoleService roles, ILogger<SessionVersionGuard> log)
     {
         _db = db;
         _cache = cache;
-        _config = config;
+        _roles = roles;
         _log = log;
     }
 
@@ -179,7 +179,7 @@ public class SessionVersionGuard
     /// powers from a background config read is not something this should be able to do. A new
     /// admin signs in again and gets a token that says so.
     /// </remarks>
-    private bool StillEntitled(ClaimsPrincipal principal, Account account)
+    private async Task<bool> StillEntitledAsync(ClaimsPrincipal principal, Account account, CancellationToken ct)
     {
         var claimed = principal.FindFirst(ClaimTypes.Role)?.Value;
         if (!AdminRoles.IsAdmin(claimed)) return true;
@@ -188,7 +188,7 @@ public class SessionVersionGuard
         // alone rather than demoted, for the same reason a missing row reads as version zero.
         if (string.IsNullOrEmpty(account.Email)) return true;
 
-        var entitled = AdminRoles.For(_config, account.Email);
+        var entitled = await _roles.RoleForAsync(account.Email, ct);
 
         // Super admin keeps a platform admin token working. The claim is the lesser power, and
         // refusing it would sign out somebody who had just been promoted.
@@ -210,7 +210,7 @@ public class SessionVersionGuard
             if (!Accepts(VersionOf(principal), account.TokenVersion))
                 return new Verdict(false, "This session ended when the account password was changed.");
 
-            if (!StillEntitled(principal, account))
+            if (!await StillEntitledAsync(principal, account, ct))
                 return new Verdict(false, "This account no longer has admin access.");
 
             return Verdict.Serve;

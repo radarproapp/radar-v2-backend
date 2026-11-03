@@ -144,6 +144,11 @@ builder.Services.AddMemoryCache();
 // Singleton so the cached versions are shared by the whole process: the request that ends an
 // account's sessions and the next request to arrive have to agree, and a per-request cache would
 // mean a database read on every authenticated call instead.
+// Singleton beside the guard that uses it, and safe to be one: its dependencies are the
+// singleton database, the configuration and the memory cache. It holds the grant table for
+// thirty seconds, so making it per-request would mean a collection read on every request to
+// answer a question whose answer changes about once a month.
+builder.Services.AddSingleton<AdminRoleService>();
 builder.Services.AddSingleton<SessionVersionGuard>();
 
 // CORS for the React SPA (separate origin in dev and once deployed).
