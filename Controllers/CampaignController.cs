@@ -37,7 +37,17 @@ public class CampaignController : ControllerBase
 
     public sealed class SubmitRequest
     {
-        [Required, Url, StringLength(500, MinimumLength = 8)]
+        /// <summary>
+        /// Where the thing is.
+        /// </summary>
+        /// <remarks>
+        /// Length only. <c>[Url]</c> used to be here and three comments called it a url check;
+        /// it is a scheme-prefix test that accepts a bare "https://", a newline mid-path and
+        /// markup in the path, while rejecting a link with a leading space that the service was
+        /// about to trim one line later. <see cref="SubmittedLink"/> does the real check, after
+        /// the trim.
+        /// </remarks>
+        [Required, StringLength(500, MinimumLength = 8)]
         public string Link { get; set; } = string.Empty;
 
         [Required, StringLength(40, MinimumLength = 2)]
@@ -51,21 +61,30 @@ public class CampaignController : ControllerBase
     /// Submits something the participant made.
     /// </summary>
     /// <remarks>
-    /// The link is checked for being a URL and for nothing else. Radar does not fetch it:
-    /// following a link a stranger submitted, from the server, is a request Radar's own address
-    /// makes on somebody else's behalf, and the only thing it would buy is confirming the page
-    /// exists - which the human reviewer does anyway.
+    /// Radar does not fetch the link: following a link a stranger submitted, from the server, is
+    /// a request Radar's own address makes on somebody else's behalf, and the only thing it
+    /// would buy is confirming the page exists - which the human reviewer does anyway.
     /// </remarks>
     [HttpPost("submissions")]
     public async Task<IActionResult> SubmitAsync([FromBody] SubmitRequest request, CancellationToken ct = default)
     {
-        if (!ModelState.IsValid) return ValidationProblem();
-
         var profile = await _profiles.GetCurrentUserAsync();
         if (profile is null) return NotFound(new { error = "Profile not found" });
 
-        var submission = await _content.SubmitAsync(profile, request.Link, request.Platform, request.Note, ct);
-        return Ok(Describe(submission));
+        var (result, submission) = await _content.SubmitAsync(profile, request.Link, request.Platform, request.Note, ct);
+
+        return result switch
+        {
+            ContentSubmissionService.SubmitResult.LinkNotUsable => BadRequest(new
+            {
+                error = "That does not look like a link anybody can open. Paste the full address, starting with https://",
+            }),
+            ContentSubmissionService.SubmitResult.AlreadySubmitted => Conflict(new
+            {
+                error = "You have already submitted this link.",
+            }),
+            _ => Ok(Describe(submission!, forReviewer: false)),
+        };
     }
 
     /// <summary>Everything this participant has submitted, and what came of it.</summary>
@@ -76,18 +95,49 @@ public class CampaignController : ControllerBase
         if (profile is null) return NotFound(new { error = "Profile not found" });
 
         var mine = await _content.MineAsync(profile.Id, ct);
-        return Ok(mine.Select(Describe));
+        return Ok(mine.Select(submission => Describe(submission, forReviewer: false)));
+    }
+
+    /// <summary>Takes back a submission nobody has marked yet.</summary>
+    [HttpDelete("submissions/{id}")]
+    public async Task<IActionResult> WithdrawAsync(string id, CancellationToken ct = default)
+    {
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        return await _content.WithdrawAsync(id, profile.Id, ct) switch
+        {
+            ContentSubmissionService.WithdrawResult.Withdrawn => NoContent(),
+            ContentSubmissionService.WithdrawResult.AlreadyJudged => Conflict(new
+            {
+                error = "Somebody has already reviewed this, so it cannot be taken back.",
+            }),
+            _ => NotFound(new { error = "Submission not found" }),
+        };
     }
 
     // ── reviewing ────────────────────────────────────────────────────────────
 
-    /// <summary>The review queue: everything submitted, unjudged first.</summary>
+    /// <summary>
+    /// The review queue, and separately the tail of what has been marked.
+    /// </summary>
+    /// <remarks>
+    /// Two lists rather than one sorted one. This was the newest five hundred submissions
+    /// reordered to put unjudged first, so once five hundred judged submissions existed, older
+    /// unjudged work was unreachable at every value of the limit - while the board went on
+    /// reporting it as awaiting review.
+    /// </remarks>
     [Authorize(Roles = "SuperAdmin,PlatformAdmin")]
     [HttpGet("submissions")]
     public async Task<IActionResult> QueueAsync([FromQuery] int limit = 200, CancellationToken ct = default)
     {
         var queue = await _content.QueueAsync(limit, ct);
-        return Ok(queue.Select(Describe));
+
+        return Ok(new
+        {
+            waiting = queue.Waiting.Select(submission => Describe(submission, forReviewer: true)),
+            recentlyJudged = queue.RecentlyJudged.Select(submission => Describe(submission, forReviewer: true)),
+        });
     }
 
     public sealed class JudgeRequest
@@ -106,19 +156,39 @@ public class CampaignController : ControllerBase
         public string Verdict { get; set; } = string.Empty;
     }
 
-    /// <summary>Records a reviewer's mark and their reason for it.</summary>
+    /// <summary>
+    /// Records a reviewer's mark and their reason for it.
+    /// </summary>
+    /// <remarks>
+    /// Not on their own work. An admin is a participant too - submitting only asks that a caller
+    /// be signed in - so an admin could post a link and award it a ten, and the one field
+    /// recording who did it was never read back by anything.
+    ///
+    /// A mark that replaces an earlier one does not erase it. Both are kept and both are
+    /// returned to a reviewer, because a number that decides a prize has to stay arguable.
+    /// </remarks>
     [Authorize(Roles = "SuperAdmin,PlatformAdmin")]
     [HttpPost("submissions/{id}/judge")]
     public async Task<IActionResult> JudgeAsync(string id, [FromBody] JudgeRequest request, CancellationToken ct = default)
     {
-        if (!ModelState.IsValid) return ValidationProblem();
-
         var reviewer = await _profiles.GetCurrentUserAsync();
         if (reviewer is null) return NotFound(new { error = "Profile not found" });
 
-        var judged = await _content.JudgeAsync(id, reviewer.Id, new ContentSubmissionService.Judgement(request.Score, request.Verdict), ct);
+        var judgement = new ContentSubmissionService.Judgement(request.Score, request.Verdict);
 
-        return judged ? NoContent() : NotFound(new { error = "Submission not found" });
+        return await _content.JudgeAsync(id, reviewer.Id, judgement, ct) switch
+        {
+            ContentSubmissionService.JudgeResult.Recorded => NoContent(),
+            ContentSubmissionService.JudgeResult.CannotJudgeOwnWork => StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                error = "You cannot mark your own submission. Ask another reviewer to look at it.",
+            }),
+            ContentSubmissionService.JudgeResult.ScoreOutOfRange => BadRequest(new
+            {
+                error = "A mark is between 1 and 10.",
+            }),
+            _ => NotFound(new { error = "Submission not found" }),
+        };
     }
 
     /// <summary>
@@ -134,14 +204,27 @@ public class CampaignController : ControllerBase
         {
             makers = board.Makers,
             awaitingReview = board.AwaitingReview,
+
+            // Said on the board rather than left for a reader to infer, because every tiebreak
+            // that was tried rewarded volume in some form and somebody will ask why there isn't
+            // one.
+            rankedOn = "The best single piece. Equal best marks are left equal.",
         });
     }
 
-    private static object Describe(ContentSubmission submission) => new
+    /// <param name="forReviewer">
+    /// Whether the caller may see who marked it. A participant gets the mark and the reason; the
+    /// reviewer's identity is for the admin view, where accountability is the point.
+    /// </param>
+    private static object Describe(ContentSubmission submission, bool forReviewer) => new
     {
         submission.Id,
         submission.ProfileId,
-        submission.ProfileName,
+
+        // Said rather than rendered blank. A name starts empty and stays empty until the person
+        // answers, so an unnamed row is the ordinary case, not a corner.
+        profileName = submission.ProfileName.Trim().Length > 0 ? submission.ProfileName.Trim() : "Unnamed participant",
+
         submission.Link,
         submission.Platform,
         submission.Note,
@@ -153,5 +236,16 @@ public class CampaignController : ControllerBase
         // Explicit, so a client never has to decide what a null score means. Null is "nobody
         // has looked yet", which is not the same as a low mark.
         isJudged = submission.IsJudged,
+
+        judgedBy = forReviewer ? submission.JudgedByProfileId : null,
+
+        // Every mark it has carried, so one that replaced another is visible rather than gone.
+        marks = submission.Marks.Select(mark => new
+        {
+            mark.Score,
+            mark.Verdict,
+            byProfileId = forReviewer ? mark.ByProfileId : null,
+            mark.At,
+        }),
     };
 }

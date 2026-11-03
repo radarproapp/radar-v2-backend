@@ -69,6 +69,20 @@ public class VersionController : ControllerBase
             // visible at a glance rather than discovered through its effects.
             database = _config["MongoDB:DatabaseName"],
 
+            // Indexes that could not be created, and why.
+            //
+            // Forty-three of them are declared in one method, which used to run as straight-line
+            // code inside a fire-and-forget task with an empty catch: the first failure - one
+            // duplicate-key collision on existing data in any of the thirteen unique indexes -
+            // abandoned every index after it, with no log line and nothing to query. Each
+            // creation is now attempted on its own, and whatever did not happen is reported
+            // here, because a missing index in production is indistinguishable from a slow
+            // query and every test stays green on a database small enough not to care.
+            //
+            // The collection and the kind of failure, never the driver's message: a
+            // duplicate-key message names the colliding value, and this endpoint is open.
+            missingIndexes = Data.RadarDatabase.MissingIndexes,
+
             // What the platform calls this environment, as opposed to what the app believes it is.
             // ASPNETCORE_ENVIRONMENT defaults to Production when unset, so a staging service with
             // the variable missing reports itself as production and reads the production database

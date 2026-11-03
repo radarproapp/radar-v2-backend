@@ -49,11 +49,78 @@ public class RadarDatabase
             {
                 EnsureIndexes();
             }
-            catch
+            catch (Exception failure)
             {
-                // Non-fatal if index creation fails or races during startup
+                // Non-fatal if index creation fails or races during startup, but not silent.
+                // Each creation is wrapped individually by Safely, so reaching here means
+                // something outside one of them went wrong.
+                Record("EnsureIndexes", failure);
             }
         });
+    }
+
+    /// <summary>
+    /// Indexes that were not created, and why.
+    /// </summary>
+    /// <remarks>
+    /// Static because the failure outlives the request that caused it and nothing else would
+    /// ever know. An index missing in production looks exactly like a slow query: the collection
+    /// scans, the page takes four seconds, and every test stays green because the test database
+    /// is small enough not to care.
+    /// </remarks>
+    private static readonly List<string> IndexFailures = [];
+
+    /// <summary>
+    /// What index creation could not do, for the version endpoint to report.
+    /// </summary>
+    /// <remarks>
+    /// The collection and the kind of failure, and not the driver's message. A duplicate-key
+    /// message names the colliding value - <c>dup key: { ReferralCode: "ABC2345" }</c>, or an
+    /// email address - and the endpoint reporting this is unauthenticated. The full message goes
+    /// to the log, where it is already behind the platform's own access control.
+    /// </remarks>
+    public static IReadOnlyList<string> MissingIndexes
+    {
+        get { lock (IndexFailures) return [.. IndexFailures]; }
+    }
+
+    private static void Record(string what, Exception failure)
+    {
+        var safeToPublish = $"{what}: {failure.GetType().Name}";
+        lock (IndexFailures)
+        {
+            if (!IndexFailures.Contains(safeToPublish)) IndexFailures.Add(safeToPublish);
+        }
+
+        // Console, because this runs from a constructor with no logger in reach and the
+        // alternative is nothing at all. The message belongs here and not in the response.
+        Console.Error.WriteLine($"[index] {safeToPublish} — {failure.Message}");
+    }
+
+    /// <summary>
+    /// Creates one index, and lets the next one be attempted if it fails.
+    /// </summary>
+    /// <remarks>
+    /// Forty-three index creations ran as one straight-line method, so the first exception
+    /// abandoned every index after it - inside a fire-and-forget task with an empty catch, which
+    /// is the exact failure StartupRepairService was written to stop doing: "an exception
+    /// anywhere in that long method silently abandons everything after it, and there is no way
+    /// to find out whether a repair ran - which is exactly what happened."
+    ///
+    /// One duplicate-key collision on pre-existing data in any of the thirteen unique indexes
+    /// was enough to leave the collections declared after it unindexed, with no log line and
+    /// nothing to query.
+    /// </remarks>
+    private static void Safely(string collection, Action create)
+    {
+        try
+        {
+            create();
+        }
+        catch (Exception failure)
+        {
+            Record(collection, failure);
+        }
     }
 
     // ── Typed collection accessors ──────────────────────────────────────────
@@ -106,72 +173,72 @@ public class RadarDatabase
     {
         // Expire after a fortnight: these exist to diagnose what is breaking now, and an
         // unbounded error log is its own outage waiting to happen.
-        ErrorLog.Indexes.CreateOne(
+        Safely("ErrorLog", () => ErrorLog.Indexes.CreateOne(
             new CreateIndexModel<ErrorLogDoc>(
                 Builders<ErrorLogDoc>.IndexKeys.Ascending(e => e.OccurredAt),
-                new CreateIndexOptions { ExpireAfter = TimeSpan.FromDays(14) }));
+                new CreateIndexOptions { ExpireAfter = TimeSpan.FromDays(14) })));
 
-        Users.Indexes.CreateOne(
+        Safely("Users", () => Users.Indexes.CreateOne(
             new CreateIndexModel<UserDocument>(
                 Builders<UserDocument>.IndexKeys.Ascending(u => u.Email),
-                new CreateIndexOptions { Unique = true }));
+                new CreateIndexOptions { Unique = true })));
 
-        ContentItems.Indexes.CreateOne(
+        Safely("ContentItems", () => ContentItems.Indexes.CreateOne(
             new CreateIndexModel<ContentItem>(
-                Builders<ContentItem>.IndexKeys.Ascending(c => c.Type)));
+                Builders<ContentItem>.IndexKeys.Ascending(c => c.Type))));
 
-        ContentItems.Indexes.CreateOne(
+        Safely("ContentItems", () => ContentItems.Indexes.CreateOne(
             new CreateIndexModel<ContentItem>(
                 Builders<ContentItem>.IndexKeys.Ascending(c => c.UrlHash),
-                new CreateIndexOptions { Sparse = true }));
+                new CreateIndexOptions { Sparse = true })));
 
-        ContentItems.Indexes.CreateOne(
+        Safely("ContentItems", () => ContentItems.Indexes.CreateOne(
             new CreateIndexModel<ContentItem>(
                 Builders<ContentItem>.IndexKeys
                     .Ascending(c => c.Layer)
-                    .Descending(c => c.PublishedAt)));
+                    .Descending(c => c.PublishedAt))));
 
         // Serves the feed's keyset sort — (PublishedAt desc, _id desc) — so Mongo can walk the index
         // in order instead of materialising and sorting the collection in memory. This is what makes
         // the cursor cheap: the predicate seeks straight to a position rather than skipping N rows.
-        ContentItems.Indexes.CreateOne(
+        Safely("ContentItems", () => ContentItems.Indexes.CreateOne(
             new CreateIndexModel<ContentItem>(
                 Builders<ContentItem>.IndexKeys
                     .Descending(c => c.PublishedAt)
-                    .Descending(c => c.Id)));
+                    .Descending(c => c.Id))));
 
-        SavedItems.Indexes.CreateOne(
+        Safely("SavedItems", () => SavedItems.Indexes.CreateOne(
             new CreateIndexModel<SavedItemDoc>(
                 Builders<SavedItemDoc>.IndexKeys
                     .Ascending(s => s.UserId)
                     .Ascending(s => s.ContentItemId),
-                new CreateIndexOptions { Unique = true }));
+                new CreateIndexOptions { Unique = true })));
 
-        DismissedItems.Indexes.CreateOne(
+        Safely("DismissedItems", () => DismissedItems.Indexes.CreateOne(
             new CreateIndexModel<DismissedItemDoc>(
                 Builders<DismissedItemDoc>.IndexKeys
                     .Ascending(d => d.UserId)
                     .Ascending(d => d.ContentItemId),
-                new CreateIndexOptions { Unique = true }));
+                new CreateIndexOptions { Unique = true })));
 
-        LibraryDocuments.Indexes.CreateOne(
+        Safely("LibraryDocuments", () => LibraryDocuments.Indexes.CreateOne(
             new CreateIndexModel<LibraryDocument>(
                 Builders<LibraryDocument>.IndexKeys
                     .Ascending(d => d.Category)
-                    .Descending(d => d.Year)));
+                    .Descending(d => d.Year))));
 
-        SavedOpportunities.Indexes.CreateOne(
+        Safely("SavedOpportunities", () => SavedOpportunities.Indexes.CreateOne(
             new CreateIndexModel<SavedOpportunityDoc>(
                 Builders<SavedOpportunityDoc>.IndexKeys
                     .Ascending(s => s.UserId)
                     .Ascending(s => s.OpportunityId),
-                new CreateIndexOptions { Unique = true }));
+                new CreateIndexOptions { Unique = true })));
 
         // Supports the expiry filter the opportunity list applies before per-user scoring, so that
         // query never degrades into a full collection scan.
-        Opportunities.Indexes.CreateOne(
+        Safely("Opportunities", () => Opportunities.Indexes.CreateOne(
             new CreateIndexModel<Opportunity>(
-                Builders<Opportunity>.IndexKeys.Ascending(o => o.Deadline)));
+                Builders<Opportunity>.IndexKeys.Ascending(o => o.Deadline))));
 
         // The order the scoring window is taken in.
         //
@@ -179,28 +246,28 @@ public class RadarDatabase
         // index the server had to fetch and sort every non-expired document to find them - on
         // every opportunities page and every first page of the feed. Most job postings carry no
         // deadline, so "non-expired" is nearly the whole collection.
-        Opportunities.Indexes.CreateOne(
+        Safely("Opportunities", () => Opportunities.Indexes.CreateOne(
             new CreateIndexModel<Opportunity>(
-                Builders<Opportunity>.IndexKeys.Descending(o => o.DiscoveredAt)));
+                Builders<Opportunity>.IndexKeys.Descending(o => o.DiscoveredAt))));
 
         // The link is the identity, and ingestion checks it once per entry - up to forty times
         // per feed, six feeds a run. Unindexed that is a collection scan each time; unique, the
         // database enforces the thing the check is for rather than trusting a read that another
         // run could already have invalidated.
-        Opportunities.Indexes.CreateOne(
+        Safely("Opportunities", () => Opportunities.Indexes.CreateOne(
             new CreateIndexModel<Opportunity>(
                 Builders<Opportunity>.IndexKeys.Ascending(o => o.Url),
-                new CreateIndexOptions { Unique = true, Sparse = true }));
+                new CreateIndexOptions { Unique = true, Sparse = true })));
 
-        DailyOpportunityBatches.Indexes.CreateOne(
+        Safely("DailyOpportunityBatches", () => DailyOpportunityBatches.Indexes.CreateOne(
             new CreateIndexModel<DailyOpportunityBatchDoc>(
                 Builders<DailyOpportunityBatchDoc>.IndexKeys
                     .Ascending(d => d.UserId)
-                    .Descending(d => d.Date)));
+                    .Descending(d => d.Date))));
 
-        OpportunityImpressions.Indexes.CreateOne(
+        Safely("OpportunityImpressions", () => OpportunityImpressions.Indexes.CreateOne(
             new CreateIndexModel<OpportunityImpressionDoc>(
-                Builders<OpportunityImpressionDoc>.IndexKeys.Ascending(d => d.UserId)));
+                Builders<OpportunityImpressionDoc>.IndexKeys.Ascending(d => d.UserId))));
 
         // Data repairs used to sit here, and that was the bug.
         //
@@ -213,64 +280,64 @@ public class RadarDatabase
         // /api/version.
 
         // Looked up by hash on redemption, and swept by expiry so spent tokens do not accumulate.
-        PasswordResets.Indexes.CreateOne(
+        Safely("PasswordResets", () => PasswordResets.Indexes.CreateOne(
             new CreateIndexModel<PasswordResetDoc>(
-                Builders<PasswordResetDoc>.IndexKeys.Ascending(r => r.TokenHash)));
+                Builders<PasswordResetDoc>.IndexKeys.Ascending(r => r.TokenHash))));
 
-        PasswordResets.Indexes.CreateOne(
+        Safely("PasswordResets", () => PasswordResets.Indexes.CreateOne(
             new CreateIndexModel<PasswordResetDoc>(
                 Builders<PasswordResetDoc>.IndexKeys.Ascending(r => r.ExpiresAt),
-                new CreateIndexOptions { ExpireAfter = TimeSpan.Zero }));
+                new CreateIndexOptions { ExpireAfter = TimeSpan.Zero })));
 
         // One row per user per item, upserted on every heartbeat, and read on every media page.
-        PlaybackProgress.Indexes.CreateOne(
+        Safely("PlaybackProgress", () => PlaybackProgress.Indexes.CreateOne(
             new CreateIndexModel<PlaybackProgressDoc>(
                 Builders<PlaybackProgressDoc>.IndexKeys
                     .Ascending(p => p.UserId)
                     .Ascending(p => p.ContentItemId),
-                new CreateIndexOptions { Unique = true }));
+                new CreateIndexOptions { Unique = true })));
 
-        AppliedOpportunities.Indexes.CreateOne(
+        Safely("AppliedOpportunities", () => AppliedOpportunities.Indexes.CreateOne(
             new CreateIndexModel<AppliedOpportunityDoc>(
                 Builders<AppliedOpportunityDoc>.IndexKeys
                     .Ascending(a => a.UserId)
                     .Ascending(a => a.OpportunityId),
-                new CreateIndexOptions { Unique = true }));
+                new CreateIndexOptions { Unique = true })));
 
-        IngestionQuotas.Indexes.CreateOne(
+        Safely("IngestionQuotas", () => IngestionQuotas.Indexes.CreateOne(
             new CreateIndexModel<IngestionQuotaDoc>(
                 Builders<IngestionQuotaDoc>.IndexKeys
                     .Ascending(q => q.Service)
                     .Ascending(q => q.Month),
-                new CreateIndexOptions { Unique = true }));
+                new CreateIndexOptions { Unique = true })));
 
-        Sources.Indexes.CreateOne(
+        Safely("Sources", () => Sources.Indexes.CreateOne(
             new CreateIndexModel<SourceProfile>(
                 Builders<SourceProfile>.IndexKeys.Ascending(s => s.Name),
-                new CreateIndexOptions { Unique = true }));
+                new CreateIndexOptions { Unique = true })));
 
-        Topics.Indexes.CreateOne(
+        Safely("Topics", () => Topics.Indexes.CreateOne(
             new CreateIndexModel<TopicProfile>(
                 Builders<TopicProfile>.IndexKeys.Ascending(t => t.Name),
-                new CreateIndexOptions { Unique = true }));
+                new CreateIndexOptions { Unique = true })));
 
-        Notes.Indexes.CreateOne(
+        Safely("Notes", () => Notes.Indexes.CreateOne(
             new CreateIndexModel<Note>(
                 Builders<Note>.IndexKeys
                     .Ascending(n => n.UserId)
-                    .Descending(n => n.EditedAt)));
+                    .Descending(n => n.EditedAt))));
 
-        CapturedItems.Indexes.CreateOne(
+        Safely("CapturedItems", () => CapturedItems.Indexes.CreateOne(
             new CreateIndexModel<CapturedItem>(
                 Builders<CapturedItem>.IndexKeys
                     .Ascending(c => c.UserId)
-                    .Descending(c => c.CapturedAt)));
+                    .Descending(c => c.CapturedAt))));
 
-        Comparisons.Indexes.CreateOne(
+        Safely("Comparisons", () => Comparisons.Indexes.CreateOne(
             new CreateIndexModel<PolicyComparison>(
                 Builders<PolicyComparison>.IndexKeys
                     .Ascending(c => c.UserId)
-                    .Descending(c => c.CreatedAt)));
+                    .Descending(c => c.CreatedAt))));
 
         // The order the Mentor's conversation list is read in: this learner's threads, most
         // recently used first. Same shape as the notes index above, and there for the same
@@ -280,102 +347,124 @@ public class RadarDatabase
         // LastMessageAt descending rather than CreatedAt, because that is the field the sort
         // actually names; an index on the wrong one of the two reads as an index and does
         // nothing.
-        MentorConversations.Indexes.CreateOne(
+        Safely("MentorConversations", () => MentorConversations.Indexes.CreateOne(
             new CreateIndexModel<MentorConversation>(
                 Builders<MentorConversation>.IndexKeys
                     .Ascending(c => c.UserId)
-                    .Descending(c => c.LastMessageAt)));
+                    .Descending(c => c.LastMessageAt))));
 
         // Lets the cache sweep by age without scanning; the TTL itself is enforced in code so a
         // stale entry can still be served if a later lookup needs a fallback.
-        YouTubeSearches.Indexes.CreateOne(
+        Safely("YouTubeSearches", () => YouTubeSearches.Indexes.CreateOne(
             new CreateIndexModel<YouTubeSearchCacheDoc>(
-                Builders<YouTubeSearchCacheDoc>.IndexKeys.Descending(d => d.CachedAt)));
+                Builders<YouTubeSearchCacheDoc>.IndexKeys.Descending(d => d.CachedAt))));
 
-        UserProjects.Indexes.CreateOne(
+        Safely("UserProjects", () => UserProjects.Indexes.CreateOne(
             new CreateIndexModel<StudioProject>(
                 Builders<StudioProject>.IndexKeys
                     .Ascending(p => p.UserId)
-                    .Descending(p => p.CreatedAt)));
+                    .Descending(p => p.CreatedAt))));
 
-        UserSubscriptions.Indexes.CreateOne(
+        Safely("UserSubscriptions", () => UserSubscriptions.Indexes.CreateOne(
             new CreateIndexModel<UserSubscriptionDoc>(
                 Builders<UserSubscriptionDoc>.IndexKeys
                     .Ascending(s => s.UserId),
-                new CreateIndexOptions { Unique = true }));
+                new CreateIndexOptions { Unique = true })));
 
         // A referral code is unique, and most profiles do not have one - issued on request
         // rather than at sign-up. Sparse for that reason: without it, every profile without a
         // code would collide on null with every other one.
-        Profiles.Indexes.CreateOne(
+        Safely("Profiles", () => Profiles.Indexes.CreateOne(
             new CreateIndexModel<UserProfile>(
                 Builders<UserProfile>.IndexKeys.Ascending(p => p.ReferralCode),
-                new CreateIndexOptions { Unique = true, Sparse = true }));
+                new CreateIndexOptions { Unique = true, Sparse = true })));
 
-        // A participant's own submissions, newest first, and the reviewer's queue.
-        ContentSubmissions.Indexes.CreateOne(
+        // A participant's own submissions, newest first.
+        Safely("ContentSubmissions", () => ContentSubmissions.Indexes.CreateOne(
             new CreateIndexModel<ContentSubmission>(
                 Builders<ContentSubmission>.IndexKeys
                     .Ascending(c => c.ProfileId)
-                    .Descending(c => c.SubmittedAt)));
+                    .Descending(c => c.SubmittedAt))));
 
-        ContentSubmissions.Indexes.CreateOne(
+        // The review queue: what nobody has marked, oldest first, and the judged tail.
+        //
+        // Deliberately not sparse, unlike the referral code above. A sparse index omits the
+        // documents whose field is absent - which is exactly the set the queue is looking for,
+        // since an unjudged submission has no Score element at all. Measured: sparse serves the
+        // {$ne: null} half and leaves the {Score: null} half a collection scan.
+        Safely("ContentSubmissions", () => ContentSubmissions.Indexes.CreateOne(
             new CreateIndexModel<ContentSubmission>(
-                Builders<ContentSubmission>.IndexKeys.Descending(c => c.SubmittedAt)));
+                Builders<ContentSubmission>.IndexKeys
+                    .Ascending(c => c.Score)
+                    .Ascending(c => c.SubmittedAt))));
+
+        Safely("ContentSubmissions", () => ContentSubmissions.Indexes.CreateOne(
+            new CreateIndexModel<ContentSubmission>(
+                Builders<ContentSubmission>.IndexKeys.Descending(c => c.JudgedAt))));
+
+        // One video, once. Submitting the same link five times was free and used to raise a
+        // participant's standing on the board; the key is case folded with the trailing slash
+        // dropped, because that is how the same video differs when pasted from two apps.
+        Safely("ContentSubmissions", () => ContentSubmissions.Indexes.CreateOne(
+            new CreateIndexModel<ContentSubmission>(
+                Builders<ContentSubmission>.IndexKeys
+                    .Ascending(c => c.ProfileId)
+                    .Ascending(c => c.LinkKey),
+                new CreateIndexOptions { Unique = true })));
 
         // The acquisition board groups by who brought somebody in.
-        Profiles.Indexes.CreateOne(
+        Safely("Profiles", () => Profiles.Indexes.CreateOne(
             new CreateIndexModel<UserProfile>(
-                Builders<UserProfile>.IndexKeys.Ascending(p => p.ReferredByUserId)));
+                Builders<UserProfile>.IndexKeys.Ascending(p => p.ReferredByUserId))));
 
-        AnalyticsEvents.Indexes.CreateOne(
+        Safely("AnalyticsEvents", () => AnalyticsEvents.Indexes.CreateOne(
             new CreateIndexModel<AnalyticsEvent>(
                 Builders<AnalyticsEvent>.IndexKeys
                     .Ascending(e => e.Type)
-                    .Descending(e => e.CreatedAt)));
+                    .Descending(e => e.CreatedAt))));
 
-        AnalyticsEvents.Indexes.CreateOne(
+        Safely("AnalyticsEvents", () => AnalyticsEvents.Indexes.CreateOne(
             new CreateIndexModel<AnalyticsEvent>(
                 Builders<AnalyticsEvent>.IndexKeys
                     .Ascending(e => e.UserId)
-                    .Descending(e => e.CreatedAt)));
+                    .Descending(e => e.CreatedAt))));
 
         // The window on its own. CreatedAt is a suffix in both indexes above, so neither of them
         // helps a query that filters on nothing but the date - and the admin activity chart does
         // exactly that. Measured: a collection scan over 60,000 events, every document examined.
-        AnalyticsEvents.Indexes.CreateOne(
+        Safely("AnalyticsEvents", () => AnalyticsEvents.Indexes.CreateOne(
             new CreateIndexModel<AnalyticsEvent>(
-                Builders<AnalyticsEvent>.IndexKeys.Descending(e => e.CreatedAt)));
+                Builders<AnalyticsEvent>.IndexKeys.Descending(e => e.CreatedAt))));
 
-        UserContentWhys.Indexes.CreateOne(
+        Safely("UserContentWhys", () => UserContentWhys.Indexes.CreateOne(
             new CreateIndexModel<UserContentWhy>(
                 Builders<UserContentWhy>.IndexKeys
                     .Ascending(w => w.UserId)
                     .Ascending(w => w.ContentItemId),
-                new CreateIndexOptions { Unique = true }));
+                new CreateIndexOptions { Unique = true })));
 
-        ContentReports.Indexes.CreateOne(
+        Safely("ContentReports", () => ContentReports.Indexes.CreateOne(
             new CreateIndexModel<ContentReport>(
                 Builders<ContentReport>.IndexKeys
                     .Ascending(r => r.IsResolved)
-                    .Descending(r => r.CreatedAt)));
+                    .Descending(r => r.CreatedAt))));
 
-        ContentReports.Indexes.CreateOne(
+        Safely("ContentReports", () => ContentReports.Indexes.CreateOne(
             new CreateIndexModel<ContentReport>(
-                Builders<ContentReport>.IndexKeys.Ascending(r => r.Source)));
+                Builders<ContentReport>.IndexKeys.Ascending(r => r.Source))));
 
-        BehavioralSignals.Indexes.CreateOne(
+        Safely("BehavioralSignals", () => BehavioralSignals.Indexes.CreateOne(
             new CreateIndexModel<BehavioralSignal>(
                 Builders<BehavioralSignal>.IndexKeys
                     .Ascending(s => s.UserId)
                     .Ascending(s => s.Term)
                     .Ascending(s => s.Source),
-                new CreateIndexOptions { Unique = true }));
+                new CreateIndexOptions { Unique = true })));
 
-        BehavioralSignals.Indexes.CreateOne(
+        Safely("BehavioralSignals", () => BehavioralSignals.Indexes.CreateOne(
             new CreateIndexModel<BehavioralSignal>(
                 Builders<BehavioralSignal>.IndexKeys
                     .Ascending(s => s.UserId)
-                    .Descending(s => s.UpdatedAt)));
+                    .Descending(s => s.UpdatedAt))));
     }
 }
