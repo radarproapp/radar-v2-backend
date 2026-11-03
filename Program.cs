@@ -149,6 +149,9 @@ builder.Services.AddMemoryCache();
 // thirty seconds, so making it per-request would mean a collection read on every request to
 // answer a question whose answer changes about once a month.
 builder.Services.AddSingleton<AdminRoleService>();
+
+// Scoped: it writes, logs and sends, and has no cache of its own to share.
+builder.Services.AddScoped<AdminInviteService>();
 builder.Services.AddSingleton<SessionVersionGuard>();
 
 // CORS for the React SPA (separate origin in dev and once deployed).

@@ -23,5 +23,9 @@ public interface IAuthService
     /// own.
     /// </remarks>
     Task<AuthResult> RegisterAsync(string name, string email, string password, string? referralCode = null);
-    Task<AuthResult> LoginAsync(string email, string password);
+    /// <param name="adminAccount">
+    /// Whether to sign in to the separate admin login rather than the ordinary account. The two
+    /// are different rows on the same address and must not reach each other.
+    /// </param>
+    Task<AuthResult> LoginAsync(string email, string password, bool adminAccount = false);
 }

@@ -1,3 +1,5 @@
+using MongoDB.Bson.Serialization.Attributes;
+
 namespace RadarV2.Data.Documents;
 
 public class UserDocument
@@ -5,8 +7,35 @@ public class UserDocument
     public string Id { get; set; } = Guid.NewGuid().ToString();
     public string Email { get; set; } = string.Empty;
     public string PasswordHash { get; set; } = string.Empty;
+    /// <summary>The profile this account reads Radar as, or empty for an admin account.</summary>
     public string ProfileId { get; set; } = string.Empty;
+
     public string Role { get; set; } = "User";
+
+    /// <summary>
+    /// What kind of account this is: absent for an ordinary one, "Admin" for an admin login.
+    /// </summary>
+    /// <remarks>
+    /// One person can hold both. Running Radar and using Radar are different jobs, and doing the
+    /// first should not mean the second is one password away - an admin session that is also a
+    /// logged-in reader is a session where the wrong tab can do real damage.
+    ///
+    /// Absent rather than "User", deliberately. Every row written before this has no such field,
+    /// and the unique index is on (Email, Kind): a missing field indexes as null, so an existing
+    /// account and a new admin account for the same address are two distinct keys with no
+    /// backfill and no migration. Writing "User" into new rows would instead make
+    /// <c>{ada@x.com, null}</c> and <c>{ada@x.com, "User"}</c> distinct too, which would quietly
+    /// allow two ordinary accounts on one address.
+    /// </remarks>
+    [BsonIgnoreIfNull]
+    public string? Kind { get; set; }
+
+    /// <summary>The value <see cref="Kind"/> carries for an admin login.</summary>
+    public const string AdminKind = "Admin";
+
+    /// <summary>Whether this is the separate admin login rather than somebody's ordinary account.</summary>
+    [BsonIgnore]
+    public bool IsAdminAccount => Kind == AdminKind;
 
     /// <summary>
     /// Bumped whenever every existing session should stop working.

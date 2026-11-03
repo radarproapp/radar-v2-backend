@@ -14,13 +14,20 @@ public class AdminController : ControllerBase
     private readonly RadarDatabase _db;
     private readonly AdminInsightsService _insights;
     private readonly AdminRoleService _roles;
+    private readonly AdminInviteService _invites;
     private readonly ILogger<AdminController> _log;
 
-    public AdminController(RadarDatabase db, AdminInsightsService insights, AdminRoleService roles, ILogger<AdminController> log)
+    public AdminController(
+        RadarDatabase db,
+        AdminInsightsService insights,
+        AdminRoleService roles,
+        AdminInviteService invites,
+        ILogger<AdminController> log)
     {
         _db = db;
         _insights = insights;
         _roles = roles;
+        _invites = invites;
         _log = log;
     }
 
@@ -164,12 +171,19 @@ public class AdminController : ControllerBase
         var members = await _roles.TeamAsync(ct);
         var emails = members.Select(member => member.Email).ToList();
 
+        // Admin rows only. The same person's ordinary account is a different row on the same
+        // address, and counting it here would show somebody as having an admin login when all
+        // they have is a Radar account.
         var accounts = emails.Count == 0
             ? []
             : await _db.Users
-                .Find(Builders<Data.Documents.UserDocument>.Filter.In(u => u.Email, emails))
+                .Find(Builders<Data.Documents.UserDocument>.Filter.And(
+                    Builders<Data.Documents.UserDocument>.Filter.In(u => u.Email, emails),
+                    Builders<Data.Documents.UserDocument>.Filter.Eq(u => u.Kind, Data.Documents.UserDocument.AdminKind)))
                 .Project(u => new { u.Email, u.CreatedAt })
                 .ToListAsync(ct);
+
+        var pending = await _invites.PendingAsync(ct);
 
         var byEmail = accounts
             .GroupBy(account => account.Email, StringComparer.OrdinalIgnoreCase)
@@ -191,11 +205,12 @@ public class AdminController : ControllerBase
                     grantedByEmail = member.GrantedByEmail,
                     grantedAt = member.GrantedAt,
 
-                    // Whether anybody has actually signed up with this address. An address
-                    // granted access that has never been used is not a person on the team yet,
-                    // and showing it as one would overstate who is watching the product.
+                    // Whether the admin account exists yet. An invitation nobody has opened is
+                    // access that has been handed out and not taken up, and showing it as a
+                    // member of the team would overstate who is actually watching.
                     hasAccount = account is not null,
                     joinedAt = account?.CreatedAt,
+                    invitePending = pending.Contains(member.Email),
 
                     // Said per row, so the screen does not have to work out the rules again and
                     // get them subtly different. A configured row is the way back in; your own
@@ -237,15 +252,16 @@ public class AdminController : ControllerBase
     }
 
     /// <summary>
-    /// Gives an address admin access.
+    /// Invites somebody to create an admin account.
     /// </summary>
     /// <remarks>
-    /// Super admin only, and logged. Granting admin is the one action here that widens who can
+    /// Super admin only, and logged. Inviting an admin is the one action here that widens who can
     /// see everything, so the lesser role cannot take it - a platform admin who could appoint a
     /// super admin would be a super admin with extra steps.
     ///
-    /// By address rather than by account, because the person usually does not have one yet. The
-    /// grant waits until they sign up, or until they next sign in if they already use Radar.
+    /// This does not give an existing account a role. It sends a link, and what that creates is a
+    /// separate admin login with its own password, on the same address as whatever ordinary
+    /// account the person already has.
     /// </remarks>
     [Authorize(Roles = Services.AdminRoles.SuperAdmin)]
     [HttpPost("team")]
@@ -254,11 +270,11 @@ public class AdminController : ControllerBase
         var me = await MyEmailAsync(ct);
         var email = AdminRoleService.Normalise(request.Email);
 
-        var result = await _roles.GrantAsync(email, request.Role, me, ct);
+        var result = await _invites.InviteAsync(email, request.Role, me, ct);
 
-        if (result is AdminRoleService.GrantResult.Granted)
+        if (result is AdminInviteService.InviteResult.Sent)
         {
-            _log.LogInformation("Admin {Admin} granted {Role} to {Email}", me, request.Role, email);
+            _log.LogInformation("Admin {Admin} invited {Email} as {Role}", me, email, request.Role);
             return NoContent();
         }
 
@@ -266,15 +282,16 @@ public class AdminController : ControllerBase
         {
             error = result switch
             {
-                AdminRoleService.GrantResult.NotAnEmail => "That does not look like an email address.",
-                AdminRoleService.GrantResult.NotARole => "A role is either SuperAdmin or PlatformAdmin.",
-                AdminRoleService.GrantResult.AlreadyHasIt => "That address already has admin access from the deployment configuration.",
+                AdminInviteService.InviteResult.NotAnEmail => "That does not look like an email address.",
+                AdminInviteService.InviteResult.NotARole => "A role is either SuperAdmin or PlatformAdmin.",
+                AdminInviteService.InviteResult.AlreadyHasIt => "That address already has admin access from the deployment configuration.",
+                AdminInviteService.InviteResult.AlreadyHasAnAdminAccount => "That address already has an admin account. Remove it first if you want to start again.",
 
                 // Both of these mean nothing was written. Said so explicitly, because "could not
                 // send" is otherwise read as "they have access but missed the email".
-                AdminRoleService.GrantResult.EmailNotConfigured =>
+                AdminInviteService.InviteResult.EmailNotConfigured =>
                     "No email is configured for this deployment, so nobody can be invited. Add the address to Auth__SuperAdminEmails__n or Auth__AdminEmails__n instead.",
-                _ => "The invite email could not be sent, so no access was given. Check the address and try again.",
+                _ => "The invitation could not be sent, so nothing was changed. Check the address and try again.",
             },
         });
     }

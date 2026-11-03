@@ -67,8 +67,11 @@ public class AuthService : IAuthService
 
     public async Task<AuthResult> RegisterAsync(string name, string email, string password, string? referralCode = null)
     {
+        // Ordinary accounts only. An admin login on the same address is a different row, and a
+        // person who runs Radar is entitled to use it too - refusing their sign-up because they
+        // already hold admin would be the opposite of what the two accounts are for.
         var existing = await _db.Users
-            .Find(u => u.Email == email.ToLowerInvariant())
+            .Find(u => u.Email == email.ToLowerInvariant() && u.Kind == null)
             .FirstOrDefaultAsync();
 
         if (existing != null)
@@ -162,10 +165,20 @@ public class AuthService : IAuthService
         }
     }
 
-    public async Task<AuthResult> LoginAsync(string email, string password)
+    /// <summary>
+    /// Signs in to one kind of account.
+    /// </summary>
+    /// <param name="adminAccount">
+    /// Which row to look for. The two logins must not reach each other: /login finding an admin
+    /// row would hand somebody's ordinary session the admin role, and /admin/login finding an
+    /// ordinary row would undo the separation the two accounts exist to create.
+    /// </param>
+    public async Task<AuthResult> LoginAsync(string email, string password, bool adminAccount = false)
     {
+        var kind = adminAccount ? UserDocument.AdminKind : null;
+
         var user = await _db.Users
-            .Find(u => u.Email == email.ToLowerInvariant())
+            .Find(u => u.Email == email.ToLowerInvariant() && u.Kind == kind)
             .FirstOrDefaultAsync();
 
         if (user == null || !BCrypt.Net.BCrypt.Verify(password, user.PasswordHash))

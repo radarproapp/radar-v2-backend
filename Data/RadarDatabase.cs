@@ -184,6 +184,7 @@ public class RadarDatabase
     /// <summary>What participants made about Radar, somewhere else.</summary>
     public IMongoCollection<ContentSubmission> ContentSubmissions => _db.GetCollection<ContentSubmission>("content_submissions");
     public IMongoCollection<AdminGrant> AdminGrants => _db.GetCollection<AdminGrant>("admin_grants");
+    public IMongoCollection<AdminInviteDoc> AdminInvites => _db.GetCollection<AdminInviteDoc>("admin_invites");
     public IMongoCollection<UserContentWhy> UserContentWhys => _db.GetCollection<UserContentWhy>("user_content_why");
     public IMongoCollection<ContentReport> ContentReports => _db.GetCollection<ContentReport>("content_reports");
     public IMongoCollection<BehavioralSignal> BehavioralSignals => _db.GetCollection<BehavioralSignal>("behavioral_signals");
@@ -209,10 +210,19 @@ public class RadarDatabase
                 Builders<ErrorLogDoc>.IndexKeys.Ascending(e => e.OccurredAt),
                 new CreateIndexOptions { ExpireAfter = TimeSpan.FromDays(14) })));
 
+        // (Email, Kind), not Email alone. One person can hold both an ordinary account and a
+        // separate admin login on the same address, and those are two rows. Kind is absent on an
+        // ordinary account - including every row written before it existed - so it indexes as
+        // null and cannot collide with the "Admin" row beside it.
+        //
+        // The old Email-only unique index has to go for that to work. StartupRepairService drops
+        // it, because a drop belongs somewhere its failure is reported rather than in here.
         Safely("Users", () => Users.Indexes.CreateOne(
             new CreateIndexModel<UserDocument>(
-                Builders<UserDocument>.IndexKeys.Ascending(u => u.Email),
-                new CreateIndexOptions { Unique = true })));
+                Builders<UserDocument>.IndexKeys
+                    .Ascending(u => u.Email)
+                    .Ascending(u => u.Kind),
+                new CreateIndexOptions { Unique = true, Name = "Email_Kind" })));
 
         Safely("ContentItems", () => ContentItems.Indexes.CreateOne(
             new CreateIndexModel<ContentItem>(
@@ -442,6 +452,16 @@ public class RadarDatabase
                     .Ascending(c => c.ProfileId)
                     .Ascending(c => c.LinkKey),
                 new CreateIndexOptions { Unique = true })));
+
+        // Redeeming looks a token up by its hash, on a path somebody is waiting at.
+        Safely("AdminInvites", () => AdminInvites.Indexes.CreateOne(
+            new CreateIndexModel<AdminInviteDoc>(
+                Builders<AdminInviteDoc>.IndexKeys.Ascending(i => i.TokenHash),
+                new CreateIndexOptions { Unique = true })));
+
+        Safely("AdminInvites", () => AdminInvites.Indexes.CreateOne(
+            new CreateIndexModel<AdminInviteDoc>(
+                Builders<AdminInviteDoc>.IndexKeys.Ascending(i => i.Email))));
 
         // One row per address, so granting twice updates rather than duplicates. Not partial on
         // RevokedAt: a revoked grant keeps the address, and re-granting the same person has to

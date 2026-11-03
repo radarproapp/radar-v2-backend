@@ -18,17 +18,20 @@ public class AuthController : ControllerBase
     private readonly IConfiguration _config;
     private readonly PasswordResetService _resets;
     private readonly IEmailSender _email;
+    private readonly AdminInviteService _invites;
 
     public AuthController(
         IAuthService auth,
         IConfiguration config,
         PasswordResetService resets,
-        IEmailSender email)
+        IEmailSender email,
+        AdminInviteService invites)
     {
         _auth = auth;
         _config = config;
         _resets = resets;
         _email = email;
+        _invites = invites;
     }
 
     public sealed class RegisterRequest
@@ -142,13 +145,73 @@ public class AuthController : ControllerBase
     {
         if (!ModelState.IsValid) return ValidationProblem();
 
-        // Use the same credential and role resolution path as regular login,
-        // but never issue an admin token for a non-admin result.
-        var result = await _auth.LoginAsync(request.Email.Trim(), request.Password);
-        if (!result.Success || result.Role is not ("PlatformAdmin" or "SuperAdmin"))
+        // The admin row on this address, never the ordinary one. The same person may hold both,
+        // and signing in here with their reader password must not work - that is the whole point
+        // of there being two.
+        //
+        // The role check stays as well as the kind check. An admin account whose access has since
+        // been revoked is still an admin-kind row, and it must stop working.
+        var result = await _auth.LoginAsync(request.Email.Trim(), request.Password, adminAccount: true);
+
+        // The break-glass, and the only place the two logins are allowed to meet.
+        //
+        // An address listed in Auth__SuperAdminEmails or Auth__AdminEmails can reach the admin
+        // area with its ordinary account. Without this the first admin on a new deployment could
+        // never get in: admin accounts are created by invitation, and there is nobody to send
+        // one. It is also the way back when email is down or the grants are wrong, which is what
+        // the configured lists are for.
+        //
+        // Deliberately narrow: only for an address the deployment itself vouches for, and the
+        // role check below still applies.
+        if (!result.Success && Services.AdminRoles.IsAdmin(Services.AdminRoles.For(_config, request.Email.Trim())))
+            result = await _auth.LoginAsync(request.Email.Trim(), request.Password);
+
+        if (!result.Success || !Services.AdminRoles.IsAdmin(result.Role))
             return Unauthorized(new { error = "Invalid email or password." });
 
         return Ok(CreateResponse(result));
+    }
+
+    public sealed class AcceptAdminRequest
+    {
+        [Required] public string Token { get; set; } = string.Empty;
+
+        [Required, MinLength(8)] public string Password { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// Creates an admin account from an invitation.
+    /// </summary>
+    /// <remarks>
+    /// Anonymous, necessarily: the person doing this has no admin account yet, which is the
+    /// whole point. The token is what authorises it - single use, hashed at rest, and seven days
+    /// old at most.
+    ///
+    /// Returns no token of its own. Creating the account and being signed into it are separate
+    /// steps, so a leaked link cannot also hand over a live session - whoever has it still has
+    /// to know the password they just set, and the real owner finds an account they cannot sign
+    /// in to rather than one somebody else is already using.
+    /// </remarks>
+    [AllowAnonymous]
+    [HttpPost("admin/accept")]
+    public async Task<IActionResult> AcceptAdminAsync([FromBody] AcceptAdminRequest request, CancellationToken ct = default)
+    {
+        var result = await _invites.AcceptAsync(request.Token, request.Password, ct);
+
+        return result switch
+        {
+            AdminInviteService.AcceptResult.Created => NoContent(),
+            AdminInviteService.AcceptResult.PasswordTooShort => BadRequest(new { error = "Use at least 8 characters." }),
+            AdminInviteService.AcceptResult.AlreadyAccepted => BadRequest(new
+            {
+                error = "That invitation has already been used. Sign in instead, or ask for a new one.",
+            }),
+
+            // Expired, unknown and revoked-since all answer the same way. Telling them apart
+            // would say whether a token was ever real, which is a question nobody holding a
+            // broken link needs answered.
+            _ => BadRequest(new { error = "That invitation is no longer valid. Ask for a new one." }),
+        };
     }
 
     private AuthResponse CreateResponse(AuthResult result)

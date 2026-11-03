@@ -1,7 +1,9 @@
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
 using MongoDB.Driver;
 using RadarV2.Data;
+using RadarV2.Data.Documents;
 using RadarV2.Models;
 using RadarV2.Services;
 
@@ -61,17 +63,42 @@ public class AdminInviteTests
     }
 
     /// <summary>A service whose configuration lists these addresses as super admins.</summary>
-    private AdminRoleService Service(params string[] configuredSuperAdmins)
+    private AdminRoleService Service(params string[] configuredSuperAdmins) =>
+        new(_db, Config(configuredSuperAdmins), new MemoryCache(new MemoryCacheOptions()), _sent);
+
+    private static IConfiguration Config(params string[] configuredSuperAdmins)
     {
         var values = configuredSuperAdmins
             .Select((email, index) => (email, index))
             .ToDictionary(entry => $"Auth:SuperAdminEmails:{entry.index}", entry => (string?)entry.email);
 
-        return new AdminRoleService(
+        return new ConfigurationBuilder().AddInMemoryCollection(values).Build();
+    }
+
+    /// <summary>The invitation side: the token, the message, and the account it creates.</summary>
+    private AdminInviteService Invites(params string[] configuredSuperAdmins)
+    {
+        var config = Config(configuredSuperAdmins);
+
+        return new AdminInviteService(
             _db,
-            new ConfigurationBuilder().AddInMemoryCollection(values).Build(),
-            new MemoryCache(new MemoryCacheOptions()),
-            _sent);
+            new AdminRoleService(_db, config, new MemoryCache(new MemoryCacheOptions()), _sent),
+            _sent,
+            config,
+            NullLogger<AdminInviteService>.Instance);
+    }
+
+    /// <summary>The token out of the one message that was sent.</summary>
+    private string TokenSent()
+    {
+        var message = Assert.Single(_sent.Sent).Text;
+        var marker = "token=";
+        var at = message.IndexOf(marker, StringComparison.Ordinal);
+
+        Assert.True(at >= 0, "The message carried no link with a token.");
+
+        var rest = message[(at + marker.Length)..];
+        return new string([.. rest.TakeWhile(char.IsAsciiLetterOrDigit)]);
     }
 
     // ── inviting ─────────────────────────────────────────────────────────────
@@ -305,60 +332,169 @@ public class AdminInviteTests
         Assert.Equal(AdminRoles.User, await roles.RoleForAsync("anybody@radar.com"));
     }
 
-    // -- telling them --------------------------------------------------------
+    // -- the invitation ------------------------------------------------------
 
     /// <summary>
     /// An invited person is told, and told enough to judge the message.
     /// </summary>
     /// <remarks>
-    /// An email granting admin rights is exactly the shape of a phishing message. The one thing
-    /// that lets somebody judge it is a name they recognise beside a claim they can check, so
-    /// who granted it and what the role is are both in the text.
+    /// An email offering to set a password on an admin account is exactly the shape of a
+    /// phishing attempt. The one thing that lets somebody judge it is a name they recognise
+    /// beside a claim they can check, so who invited them and what the role is are both in it.
     /// </remarks>
     [Fact]
-    public async Task AnInvitedPersonIsTold()
+    public async Task AnInvitedPersonIsSentALink()
     {
-        await _roles.GrantAsync("staff@radar.com", AdminRoles.PlatformAdmin, "owner@radar.com");
+        Assert.Equal(AdminInviteService.InviteResult.Sent,
+            await Invites("owner@radar.com").InviteAsync("staff@radar.com", AdminRoles.PlatformAdmin, "owner@radar.com"));
 
         var message = Assert.Single(_sent.Sent);
 
         Assert.Equal("staff@radar.com", message.To);
-        Assert.Contains("admin access", message.Subject, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("owner@radar.com", message.Text);
         Assert.Contains("Platform Admin", message.Text);
+        Assert.Contains("/admin/accept?token=", message.Text);
     }
 
-    /// <summary>It says how to get in both ways, because Radar cannot tell which applies.</summary>
+    /// <summary>The message says the admin account is a separate one with its own password.</summary>
     [Fact]
-    public async Task TheMessageSaysWhatToDoWithOrWithoutAnAccount()
+    public async Task TheMessageSaysItIsASeparateAccount()
     {
-        await _roles.GrantAsync("staff@radar.com", AdminRoles.SuperAdmin, "owner@radar.com");
+        await Invites("owner@radar.com").InviteAsync("staff@radar.com", AdminRoles.SuperAdmin, "owner@radar.com");
 
         var message = Assert.Single(_sent.Sent).Text;
 
-        Assert.Contains("sign in again", message, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("create one with this same email", message, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("your own password", message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("separate account", message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("own password", message, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
-    /// A message that could not be sent leaves no access behind it.
+    /// Setting a password creates an admin account, not a role on an existing one.
     /// </summary>
     /// <remarks>
-    /// The invite is the message. An address granted access and never told has a row on a screen
-    /// and no idea it exists, which is indistinguishable from a typo - so the send happens first
-    /// and the write only follows it.
+    /// The person's ordinary Radar account is a different row on the same address and is left
+    /// exactly as it was - same password, same profile, still just a reader.
     /// </remarks>
     [Fact]
-    public async Task AFailedSendGrantsNothing()
+    public async Task AcceptingCreatesASeparateAdminAccount()
+    {
+        await _db.Users.InsertOneAsync(new UserDocument
+        {
+            Id = "reader",
+            Email = "staff@radar.com",
+            PasswordHash = "their-reader-password",
+            ProfileId = "profile-1",
+        });
+
+        var invites = Invites("owner@radar.com");
+        await invites.InviteAsync("staff@radar.com", AdminRoles.PlatformAdmin, "owner@radar.com");
+
+        Assert.Equal(AdminInviteService.AcceptResult.Created,
+            await invites.AcceptAsync(TokenSent(), "a-real-password"));
+
+        var rows = await _db.Users.Find(u => u.Email == "staff@radar.com").ToListAsync();
+        Assert.Equal(2, rows.Count);
+
+        var admin = Assert.Single(rows, row => row.IsAdminAccount);
+        Assert.Equal(AdminRoles.PlatformAdmin, admin.Role);
+        Assert.Empty(admin.ProfileId);
+
+        // Their ordinary account is untouched.
+        var reader = Assert.Single(rows, row => !row.IsAdminAccount);
+        Assert.Equal("their-reader-password", reader.PasswordHash);
+        Assert.Equal("profile-1", reader.ProfileId);
+    }
+
+    /// <summary>An admin account has no profile, so it never counts as a Radar user.</summary>
+    [Fact]
+    public async Task AnAdminAccountHasNoProfile()
+    {
+        var invites = Invites("owner@radar.com");
+        await invites.InviteAsync("staff@radar.com", AdminRoles.PlatformAdmin, "owner@radar.com");
+        await invites.AcceptAsync(TokenSent(), "a-real-password");
+
+        Assert.Empty(await _db.Profiles.Find(FilterDefinition<UserProfile>.Empty).ToListAsync());
+    }
+
+    /// <summary>The link works once.</summary>
+    [Fact]
+    public async Task AnInvitationCannotBeUsedTwice()
+    {
+        var invites = Invites("owner@radar.com");
+        await invites.InviteAsync("staff@radar.com", AdminRoles.PlatformAdmin, "owner@radar.com");
+
+        var token = TokenSent();
+        await invites.AcceptAsync(token, "a-real-password");
+
+        Assert.Equal(AdminInviteService.AcceptResult.AlreadyAccepted,
+            await invites.AcceptAsync(token, "a-different-password"));
+
+        Assert.Single(await _db.Users.Find(u => u.Kind == UserDocument.AdminKind).ToListAsync());
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("not-a-real-token")]
+    public async Task AnUnknownTokenCreatesNothing(string token)
+    {
+        Assert.Equal(AdminInviteService.AcceptResult.UnknownOrExpired,
+            await Invites().AcceptAsync(token, "a-real-password"));
+
+        Assert.Empty(await _db.Users.Find(FilterDefinition<UserDocument>.Empty).ToListAsync());
+    }
+
+    [Fact]
+    public async Task AShortPasswordIsRefused()
+    {
+        var invites = Invites("owner@radar.com");
+        await invites.InviteAsync("staff@radar.com", AdminRoles.PlatformAdmin, "owner@radar.com");
+
+        Assert.Equal(AdminInviteService.AcceptResult.PasswordTooShort,
+            await invites.AcceptAsync(TokenSent(), "short"));
+
+        Assert.Empty(await _db.Users.Find(FilterDefinition<UserDocument>.Empty).ToListAsync());
+    }
+
+    /// <summary>
+    /// An invitation that sat in an inbox while the access was revoked hands nothing back.
+    /// </summary>
+    /// <remarks>
+    /// The role is read when the link is redeemed, not when it was written. Otherwise removing
+    /// somebody would leave a live link that undoes it.
+    /// </remarks>
+    [Fact]
+    public async Task AnInvitationDoesNotSurviveTheAccessBeingRevoked()
+    {
+        var invites = Invites("owner@radar.com");
+        await invites.InviteAsync("staff@radar.com", AdminRoles.PlatformAdmin, "owner@radar.com");
+        var token = TokenSent();
+
+        await Service("owner@radar.com").RevokeAsync("staff@radar.com", "owner@radar.com");
+
+        Assert.Equal(AdminInviteService.AcceptResult.UnknownOrExpired,
+            await invites.AcceptAsync(token, "a-real-password"));
+
+        Assert.Empty(await _db.Users.Find(FilterDefinition<UserDocument>.Empty).ToListAsync());
+    }
+
+    /// <summary>
+    /// A message that could not be sent leaves nothing behind it.
+    /// </summary>
+    /// <remarks>
+    /// The invitation is the message. An address granted access and never told has a row on a
+    /// screen and no idea it exists, which is indistinguishable from a typo.
+    /// </remarks>
+    [Fact]
+    public async Task AFailedSendLeavesNoInvitationAndNoAccess()
     {
         _sent.Delivers = false;
 
-        Assert.Equal(AdminRoleService.GrantResult.CouldNotSend,
-            await _roles.GrantAsync("staff@radar.com", AdminRoles.PlatformAdmin, "owner@radar.com"));
+        Assert.Equal(AdminInviteService.InviteResult.CouldNotSend,
+            await Invites("owner@radar.com").InviteAsync("staff@radar.com", AdminRoles.PlatformAdmin, "owner@radar.com"));
 
-        Assert.Equal(AdminRoles.User, await _roles.RoleForAsync("staff@radar.com"));
+        Assert.Empty(await _db.AdminInvites.Find(FilterDefinition<AdminInviteDoc>.Empty).ToListAsync());
         Assert.Empty(await _db.AdminGrants.Find(FilterDefinition<AdminGrant>.Empty).ToListAsync());
+        Assert.Equal(AdminRoles.User, await _roles.RoleForAsync("staff@radar.com"));
     }
 
     /// <summary>A deployment with no email cannot invite, and says so rather than failing oddly.</summary>
@@ -367,33 +503,49 @@ public class AdminInviteTests
     {
         _sent.IsConfigured = false;
 
-        Assert.Equal(AdminRoleService.GrantResult.EmailNotConfigured,
-            await _roles.GrantAsync("staff@radar.com", AdminRoles.PlatformAdmin, "owner@radar.com"));
+        Assert.Equal(AdminInviteService.InviteResult.EmailNotConfigured,
+            await Invites("owner@radar.com").InviteAsync("staff@radar.com", AdminRoles.PlatformAdmin, "owner@radar.com"));
 
-        Assert.Empty(await _db.AdminGrants.Find(FilterDefinition<AdminGrant>.Empty).ToListAsync());
-        Assert.False(_roles.CanEmail);
+        Assert.Empty(await _db.AdminInvites.Find(FilterDefinition<AdminInviteDoc>.Empty).ToListAsync());
     }
 
-    /// <summary>A refused invite sends nothing at all.</summary>
+    /// <summary>
+    /// Somebody who already has an admin account is not sent a new set-a-password link.
+    /// </summary>
     /// <remarks>
-    /// Validation runs before the send, so a typo does not email a stranger about access they
-    /// were never going to get.
+    /// Otherwise inviting an existing admin would be a way to take their account over.
     /// </remarks>
-    [Theory]
-    [InlineData("not-an-address", AdminRoles.PlatformAdmin)]
-    [InlineData("staff@radar.com", "User")]
-    [InlineData("owner@radar.com", AdminRoles.PlatformAdmin)]
-    public async Task NothingIsSentForAnInviteThatWasRefused(string email, string role)
+    [Fact]
+    public async Task SomebodyWhoAlreadyHasAnAdminAccountIsNotInvitedAgain()
     {
-        await _roles.GrantAsync(email, role, "somebody-else@radar.com");
+        var invites = Invites("owner@radar.com");
+        await invites.InviteAsync("staff@radar.com", AdminRoles.PlatformAdmin, "owner@radar.com");
+        await invites.AcceptAsync(TokenSent(), "a-real-password");
+        _sent.Sent.Clear();
+
+        Assert.Equal(AdminInviteService.InviteResult.AlreadyHasAnAdminAccount,
+            await invites.InviteAsync("staff@radar.com", AdminRoles.SuperAdmin, "owner@radar.com"));
 
         Assert.Empty(_sent.Sent);
     }
 
+    /// <summary>A refused invitation sends nothing at all.</summary>
+    [Theory]
+    [InlineData("not-an-address", AdminRoles.PlatformAdmin)]
+    [InlineData("staff@radar.com", "User")]
+    [InlineData("owner@radar.com", AdminRoles.PlatformAdmin)]
+    public async Task NothingIsSentForAnInvitationThatWasRefused(string email, string role)
+    {
+        await Invites("owner@radar.com").InviteAsync(email, role, "somebody-else@radar.com");
+
+        Assert.Empty(_sent.Sent);
+        Assert.Empty(await _db.AdminInvites.Find(FilterDefinition<AdminInviteDoc>.Empty).ToListAsync());
+    }
+
     /// <summary>Revoking tells nobody, which is deliberate.</summary>
     /// <remarks>
-    /// There is no message worth sending: somebody whose access was removed finds out by it not
-    /// being there, and an email about it is a notification that cannot be acted on.
+    /// Somebody whose access was removed finds out by it not being there, and a notification
+    /// they cannot act on is noise.
     /// </remarks>
     [Fact]
     public async Task RevokingSendsNothing()

@@ -44,6 +44,7 @@ public class StartupRepairService : BackgroundService
 
         await RunAsync(results, "invented-opportunities", RemoveInventedOpportunitiesAsync, ct);
         await RunAsync(results, "objectid-playback-rows", RemoveObjectIdPlaybackRowsAsync, ct);
+        await RunAsync(results, "email-only-user-index", DropEmailOnlyUserIndexAsync, ct);
 
         results["state"] = "complete";
         results["ranAt"] = DateTime.UtcNow.ToString("O");
@@ -82,6 +83,40 @@ public class StartupRepairService : BackgroundService
             results[name] = $"failed: {ex.GetType().Name}";
             _log.LogError(ex, "Startup repair {Repair} failed.", name);
         }
+    }
+
+    /// <summary>
+    /// Drops the old unique index on Users.Email alone.
+    /// </summary>
+    /// <remarks>
+    /// One person can now hold both an ordinary account and a separate admin login on the same
+    /// address, which is two rows with the same email. The replacement index is on (Email, Kind)
+    /// and <c>RadarDatabase</c> creates it; this removes the one that would otherwise refuse the
+    /// second row.
+    ///
+    /// Here rather than in EnsureIndexes because a failure has to be visible. If this does not
+    /// run, nothing breaks today and every attempt to create an admin account fails later with a
+    /// duplicate key - which looks like a bug in the invite, not a missing migration.
+    ///
+    /// Idempotent: once the index is gone there is nothing to find, and it reports zero.
+    /// </remarks>
+    private async Task<long> DropEmailOnlyUserIndexAsync(CancellationToken ct)
+    {
+        using var cursor = await _db.Users.Indexes.ListAsync(ct);
+        var indexes = await cursor.ToListAsync(ct);
+
+        // Matched on its shape rather than its name, because a name is whatever the driver
+        // happened to generate and a shape is what actually refuses the write.
+        var emailOnly = indexes.FirstOrDefault(index =>
+            index.TryGetValue("key", out var key)
+            && key.AsBsonDocument.ElementCount == 1
+            && key.AsBsonDocument.Contains("Email")
+            && index.GetValue("unique", false).ToBoolean());
+
+        if (emailOnly is null) return 0;
+
+        await _db.Users.Indexes.DropOneAsync(emailOnly["name"].AsString, ct);
+        return 1;
     }
 
     /// <summary>

@@ -58,12 +58,7 @@ public class AdminRoleService
 
     /// <summary>Why a grant attempt was refused, or that it was not.</summary>
     /// <summary>Why a grant attempt was refused, or that it was not.</summary>
-    /// <remarks>
-    /// <see cref="EmailNotConfigured"/> and <see cref="CouldNotSend"/> both mean nothing was
-    /// written. The invite is the message: an address granted access that is never told has a
-    /// row on a screen and no idea it exists, which is indistinguishable from a typo.
-    /// </remarks>
-    public enum GrantResult { Granted, NotAnEmail, NotARole, AlreadyHasIt, EmailNotConfigured, CouldNotSend }
+    public enum GrantResult { Granted, NotAnEmail, NotARole, AlreadyHasIt }
 
     /// <summary>Why a revoke attempt was refused, or that it was not.</summary>
     public enum RevokeResult { Revoked, NotGranted, GrantedByConfiguration, CannotRevokeYourself }
@@ -176,22 +171,12 @@ public class AdminRoleService
     }
 
     /// <summary>
-    /// Gives an address admin access, and tells the person.
+    /// Records that an address is entitled to admin access.
     /// </summary>
     /// <remarks>
-    /// The message is sent <em>before</em> the row is written, and a failure to send means
-    /// nothing is written at all. That order is the whole design: writing first and then undoing
-    /// on failure needs a rollback that has to know whether this was a new invite, a re-invite of
-    /// somebody revoked, or a role change - three different states to restore, each a chance to
-    /// restore the wrong one. Sending first has no half-state to repair.
-    ///
-    /// The cost is a narrow window where the message goes and the write then fails, so somebody
-    /// is told about access they do not have. That is the lesser failure: they ask, and a super
-    /// admin presses the button again.
-    ///
-    /// Nothing in here creates an account. Radar's sign-up is self-serve, so an invited person
-    /// chooses their own password through the ordinary flow - the email points them at it. There
-    /// is no token, and so no second way into the product to keep hardened.
+    /// The bare write, and nothing else. Telling the person, and the link that lets them create
+    /// an account, belong to <see cref="AdminInviteService"/> - which calls this once its
+    /// message has actually gone.
     /// </remarks>
     public async Task<GrantResult> GrantAsync(string? email, string role, string grantedByEmail, CancellationToken ct = default)
     {
@@ -202,13 +187,6 @@ public class AdminRoleService
         // Already entitled by a deploy. Saying so beats writing a row that changes nothing and
         // then showing it beside the configured one as though two things had happened.
         if (AdminRoles.IsAdmin(AdminRoles.For(_config, normalised))) return GrantResult.AlreadyHasIt;
-
-        // Said plainly rather than discovered by a send that quietly does nothing. A deployment
-        // with no email cannot invite anybody, and the way in is the configured lists - which
-        // the error message names, because that route still works.
-        if (!_email.IsConfigured) return GrantResult.EmailNotConfigured;
-
-        if (!await TellThemAsync(normalised, role, grantedByEmail, ct)) return GrantResult.CouldNotSend;
 
         await _db.AdminGrants.UpdateOneAsync(
             g => g.Email == normalised,
@@ -232,43 +210,6 @@ public class AdminRoleService
 
         Forget();
         return GrantResult.Granted;
-    }
-
-    /// <summary>
-    /// The message an invited person gets.
-    /// </summary>
-    /// <remarks>
-    /// It says who gave them access and what the role is, because an email granting admin rights
-    /// to a product is exactly the shape of a phishing message - and the one thing that lets
-    /// somebody judge it is a name they recognise beside a claim they can check.
-    ///
-    /// No link that does anything. It points at the ordinary sign-in page, so following it
-    /// cannot be the act that grants anything, and somebody who did not expect this can ignore
-    /// it with no consequence.
-    /// </remarks>
-    private async Task<bool> TellThemAsync(string email, string role, string grantedByEmail, CancellationToken ct)
-    {
-        var site = PublicSite.From(_config);
-        var named = role == AdminRoles.SuperAdmin ? "Super Admin" : "Platform Admin";
-        var from = Normalise(grantedByEmail);
-
-        var (html, text) = EmailTemplate.Build(
-            heading: "You have admin access to Radar",
-            preheader: $"{named} access, granted by {from}.",
-            paragraphs:
-            [
-                $"{from} has given this address {named} access to the Radar admin area.",
-
-                // The two paths, because which one applies depends on something Radar cannot see
-                // from here - whether this address already has an account.
-                "If you already use Radar, sign out and sign in again and the admin area will be there.",
-                "If you do not have a Radar account yet, create one with this same email address. You choose your own password.",
-            ],
-            action: new EmailTemplate.Action_("Go to Radar", $"{site}/admin/login"),
-            footnote: $"If you were not expecting this, you can ignore it - nothing in this message grants anything on its own. Ask {from} if you are unsure.",
-            publicUrl: site);
-
-        return await _email.SendAsync(email, "You have admin access to Radar", text, html, ct);
     }
 
     /// <summary>Takes admin access back.</summary>

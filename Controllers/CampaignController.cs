@@ -171,12 +171,15 @@ public class CampaignController : ControllerBase
     [HttpPost("submissions/{id}/judge")]
     public async Task<IActionResult> JudgeAsync(string id, [FromBody] JudgeRequest request, CancellationToken ct = default)
     {
-        var reviewer = await _profiles.GetCurrentUserAsync();
-        if (reviewer is null) return NotFound(new { error = "Profile not found" });
+        // The account id from the token, not a profile. An admin login is a separate account
+        // with no profile at all - it exists to run Radar, not to read it - so asking for one
+        // here would make judging impossible for exactly the people who do the judging.
+        var reviewer = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrWhiteSpace(reviewer)) return Unauthorized(new { error = "Not signed in" });
 
         var judgement = new ContentSubmissionService.Judgement(request.Score, request.Verdict);
 
-        return await _content.JudgeAsync(id, reviewer.Id, judgement, ct) switch
+        return await _content.JudgeAsync(id, reviewer, judgement, ct) switch
         {
             ContentSubmissionService.JudgeResult.Recorded => NoContent(),
             ContentSubmissionService.JudgeResult.CannotJudgeOwnWork => StatusCode(StatusCodes.Status403Forbidden, new
