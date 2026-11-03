@@ -142,20 +142,47 @@ public class AdminController : ControllerBase
         }));
     }
 
+    /// <summary>
+    /// The source register, with what each source has actually filed.
+    /// </summary>
+    /// <remarks>
+    /// <c>itemsInRadar</c> is counted from the corpus. The field of the same name on
+    /// <see cref="Models.SourceProfile"/> is seed data - eighteen, twelve, twenty-four, written
+    /// by hand when the sources were first listed - and nothing has ever updated it, so reading
+    /// it back put a constant on the screen under the heading "Items in Radar" and summed those
+    /// constants into a total. <c>itemsRead</c> is gone for the same reason and has not been
+    /// replaced: opens are recorded per content item, and rolling them up to a source is what
+    /// the Engagement section does with real events.
+    ///
+    /// <c>active</c> is gone too. It was the literal <c>true</c>, so every row rendered "Active"
+    /// in teal whatever the source was doing, and the register carried a health column that no
+    /// part of Radar can fill - nothing records a fetch, a failure or a cooldown anywhere.
+    /// </remarks>
     [HttpGet("sources")]
     public async Task<IActionResult> GetSourcesAsync(CancellationToken ct)
     {
         var sources = await _db.Sources.Find(_ => true).SortBy(s => s.Name).ToListAsync(ct);
+
+        var counted = await _db.ContentItems.Aggregate()
+            .Group(new MongoDB.Bson.BsonDocument
+            {
+                ["_id"] = "$Source",
+                ["count"] = new MongoDB.Bson.BsonDocument("$sum", 1),
+            })
+            .ToListAsync(ct);
+
+        var itemsBySource = counted
+            .Where(row => row["_id"].IsString)
+            .ToDictionary(row => row["_id"].AsString, row => row["count"].ToInt32(), StringComparer.OrdinalIgnoreCase);
+
         return Ok(sources.Select(source => new
         {
             id = source.Id,
             name = source.Name,
             domain = source.Domain,
             type = source.Type,
-            itemsInRadar = source.ItemsInRadar,
-            itemsRead = source.ItemsRead,
+            itemsInRadar = itemsBySource.GetValueOrDefault(source.Name),
             publishFrequency = source.PublishFrequency,
-            active = true,
         }));
     }
 
