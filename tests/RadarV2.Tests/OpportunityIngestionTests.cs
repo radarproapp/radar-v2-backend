@@ -30,22 +30,44 @@ public class OpportunityIngestionTests
     /// scoring window.
     /// </remarks>
     /// <remarks>
-    /// Asserting the date rather than that it is still in the future, which is what this did.
-    /// "Deadline: 3rd November 2026" was a future date when it was written and is today as I
-    /// write this, so the test failed on a morning when nothing had changed - and the thing it
-    /// was actually checking, that the ordinal parses at all, was never in doubt.
+    /// The dates are built from today rather than written out. They used to be spelled in full -
+    /// "Deadline: 3rd November 2026" - which made the test a clock: the parser drops a deadline
+    /// already in the past, so the morning the nearest of those dates went by, this failed with
+    /// nothing having changed. It happened once, was fixed by asserting the parsed date instead
+    /// of its futureness, and the literal dates were left in to rot a second time.
+    ///
+    /// What is under test is that the ordinal suffix parses at all. The year was never the point.
     /// </remarks>
     [Theory]
-    [InlineData("Application Closing Date: 30th November, 2026", 2026, 11, 30)]
-    [InlineData("Application Deadline: 1st December 2026", 2026, 12, 1)]
-    [InlineData("Closing Date: 22nd December, 2026", 2026, 12, 22)]
-    [InlineData("Deadline: 3rd November 2026", 2026, 11, 3)]
-    public void AnOrdinalDateIsStillADeadline(string text, int year, int month, int day)
+    [InlineData(1, "st", "Application Deadline: {0} {1}")]
+    [InlineData(2, "nd", "Closing Date: {0}, {1}")]
+    [InlineData(3, "rd", "Deadline: {0} {1}")]
+    [InlineData(22, "nd", "Closing Date: {0}, {1}")]
+    [InlineData(30, "th", "Application Closing Date: {0}, {1}")]
+    public void AnOrdinalDateIsStillADeadline(int day, string suffix, string shape)
     {
+        var deadline = ComfortablyAhead(day);
+        var text = string.Format(shape, $"{day}{suffix} {deadline:MMMM}", $"{deadline:yyyy}");
+
         var found = OpportunityIngestionService.FindDeadline(text);
 
         Assert.NotNull(found);
-        Assert.Equal(new DateTime(year, month, day), found!.Value.Date);
+        Assert.Equal(deadline, found!.Value.Date);
+    }
+
+    /// <summary>A real date far enough ahead that this is never testing the boundary by accident.</summary>
+    /// <remarks>
+    /// Walks forward past any month too short to hold the day, so a 30th does not land on
+    /// February and throw depending on what month the suite happens to run in.
+    /// </remarks>
+    private static DateTime ComfortablyAhead(int day)
+    {
+        var candidate = DateTime.UtcNow.Date.AddMonths(2);
+
+        while (DateTime.DaysInMonth(candidate.Year, candidate.Month) < day)
+            candidate = candidate.AddMonths(1);
+
+        return new DateTime(candidate.Year, candidate.Month, day);
     }
 
     /// <summary>
@@ -60,11 +82,14 @@ public class OpportunityIngestionTests
     [Fact]
     public void ANumericDateIsReadDayFirst()
     {
-        var found = OpportunityIngestionService.FindDeadline("Closes 03/12/2026");
+        // Both components under thirteen, so the shape really is ambiguous and the market's own
+        // convention is what decides it.
+        var deadline = ComfortablyAhead(3);
+
+        var found = OpportunityIngestionService.FindDeadline($"Closes 03/{deadline:MM}/{deadline:yyyy}");
 
         Assert.NotNull(found);
-        Assert.Equal(12, found!.Value.Month);
-        Assert.Equal(3, found.Value.Day);
+        Assert.Equal(deadline, found!.Value.Date);
     }
 
     /// <summary>
@@ -78,30 +103,38 @@ public class OpportunityIngestionTests
     /// the day first.
     /// </remarks>
     [Theory]
-    [InlineData("Closes 12/25/2026", 12, 25)]
-    [InlineData("Closes 25/12/2026", 12, 25)]
-    [InlineData("Closes 03/12/2026", 12, 3)]
-    public void ANumericDateIsReadTheOnlyWayItCanBeMeant(string text, int month, int day)
+    [InlineData("Closes {month}/25/{year}")]
+    [InlineData("Closes 25/{month}/{year}")]
+    public void ANumericDateIsReadTheOnlyWayItCanBeMeant(string shape)
     {
-        var found = OpportunityIngestionService.FindDeadline(text);
+        // Twenty-five cannot be a month, so both orders have exactly one reading.
+        var deadline = ComfortablyAhead(25);
+
+        var found = OpportunityIngestionService.FindDeadline(Fill(shape, deadline));
 
         Assert.NotNull(found);
-        Assert.Equal(month, found!.Value.Month);
-        Assert.Equal(day, found.Value.Day);
+        Assert.Equal(deadline, found!.Value.Date);
     }
 
     /// <summary>The unambiguous shapes still parse, in both orders.</summary>
     [Theory]
-    [InlineData("Deadline: 15 December 2026", 12, 15)]
-    [InlineData("Application Deadline: December 15, 2026", 12, 15)]
-    public void TheUsualShapesStillParse(string text, int month, int day)
+    [InlineData("Deadline: 15 {monthName} {year}")]
+    [InlineData("Application Deadline: {monthName} 15, {year}")]
+    public void TheUsualShapesStillParse(string shape)
     {
-        var found = OpportunityIngestionService.FindDeadline(text);
+        var deadline = ComfortablyAhead(15);
+
+        var found = OpportunityIngestionService.FindDeadline(Fill(shape, deadline));
 
         Assert.NotNull(found);
-        Assert.Equal(month, found!.Value.Month);
-        Assert.Equal(day, found.Value.Day);
+        Assert.Equal(deadline, found!.Value.Date);
     }
+
+    /// <summary>Puts a real future date into a shape, so no test carries a date that can expire.</summary>
+    private static string Fill(string shape, DateTime deadline) => shape
+        .Replace("{month}", $"{deadline:MM}")
+        .Replace("{monthName}", $"{deadline:MMMM}")
+        .Replace("{year}", $"{deadline:yyyy}");
 
     /// <summary>
     /// No date beats a guessed one.

@@ -227,12 +227,12 @@ public class AdminController : ControllerBase
             // Inviting sends an email and will not grant access without one, so a deployment with
             // no email configured cannot invite at all. Reported before the attempt rather than
             // after it, so the form is not offered for something that cannot work.
-            canEmail = _roles.CanEmail,
+            canEmail = _invites.CanEmail,
 
             // A test key answers 201 and delivers nothing, so the send succeeds and the person is
             // never told. Said out loud, because a clean success for a message that went nowhere
             // is the worst version of this.
-            emailIsSandboxed = _roles.EmailIsSandboxed,
+            emailIsSandboxed = _invites.EmailIsSandboxed,
 
             you = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "User",
 

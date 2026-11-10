@@ -58,6 +58,19 @@ public class AdminInviteService
         _log = log;
     }
 
+    /// <summary>Whether an invitation can be sent at all on this deployment.</summary>
+    public bool CanEmail => _email.IsConfigured;
+
+    /// <summary>
+    /// Whether the configured sender accepts mail and quietly drops it.
+    /// </summary>
+    /// <remarks>
+    /// A SendByte test key answers 201 with an id and delivers nothing, so a send "succeeds" and
+    /// the invited person is never told. Reported so the screen can say the message will not
+    /// really arrive, rather than showing a clean success for something that did nothing.
+    /// </remarks>
+    public bool EmailIsSandboxed => (_email as SendByteEmailSender)?.IsSandbox ?? false;
+
     public enum InviteResult { Sent, NotAnEmail, NotARole, AlreadyHasIt, AlreadyHasAnAdminAccount, EmailNotConfigured, CouldNotSend }
 
     /// <summary>Why an invitation could not be redeemed, or that it was.</summary>

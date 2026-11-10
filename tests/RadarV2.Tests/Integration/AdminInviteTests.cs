@@ -64,7 +64,7 @@ public class AdminInviteTests
 
     /// <summary>A service whose configuration lists these addresses as super admins.</summary>
     private AdminRoleService Service(params string[] configuredSuperAdmins) =>
-        new(_db, Config(configuredSuperAdmins), new MemoryCache(new MemoryCacheOptions()), _sent);
+        new(_db, Config(configuredSuperAdmins), new MemoryCache(new MemoryCacheOptions()));
 
     private static IConfiguration Config(params string[] configuredSuperAdmins)
     {
@@ -82,7 +82,7 @@ public class AdminInviteTests
 
         return new AdminInviteService(
             _db,
-            new AdminRoleService(_db, config, new MemoryCache(new MemoryCacheOptions()), _sent),
+            new AdminRoleService(_db, config, new MemoryCache(new MemoryCacheOptions())),
             _sent,
             config,
             NullLogger<AdminInviteService>.Instance);

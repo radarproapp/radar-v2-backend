@@ -33,28 +33,20 @@ public class AdminRoleService
     private readonly RadarDatabase _db;
     private readonly IConfiguration _config;
     private readonly IMemoryCache _cache;
-    private readonly IEmailSender _email;
 
-    public AdminRoleService(RadarDatabase db, IConfiguration config, IMemoryCache cache, IEmailSender email)
+    public AdminRoleService(RadarDatabase db, IConfiguration config, IMemoryCache cache)
     {
         _db = db;
         _config = config;
         _cache = cache;
-        _email = email;
     }
 
-    /// <summary>Whether an invite can be sent at all on this deployment.</summary>
-    public bool CanEmail => _email.IsConfigured;
-
-    /// <summary>
-    /// Whether the configured sender accepts mail and quietly drops it.
-    /// </summary>
-    /// <remarks>
-    /// A SendByte test key answers 201 with an id and delivers nothing, so a send "succeeds" and
-    /// the invited person is never told. Reported so the screen can say the message did not
-    /// really go, rather than showing a clean success for something that did nothing.
-    /// </remarks>
-    public bool EmailIsSandboxed => (_email as SendByteEmailSender)?.IsSandbox ?? false;
+    // No IEmailSender here, deliberately. This is a singleton - it caches the grant table for
+    // thirty seconds and is asked on every request - and the sender is scoped, so holding one
+    // would be a captive dependency: a single instance taken from the root scope and kept for
+    // the life of the process. The two flags that used to live here, asking whether email is
+    // configured and whether the key is a sandbox one, are on AdminInviteService, which is
+    // scoped and already owns the sender.
 
     /// <summary>Why a grant attempt was refused, or that it was not.</summary>
     /// <summary>Why a grant attempt was refused, or that it was not.</summary>

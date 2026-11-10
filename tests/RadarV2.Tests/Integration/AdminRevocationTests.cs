@@ -56,7 +56,7 @@ public class AdminRevocationTests
             new MemoryCache(new MemoryCacheOptions()),
             // Nothing here invites anybody, so the sender is never reached. Present because
             // granting is the one path that needs it.
-            new AdminRoleService(_db, config, new MemoryCache(new MemoryCacheOptions()), new SilentPost()),
+            new AdminRoleService(_db, config, new MemoryCache(new MemoryCacheOptions())),
             NullLogger<SessionVersionGuard>.Instance);
     }
 
