@@ -19,19 +19,22 @@ public class AuthController : ControllerBase
     private readonly PasswordResetService _resets;
     private readonly IEmailSender _email;
     private readonly AdminInviteService _invites;
+    private readonly EmailVerificationService _verification;
 
     public AuthController(
         IAuthService auth,
         IConfiguration config,
         PasswordResetService resets,
         IEmailSender email,
-        AdminInviteService invites)
+        AdminInviteService invites,
+        EmailVerificationService verification)
     {
         _auth = auth;
         _config = config;
         _resets = resets;
         _email = email;
         _invites = invites;
+        _verification = verification;
     }
 
     public sealed class RegisterRequest
@@ -212,6 +215,60 @@ public class AuthController : ControllerBase
             // broken link needs answered.
             _ => BadRequest(new { error = "That invitation is no longer valid. Ask for a new one." }),
         };
+    }
+
+    public sealed class VerifyEmailRequest
+    {
+        [Required] public string Token { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// Records that an address answered.
+    /// </summary>
+    /// <remarks>
+    /// Anonymous: the link arrives in an inbox, and somebody reading their mail on a phone they
+    /// are not signed in on should not be told to sign in first. The token is what authorises
+    /// it - single use, hashed at rest, and seven days old at most.
+    ///
+    /// Following the same link twice says so rather than failing. It is the ordinary thing a
+    /// person does when they are not sure the first tap worked, and "invalid" would send them
+    /// asking for a link they do not need.
+    /// </remarks>
+    [AllowAnonymous]
+    [HttpPost("verify-email")]
+    public async Task<IActionResult> VerifyEmailAsync([FromBody] VerifyEmailRequest request, CancellationToken ct = default)
+    {
+        return await _verification.VerifyAsync(request.Token, ct) switch
+        {
+            EmailVerificationService.VerifyResult.Verified => Ok(new { verified = true, alreadyDone = false }),
+            EmailVerificationService.VerifyResult.AlreadyVerified => Ok(new { verified = true, alreadyDone = true }),
+            _ => BadRequest(new { error = "That link is no longer valid. Ask for a new one from your settings." }),
+        };
+    }
+
+    /// <summary>
+    /// Sends the confirmation link again.
+    /// </summary>
+    /// <remarks>
+    /// Signed in, so this cannot be used to post mail at an address somebody else owns: the only
+    /// address it will ever send to is the one on the calling account. An address that has
+    /// already answered is not sent to again either.
+    /// </remarks>
+    [Authorize]
+    [HttpPost("verify-email/resend")]
+    public async Task<IActionResult> ResendVerificationAsync(CancellationToken ct = default)
+    {
+        var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrWhiteSpace(userId)) return Unauthorized(new { error = "Not signed in" });
+
+        if (!_verification.CanEmail)
+            return BadRequest(new { error = "No email is configured for this deployment, so nothing can be sent." });
+
+        var sent = await _verification.SendAsync(userId, ct);
+
+        // False covers two states that look the same from here and should not be told apart on a
+        // screen: already answered, and the send failed. Either way there is nothing to wait for.
+        return Ok(new { sent });
     }
 
     private AuthResponse CreateResponse(AuthResult result)

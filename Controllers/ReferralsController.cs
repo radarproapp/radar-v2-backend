@@ -58,6 +58,10 @@ public class ReferralsController : ControllerBase
             signedUp = brought.SignedUp,
             personalised = brought.Personalised,
             cameBack = brought.CameBack,
+
+            // Said rather than dropped: five sign-ups who have not confirmed read as nobody
+            // otherwise, which is untrue and is something they can fix.
+            awaitingConfirmation = brought.AwaitingConfirmation,
         });
     }
 

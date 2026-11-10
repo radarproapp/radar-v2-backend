@@ -12,6 +12,7 @@ public class AuthService : IAuthService
     private readonly IConfiguration _config;
     private readonly IEmailSender _email;
     private readonly AdminRoleService _roles;
+    private readonly EmailVerificationService _verification;
     private readonly ILogger<AuthService> _log;
 
     public AuthService(
@@ -19,12 +20,14 @@ public class AuthService : IAuthService
         IConfiguration config,
         IEmailSender email,
         AdminRoleService roles,
+        EmailVerificationService verification,
         ILogger<AuthService> log)
     {
         _db = db;
         _config = config;
         _email = email;
         _roles = roles;
+        _verification = verification;
         _log = log;
     }
 
@@ -119,6 +122,11 @@ public class AuthService : IAuthService
         await _db.Profiles.InsertOneAsync(profile);
 
         await SendWelcomeAsync(name, user.Email);
+
+        // And the one that asks this address to answer. Fire and forget in the same sense the
+        // welcome is: a registration is not worth failing because mail is down, and somebody who
+        // is never asked simply has a referral that does not count until they ask again.
+        await _verification.SendAsync(userId);
 
         return new AuthResult { Success = true, UserId = userId, UserName = name, Role = role };
     }

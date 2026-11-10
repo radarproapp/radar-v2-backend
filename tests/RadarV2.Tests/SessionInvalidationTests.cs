@@ -213,7 +213,7 @@ public class SessionInvalidationTests
 
         // Only the configuration is touched by the token path; the rest would be a mock that
         // asserts nothing.
-        var controller = new AuthController(null!, config, null!, null!, null!);
+        var controller = new AuthController(null!, config, null!, null!, null!, null!);
 
         var build = typeof(AuthController).GetMethod(
             "BuildToken", BindingFlags.NonPublic | BindingFlags.Instance);

@@ -54,5 +54,25 @@ public class UserDocument
     /// </remarks>
     public int TokenVersion { get; set; }
 
+    /// <summary>
+    /// When this address answered, or null if it never has.
+    /// </summary>
+    /// <remarks>
+    /// Null for every account that existed before this, which is honest: nobody asked them, so
+    /// nothing was proved. Absent rather than false, so the field says "not established" rather
+    /// than "established as untrue".
+    ///
+    /// It gates nothing about using Radar. Somebody who has not opened the email still reads
+    /// their feed - making a product unusable until an email arrives loses the people whose mail
+    /// is slow for reasons that are not their fault. What it gates is the referral counts, where
+    /// an unanswered address is the whole of how somebody would manufacture a number.
+    /// </remarks>
+    [BsonIgnoreIfNull]
+    public DateTime? EmailVerifiedAt { get; set; }
+
+    /// <summary>Whether this address has answered.</summary>
+    [BsonIgnore]
+    public bool IsEmailVerified => EmailVerifiedAt is not null;
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

@@ -185,6 +185,7 @@ public class RadarDatabase
     public IMongoCollection<ContentSubmission> ContentSubmissions => _db.GetCollection<ContentSubmission>("content_submissions");
     public IMongoCollection<AdminGrant> AdminGrants => _db.GetCollection<AdminGrant>("admin_grants");
     public IMongoCollection<AdminInviteDoc> AdminInvites => _db.GetCollection<AdminInviteDoc>("admin_invites");
+    public IMongoCollection<EmailVerificationDoc> EmailVerifications => _db.GetCollection<EmailVerificationDoc>("email_verifications");
     public IMongoCollection<UserContentWhy> UserContentWhys => _db.GetCollection<UserContentWhy>("user_content_why");
     public IMongoCollection<ContentReport> ContentReports => _db.GetCollection<ContentReport>("content_reports");
     public IMongoCollection<BehavioralSignal> BehavioralSignals => _db.GetCollection<BehavioralSignal>("behavioral_signals");
@@ -452,6 +453,16 @@ public class RadarDatabase
                     .Ascending(c => c.ProfileId)
                     .Ascending(c => c.LinkKey),
                 new CreateIndexOptions { Unique = true })));
+
+        // Confirming an address looks the token up by its hash, on a path somebody is waiting at.
+        Safely("EmailVerifications", () => EmailVerifications.Indexes.CreateOne(
+            new CreateIndexModel<EmailVerificationDoc>(
+                Builders<EmailVerificationDoc>.IndexKeys.Ascending(v => v.TokenHash),
+                new CreateIndexOptions { Unique = true })));
+
+        Safely("EmailVerifications", () => EmailVerifications.Indexes.CreateOne(
+            new CreateIndexModel<EmailVerificationDoc>(
+                Builders<EmailVerificationDoc>.IndexKeys.Ascending(v => v.UserId))));
 
         // Redeeming looks a token up by its hash, on a path somebody is waiting at.
         Safely("AdminInvites", () => AdminInvites.Indexes.CreateOne(

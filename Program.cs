@@ -152,6 +152,9 @@ builder.Services.AddSingleton<AdminRoleService>();
 
 // Scoped: it writes, logs and sends, and has no cache of its own to share.
 builder.Services.AddScoped<AdminInviteService>();
+
+// Asks an address to answer, so a referral count is worth what the accounts behind it are.
+builder.Services.AddScoped<EmailVerificationService>();
 builder.Services.AddSingleton<SessionVersionGuard>();
 
 // CORS for the React SPA (separate origin in dev and once deployed).

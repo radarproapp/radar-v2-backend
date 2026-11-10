@@ -2,6 +2,10 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
+using MongoDB.Driver;
+using RadarV2.Data;
+using RadarV2.Data.Documents;
 
 namespace RadarV2.Tests.Http;
 
@@ -71,6 +75,29 @@ public class CampaignContractTests
             email = RadarAppFixture.ConfiguredSuperAdmin,
             password = "a-real-password",
         }));
+    }
+
+    /// <summary>
+    /// Marks the signed-in account's address as answered.
+    /// </summary>
+    /// <remarks>
+    /// Written straight to the database rather than through the link, because the token exists
+    /// only in the email and nothing stores it in readable form - which is the point of hashing
+    /// it. What is under test here is what the counts do once an address has answered, not the
+    /// mechanics of answering, which EmailVerificationTests covers.
+    /// </remarks>
+    private async Task ConfirmAsync(HttpClient client)
+    {
+        var me = await ReadAsync(await client.GetAsync("/api/me"));
+        var profileId = me.GetProperty("id").GetString();
+
+        using var scope = _app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<RadarDatabase>();
+
+        await db.Users.UpdateOneAsync(
+            u => u.ProfileId == profileId,
+            Builders<UserDocument>.Update
+                .Set(u => u.EmailVerifiedAt, DateTime.UtcNow));
     }
 
     private static async Task<JsonElement> ReadAsync(HttpResponseMessage response)
@@ -185,7 +212,7 @@ public class CampaignContractTests
         var introducer = await ParticipantAsync();
 
         var mine = await ReadAsync(await introducer.GetAsync("/api/referrals/mine"));
-        Carries(mine, "code", "link", "signedUp", "personalised", "cameBack");
+        Carries(mine, "code", "link", "signedUp", "personalised", "cameBack", "awaitingConfirmation");
 
         var code = mine.GetProperty("code").GetString()!;
         Assert.Equal(7, code.Length);
@@ -193,13 +220,23 @@ public class CampaignContractTests
         // Nothing yet, and said as zero rather than as an absent field.
         Assert.Equal(0, mine.GetProperty("signedUp").GetInt32());
 
-        // Somebody arrives with the code.
-        await ParticipantAsync(referralCode: code);
+        // Somebody arrives with the code, and has not confirmed their address.
+        var newcomer = await ParticipantAsync(referralCode: code);
+
+        var before = await ReadAsync(await introducer.GetAsync("/api/referrals/mine"));
+
+        // Counted nowhere until the address answers - which is the whole of how somebody would
+        // otherwise manufacture a number - but said out loud rather than dropped.
+        Assert.Equal(0, before.GetProperty("signedUp").GetInt32());
+        Assert.Equal(1, before.GetProperty("awaitingConfirmation").GetInt32());
+
+        await ConfirmAsync(newcomer);
 
         var after = await ReadAsync(await introducer.GetAsync("/api/referrals/mine"));
         Assert.Equal(1, after.GetProperty("signedUp").GetInt32());
+        Assert.Equal(0, after.GetProperty("awaitingConfirmation").GetInt32());
 
-        // A sign-up is not a user: they have answered nothing and done nothing since.
+        // A sign-up is still not a user: they have answered nothing and done nothing since.
         Assert.Equal(0, after.GetProperty("personalised").GetInt32());
         Assert.Equal(0, after.GetProperty("cameBack").GetInt32());
 
@@ -208,7 +245,8 @@ public class CampaignContractTests
         var board = await ReadAsync(await admin.GetAsync("/api/referrals/board"));
 
         Assert.Equal(JsonValueKind.Array, board.ValueKind);
-        Carries(board.EnumerateArray().First(), "profileId", "name", "code", "signedUp", "personalised", "cameBack");
+        Carries(board.EnumerateArray().First(),
+            "profileId", "name", "code", "signedUp", "personalised", "cameBack", "awaitingConfirmation");
     }
 
     /// <summary>

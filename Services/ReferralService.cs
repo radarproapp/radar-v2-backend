@@ -1,6 +1,7 @@
 using MongoDB.Bson;
 using MongoDB.Driver;
 using RadarV2.Data;
+using RadarV2.Data.Documents;
 using RadarV2.Models;
 
 namespace RadarV2.Services;
@@ -87,7 +88,16 @@ public class ReferralService
     }
 
     /// <summary>What one participant has brought in.</summary>
-    public sealed record Brought(int SignedUp, int Personalised, int CameBack);
+    /// <param name="AwaitingConfirmation">
+    /// People who arrived with the code and whose address has not answered yet, and who are
+    /// therefore in none of the three counts above.
+    /// </param>
+    /// <remarks>
+    /// Reported rather than quietly dropped. Without it, somebody who brought in five people who
+    /// have not opened their email reads as having brought in nobody, which is both discouraging
+    /// and untrue - and the fix is theirs to make, by telling those people to confirm.
+    /// </remarks>
+    public sealed record Brought(int SignedUp, int Personalised, int CameBack, int AwaitingConfirmation);
 
     /// <summary>
     /// The three counts for one participant.
@@ -110,20 +120,50 @@ public class ReferralService
             .Project(p => new { p.Id, p.CreatedAt, p.Interests, p.Goals })
             .ToListAsync(ct);
 
-        if (referred.Count == 0) return new Brought(0, 0, 0);
+        if (referred.Count == 0) return new Brought(0, 0, 0, 0);
+
+        // Only accounts whose address has answered. A count is worth what the accounts behind it
+        // are worth, and an address nobody has to own is how thirty of them get made in an
+        // afternoon - which made "came back", the strongest of the three, manufacturable with
+        // two days of patience.
+        var confirmed = await ConfirmedAsync(referred.Select(p => p.Id), ct);
+        var counted = referred.Where(p => confirmed.Contains(p.Id)).ToList();
 
         // The same rule the rest of the product uses: at least one interest and one goal.
-        var personalised = referred.Count(p =>
+        var personalised = counted.Count(p =>
             p.Interests.Any(i => !string.IsNullOrWhiteSpace(i))
             && p.Goals.Any(g => !string.IsNullOrWhiteSpace(g)));
 
-        var joinedOn = referred.ToDictionary(p => p.Id, p => p.CreatedAt.Date);
+        var joinedOn = counted.ToDictionary(p => p.Id, p => p.CreatedAt.Date);
         var lastSeen = await LastSeenAsync(joinedOn.Keys, ct);
 
         var cameBack = lastSeen.Count(seen =>
             joinedOn.TryGetValue(seen.Key, out var joined) && seen.Value.Date > joined);
 
-        return new Brought(referred.Count, personalised, cameBack);
+        return new Brought(counted.Count, personalised, cameBack, referred.Count - counted.Count);
+    }
+
+    /// <summary>
+    /// Which of these profiles belong to an address that has answered.
+    /// </summary>
+    /// <remarks>
+    /// The flag lives on the account row and the counting works from profiles, so this is the
+    /// join between them. Projected to the profile id alone, because that is all the caller
+    /// compares against and the rest of an account row has no business being read here.
+    /// </remarks>
+    private async Task<HashSet<string>> ConfirmedAsync(IEnumerable<string> profileIds, CancellationToken ct)
+    {
+        var ids = profileIds.ToList();
+        if (ids.Count == 0) return [];
+
+        var confirmed = await _db.Users
+            .Find(Builders<UserDocument>.Filter.And(
+                Builders<UserDocument>.Filter.In(u => u.ProfileId, ids),
+                Builders<UserDocument>.Filter.Ne(u => u.EmailVerifiedAt, null)))
+            .Project(u => u.ProfileId)
+            .ToListAsync(ct);
+
+        return confirmed.ToHashSet(StringComparer.Ordinal);
     }
 
     /// <summary>
@@ -160,7 +200,14 @@ public class ReferralService
     }
 
     /// <summary>One row of the acquisition board.</summary>
-    public sealed record Introducer(string ProfileId, string Name, string? Code, int SignedUp, int Personalised, int CameBack);
+    /// <param name="AwaitingConfirmation">
+    /// People they brought whose address has not answered yet, and who are in none of the three
+    /// counts. Carried so somebody with five unconfirmed sign-ups is not shown as having brought
+    /// nobody - which is discouraging, untrue, and fixable by them.
+    /// </param>
+    public sealed record Introducer(
+        string ProfileId, string Name, string? Code,
+        int SignedUp, int Personalised, int CameBack, int AwaitingConfirmation);
 
     /// <summary>
     /// Who has actually brought people in, best first.
@@ -189,7 +236,14 @@ public class ReferralService
             .Project(p => new { p.Id, p.ReferredByUserId, p.CreatedAt, p.Interests, p.Goals })
             .ToListAsync(ct);
 
-        if (referred.Count == 0) return [];
+        // Confirmed addresses only, for the same reason as the panel: a board that ranks
+        // unconfirmed sign-ups ranks whoever was most willing to invent addresses.
+        var confirmed = await ConfirmedAsync(referred.Select(p => p.Id), ct);
+        var awaiting = referred.Where(p => !confirmed.Contains(p.Id))
+            .GroupBy(p => p.ReferredByUserId!)
+            .ToDictionary(group => group.Key, group => group.Count());
+
+        referred = [.. referred.Where(p => confirmed.Contains(p.Id))];
 
         var joinedOn = referred.ToDictionary(p => p.Id, p => p.CreatedAt.Date);
         var lastSeen = await LastSeenAsync(joinedOn.Keys, ct);
@@ -199,7 +253,12 @@ public class ReferralService
             .Select(seen => seen.Key)
             .ToHashSet();
 
-        var introducerIds = referred.Select(p => p.ReferredByUserId!).Distinct().ToList();
+        var brought = referred.GroupBy(p => p.ReferredByUserId!).ToDictionary(group => group.Key, group => group.ToList());
+
+        // Everybody who brought anybody, confirmed or not. Taking the ids from the confirmed
+        // rows alone would drop an introducer whose five sign-ups have all yet to answer, and
+        // the board would say they brought nobody.
+        var introducerIds = brought.Keys.Union(awaiting.Keys, StringComparer.Ordinal).ToList();
 
         var introducers = await _db.Profiles
             .Find(Builders<UserProfile>.Filter.In(p => p.Id, introducerIds))
@@ -208,20 +267,26 @@ public class ReferralService
 
         var byId = introducers.ToDictionary(p => p.Id);
 
-        return [.. referred
-            .GroupBy(p => p.ReferredByUserId!)
-            .Where(group => byId.ContainsKey(group.Key))
-            .Select(group => new Introducer(
-                group.Key,
-                byId[group.Key].Name,
-                byId[group.Key].ReferralCode,
-                group.Count(),
-                group.Count(p => p.Interests.Any(i => !string.IsNullOrWhiteSpace(i))
-                                 && p.Goals.Any(g => !string.IsNullOrWhiteSpace(g))),
-                group.Count(p => returners.Contains(p.Id))))
+        return [.. introducerIds
+            .Where(byId.ContainsKey)
+            .Select(id =>
+            {
+                var theirs = brought.GetValueOrDefault(id, []);
+
+                return new Introducer(
+                    id,
+                    byId[id].Name,
+                    byId[id].ReferralCode,
+                    theirs.Count,
+                    theirs.Count(p => p.Interests.Any(i => !string.IsNullOrWhiteSpace(i))
+                                      && p.Goals.Any(g => !string.IsNullOrWhiteSpace(g))),
+                    theirs.Count(p => returners.Contains(p.Id)),
+                    awaiting.GetValueOrDefault(id));
+            })
             .OrderByDescending(row => row.CameBack)
             .ThenByDescending(row => row.Personalised)
             .ThenByDescending(row => row.SignedUp)
+            .ThenBy(row => row.Name, StringComparer.OrdinalIgnoreCase)
             .Take(limit)];
     }
 }

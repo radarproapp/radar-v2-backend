@@ -1,5 +1,6 @@
 using MongoDB.Driver;
 using RadarV2.Data;
+using RadarV2.Data.Documents;
 using RadarV2.Models;
 using RadarV2.Services;
 
@@ -37,7 +38,13 @@ public class ReferralTests
                 new CreateIndexOptions { Unique = true, Sparse = true }));
     }
 
-    private async Task<UserProfile> Joined(string id, string name, string? broughtBy = null, int daysAgo = 10, bool personalised = false)
+    /// <param name="confirmed">
+    /// Whether this person's address has answered. Default true, because an unconfirmed account
+    /// is counted nowhere and a test that forgot it would be asserting against zeroes.
+    /// </param>
+    private async Task<UserProfile> Joined(
+        string id, string name, string? broughtBy = null, int daysAgo = 10,
+        bool personalised = false, bool confirmed = true)
     {
         var profile = new UserProfile
         {
@@ -50,6 +57,17 @@ public class ReferralTests
         };
 
         await _db.Profiles.InsertOneAsync(profile);
+
+        // The account row beside the profile. The counts read the confirmation flag off it, so a
+        // profile on its own is somebody who signed up and never answered their email.
+        await _db.Users.InsertOneAsync(new UserDocument
+        {
+            Email = $"{id}@example.com",
+            ProfileId = id,
+            CreatedAt = profile.CreatedAt,
+            EmailVerifiedAt = confirmed ? profile.CreatedAt : null,
+        });
+
         return profile;
     }
 
@@ -292,6 +310,69 @@ public class ReferralTests
 
         Assert.Equal(7, code.Length);
         Assert.Equal(code, await _referrals.CodeForAsync("blank"));
+    }
+
+    // -- the confirmation gate --------------------------------------------------
+
+    /// <summary>
+    /// A sign-up whose address has never answered is counted nowhere.
+    /// </summary>
+    /// <remarks>
+    /// This is the point of the gate. Nothing stopped somebody creating thirty accounts on
+    /// addresses they invented, which made "came back" - the strongest of the three counts, and
+    /// the one a prize is most likely to ride on - manufacturable with two days of patience.
+    /// </remarks>
+    [Fact]
+    public async Task AnUnconfirmedSignUpIsCountedNowhere()
+    {
+        await Joined("ada", "Ada");
+        var invented = await Joined("invented", "Invented", broughtBy: "ada", daysAgo: 3, personalised: true, confirmed: false);
+        await Did(invented.Id, daysAgo: 1);
+
+        var brought = await _referrals.BroughtByAsync("ada");
+
+        Assert.Equal(0, brought.SignedUp);
+        Assert.Equal(0, brought.Personalised);
+        Assert.Equal(0, brought.CameBack);
+    }
+
+    /// <summary>But it is said out loud, not dropped.</summary>
+    /// <remarks>
+    /// Somebody who brought five people who have not opened their email reads as having brought
+    /// nobody otherwise - discouraging, untrue, and something they can fix by asking those
+    /// people to confirm.
+    /// </remarks>
+    [Fact]
+    public async Task UnconfirmedSignUpsAreReportedRatherThanHidden()
+    {
+        await Joined("ada", "Ada");
+        await Joined("waiting-1", "One", broughtBy: "ada", confirmed: false);
+        await Joined("waiting-2", "Two", broughtBy: "ada", confirmed: false);
+        await Joined("answered", "Three", broughtBy: "ada");
+
+        var brought = await _referrals.BroughtByAsync("ada");
+
+        Assert.Equal(1, brought.SignedUp);
+        Assert.Equal(2, brought.AwaitingConfirmation);
+    }
+
+    /// <summary>
+    /// And somebody whose sign-ups have all yet to answer still appears on the board.
+    /// </summary>
+    /// <remarks>
+    /// Taking the board's rows from the confirmed sign-ups alone would drop them entirely, so
+    /// the screen would say they brought nobody rather than that nobody has confirmed yet.
+    /// </remarks>
+    [Fact]
+    public async Task SomebodyWithOnlyUnconfirmedSignUpsIsStillOnTheBoard()
+    {
+        await Joined("ada", "Ada");
+        await Joined("waiting", "Waiting", broughtBy: "ada", confirmed: false);
+
+        var row = Assert.Single(await _referrals.BoardAsync(), r => r.ProfileId == "ada");
+
+        Assert.Equal(0, row.SignedUp);
+        Assert.Equal(1, row.AwaitingConfirmation);
     }
 
     /// <summary>
