@@ -329,6 +329,49 @@ public class MeController : ControllerBase
         return switched ? NoContent() : NotFound(new { error = "No such profile on this account." });
     }
 
+    /// <summary>
+    /// The three questions this reader is asked, and whether they have picked a category yet.
+    /// </summary>
+    /// <remarks>
+    /// Served rather than held in the SPA, so both ends agree on what was asked. The answer text
+    /// is the stored value and the matching runs on it, so a client carrying its own copy of the
+    /// options can drift from the server that decides what those answers mean - silently, and in
+    /// a way no error would show.
+    ///
+    /// <c>persona</c> is accepted because the category question comes first: a reader choosing
+    /// "Graduate" needs the graduate questions before anything has been saved. Without it the
+    /// client would have to store a persona it is still asking about.
+    ///
+    /// <c>hasChosenCategory</c> is the honest signal rather than the persona itself. PersonaType
+    /// is an enum, so its default is a real value - Student - and every account reads as one
+    /// until it says otherwise. A client trusting the value alone would skip the question for
+    /// everybody who had never been asked it.
+    /// </remarks>
+    [HttpGet("onboarding-questions")]
+    public async Task<IActionResult> GetOnboardingQuestionsAsync([FromQuery] string? persona = null)
+    {
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        var asked = profile.Persona;
+
+        if (!string.IsNullOrWhiteSpace(persona))
+        {
+            if (!Enum.TryParse<PersonaType>(persona, ignoreCase: true, out var requested))
+                return BadRequest(new { error = $"Unknown category '{persona}'." });
+
+            asked = requested;
+        }
+
+        return Ok(new
+        {
+            persona = asked.ToString(),
+            hasChosenCategory = profile.HasChosenCategory,
+            onboardingComplete = profile.OnboardingComplete,
+            questions = OnboardingQuestions.For(asked),
+        });
+    }
+
     [HttpPost("onboarding-complete")]
     public async Task<IActionResult> CompleteOnboardingAsync([FromBody] UpdateProfileRequest request)
     {
