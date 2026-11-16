@@ -15,7 +15,7 @@ namespace RadarV2.Services.Ingestion;
 /// describes the same underlying listing: <c>job_title</c>, <c>company_name</c>, <c>location</c>,
 /// <c>job_slug</c>, <c>job_deadline_at</c>, <c>apply_url</c>. Plus <c>view_url</c>, named
 /// explicitly in the /jobs description. That is inference from their own naming, and it is still
-/// inference, so each field tries a small set of candidates and <see cref="UnreadFields"/> reports
+/// inference, so each field tries a small set of candidates and <see cref="FieldNames"/> reports
 /// what was actually there.
 ///
 /// The first real response settles this. Until one has been seen, a listing that cannot yield a
@@ -35,8 +35,6 @@ public sealed class TalentApplyJob
     public string? Location => First("location", "city", "location_name");
 
     public string? Description => First("description", "summary", "job_description", "about");
-
-    public string? EmploymentType => First("type", "employment_type", "job_type");
 
     public string? WorkArrangement => First("work_arrangement", "arrangement", "workplace_type");
 
@@ -58,7 +56,19 @@ public sealed class TalentApplyJob
         get
         {
             var raw = First("deadline_at", "job_deadline_at", "deadline", "closes_at", "expires_at");
-            return DateTime.TryParse(raw, null, System.Globalization.DateTimeStyles.AdjustToUniversal, out var parsed)
+
+            // AssumeUniversal as well as AdjustToUniversal, and an invariant culture, which is
+            // what the RSS path already does. Without the assumption a date carrying no offset
+            // ("2027-03-01") is read as local and then shifted, so on a UTC+1 host a deadline of
+            // 1 March is stored as 28 February 23:00Z - and HasClosed, DaysUntilDeadline and the
+            // urgency label all fire a day early, telling somebody a live listing has closed.
+            // The null provider made "01/03/2027" mean different days on different hosts too.
+            return DateTime.TryParse(
+                raw,
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AssumeUniversal
+                    | System.Globalization.DateTimeStyles.AdjustToUniversal,
+                out var parsed)
                 ? parsed
                 : null;
         }
@@ -91,7 +101,12 @@ public sealed class TalentApplyJob
 
                 // Their resources nest named things as {id, name, ...} - work_role and country
                 // both do. Reading the name is better than rendering an object id at somebody.
+                // The kind is checked before reading. GetString throws for any kind but String
+                // and Null, so a listing shaped {"name": 160} threw from inside IsUsable - in the
+                // per-listing loop, with no per-listing guard, killing every remaining listing,
+                // page and query. The one scenario this reader exists to survive.
                 JsonValueKind.Object when value.TryGetProperty("name", out var name)
+                    && name.ValueKind == JsonValueKind.String
                     => name.GetString(),
 
                 _ => null,

@@ -28,6 +28,7 @@ public static class ConfigurationCheck
         "MongoDB:DatabaseName",
         "OpenRouter:ApiKey",
         "YouTube:ApiKey",
+        "TalentApply:ApiKey",
         "Auth:Jwt:Key",
         "Cors:Strict",
         "Cors:AllowedOrigins:0",

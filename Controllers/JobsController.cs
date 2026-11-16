@@ -26,6 +26,7 @@ public class JobsController : ControllerBase
     private readonly ContentIngestionService _ingestion;
     private readonly IOpportunityService _opportunities;
     private readonly OpportunityIngestionService _opportunityIngestion;
+    private readonly TalentApplyIngestionService _talentApply;
     private readonly RadarDatabase _db;
     private readonly ILogger<JobsController> _log;
 
@@ -34,6 +35,7 @@ public class JobsController : ControllerBase
         ContentIngestionService ingestion,
         IOpportunityService opportunities,
         OpportunityIngestionService opportunityIngestion,
+        TalentApplyIngestionService talentApply,
         DailyDigestSender digests,
         RadarDatabase db,
         ILogger<JobsController> log)
@@ -42,6 +44,7 @@ public class JobsController : ControllerBase
         _ingestion = ingestion;
         _opportunities = opportunities;
         _opportunityIngestion = opportunityIngestion;
+        _talentApply = talentApply;
         _digests = digests;
         _db = db;
         _log = log;
@@ -129,9 +132,15 @@ public class JobsController : ControllerBase
     }
 
     /// <summary>
-    /// Fetches opportunities from their source feeds. Separate from the content ingestion job so
-    /// it can run on its own schedule and be triggered independently when debugging supply.
+    /// Fetches opportunities from every source. Separate from the content ingestion job so it can
+    /// run on its own schedule and be triggered independently when debugging supply.
     /// </summary>
+    /// <remarks>
+    /// Runs the partner API as well as the feeds. It used to run only the RSS ingester, so the
+    /// endpoint whose stated purpose is debugging opportunity supply silently skipped the source
+    /// that supplies the most - and an operator reaching for it got a number that looked like the
+    /// whole picture.
+    /// </remarks>
     [AllowAnonymous]
     [HttpPost("opportunity-ingestion")]
     public async Task<IActionResult> RunOpportunityIngestionAsync(CancellationToken ct)
@@ -141,8 +150,21 @@ public class JobsController : ControllerBase
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromMinutes(5));
 
-        var added = await _opportunityIngestion.RunAsync(cts.Token);
-        return Ok(new { added });
+        var fromFeeds = await _opportunityIngestion.RunAsync(cts.Token);
+
+        // Its own try/catch, for the same reason the nightly job has one: a partner outage must
+        // not turn a run that successfully read six feeds into a failed request.
+        var fromPartners = 0;
+        try
+        {
+            fromPartners = await _talentApply.RunAsync(cts.Token);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "TalentApply ingestion failed; the feed sources still ran.");
+        }
+
+        return Ok(new { added = fromFeeds + fromPartners, fromFeeds, fromPartners });
     }
 
     /// <summary>Shared cron-key check, so every job authenticates the same way.</summary>

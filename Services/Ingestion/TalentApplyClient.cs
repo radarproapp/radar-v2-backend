@@ -21,8 +21,29 @@ namespace RadarV2.Services.Ingestion;
 /// </remarks>
 public class TalentApplyClient
 {
-    /// <summary>Their cap is 120 requests a minute; this stays far enough below it to share.</summary>
-    public const int MostRequestsPerRun = 20;
+    /// <summary>
+    /// A backstop on the whole run, well under their 120 a minute.
+    /// </summary>
+    /// <remarks>
+    /// Sequential calls, so sixty of them take roughly half a minute and never approach the
+    /// limiter even if a retry overlaps. This is the ceiling, not the plan: the per-query
+    /// allowance below is what actually decides how much is read, and this only catches a source
+    /// that reports far more pages than expected.
+    /// </remarks>
+    public const int MostRequestsPerRun = 60;
+
+    /// <summary>
+    /// How many pages any one query may take.
+    /// </summary>
+    /// <remarks>
+    /// Per query rather than a pool shared across them. Shared and consumed in order, a query
+    /// with enough pages took the entire budget and the ones after it never ran at all - so
+    /// internships, Nigerian roles and remote work would go unread on any night graduate schemes
+    /// happened to be deep, and the run would log as a success.
+    ///
+    /// Fifteen pages at fifty each is 750 listings per query, 3000 across the four.
+    /// </remarks>
+    public const int MostPagesPerQuery = 15;
 
     /// <summary>Their maximum page size, and the one that costs the fewest requests.</summary>
     public const int PageSize = 50;
@@ -144,14 +165,28 @@ public class TalentApplyClient
                 .ToList();
 
             var lastPage = 1;
-            if (data.TryGetProperty("pagination", out var pagination)
-                && pagination.TryGetProperty("last_page", out var last)
-                && last.TryGetInt32(out var parsed))
+            var total = jobs.Count;
+            if (data.TryGetProperty("pagination", out var pagination))
             {
-                lastPage = parsed;
+                // ValueKind first. TryGetInt32 does not return false for a non-number - it throws
+                // InvalidOperationException - and only JsonException is caught here, so a
+                // last_page arriving as "4" or null took down the whole run. That is exactly the
+                // contract drift this envelope is parsed strictly to survive.
+                if (pagination.TryGetProperty("last_page", out var last)
+                    && last.ValueKind == JsonValueKind.Number
+                    && last.TryGetInt32(out var parsedLast))
+                    lastPage = parsedLast;
+
+                // Reported so a run says how much the source actually holds. Without it the logs
+                // could say how much Radar took and never how much was there, which is the number
+                // that decides whether the budget is the binding constraint or the catalogue is.
+                if (pagination.TryGetProperty("total", out var reported)
+                    && reported.ValueKind == JsonValueKind.Number
+                    && reported.TryGetInt32(out var parsedTotal))
+                    total = parsedTotal;
             }
 
-            return new TalentApplyPage(jobs, lastPage);
+            return new TalentApplyPage(jobs, lastPage, total);
         }
         catch (JsonException ex)
         {
@@ -162,4 +197,4 @@ public class TalentApplyClient
 }
 
 /// <summary>One page of results, and how many pages there are.</summary>
-public sealed record TalentApplyPage(IReadOnlyList<TalentApplyJob> Jobs, int LastPage);
+public sealed record TalentApplyPage(IReadOnlyList<TalentApplyJob> Jobs, int LastPage, int Total);

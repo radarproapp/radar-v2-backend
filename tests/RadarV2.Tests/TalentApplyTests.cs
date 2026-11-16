@@ -44,7 +44,85 @@ public class TalentApplyTests
         Assert.NotNull(page);
         Assert.Equal(2, page.Jobs.Count);
         Assert.Equal(4, page.LastPage);
+        Assert.Equal(180, page.Total);
         Assert.Equal("Data Analyst", page.Jobs[0].Title);
+
+        // Through the envelope, not just on a standalone listing. The attributed link is the
+        // thing this integration earns from, so it is pinned across the boundary too.
+        Assert.Equal("https://app.talentapply.io/j/abc?ref=radar", page.Jobs[0].AttributedUrl);
+        Assert.True(page.Jobs.All(job => job.IsUsable));
+    }
+
+    /// <summary>
+    /// The budget is per query, so one deep query cannot starve the rest.
+    /// </summary>
+    /// <remarks>
+    /// Shared and consumed in order, a query with enough pages took the whole allowance and the
+    /// queries after it never ran - internships and Nigerian roles going unread on any night
+    /// graduate schemes happened to be deep, logged as a successful run. And because paging
+    /// restarts at one every run with no cursor, that is not one bad night: every later run
+    /// re-reads the same pages, stores nothing new, and never reaches the other three.
+    ///
+    /// Pinned as arithmetic because the alternative is a test that fires sixty HTTP requests.
+    /// </remarks>
+    [Fact]
+    public void EveryQueryGetsItsOwnPageAllowanceWithinTheRunBackstop()
+    {
+        const int queries = 4;
+
+        Assert.True(
+            queries * TalentApplyClient.MostPagesPerQuery >= TalentApplyClient.MostRequestsPerRun,
+            "The run backstop is below the per-query allowances, so the last query is starved again.");
+
+        Assert.True(
+            TalentApplyClient.MostRequestsPerRun < 120,
+            "A run must stay inside TalentApply's 120 requests per minute.");
+    }
+
+    /// <summary>A page without a reported total still reports something sane.</summary>
+    [Fact]
+    public void AMissingTotalFallsBackToWhatWasActuallyReturned()
+    {
+        var page = TalentApplyClient.Parse(
+            """{"data":{"items":[{"title":"A","view_url":"https://x.co/a"}],"pagination":{"last_page":1}}}""",
+            NullLogger.Instance);
+
+        Assert.NotNull(page);
+        Assert.Equal(1, page.Total);
+    }
+
+    /// <summary>
+    /// A pagination field of the wrong type does not take the run down.
+    /// </summary>
+    /// <remarks>
+    /// TryGetInt32 throws for a non-number rather than returning false, and only JsonException was
+    /// caught - so a last_page arriving as "4" or null, which is ordinary serialiser drift, threw
+    /// straight out through the paging loop. The one branch that did not degrade was the one in
+    /// the method whose whole job is surviving a contract change.
+    /// </remarks>
+    [Theory]
+    [InlineData("""{"data":{"items":[],"pagination":{"last_page":"4","total":"180"}}}""")]
+    [InlineData("""{"data":{"items":[],"pagination":{"last_page":null,"total":null}}}""")]
+    [InlineData("""{"data":{"items":[],"pagination":{"last_page":{"x":1},"total":[1]}}}""")]
+    public void PaginationOfTheWrongTypeIsSurvivedRatherThanThrown(string body)
+    {
+        var page = TalentApplyClient.Parse(body, NullLogger.Instance);
+
+        Assert.NotNull(page);
+        Assert.Equal(1, page.LastPage);
+    }
+
+    /// <summary>Entries that are not objects are dropped rather than crashing the page.</summary>
+    [Fact]
+    public void NonObjectEntriesInTheItemsArrayAreIgnored()
+    {
+        var page = TalentApplyClient.Parse(
+            """{"data":{"items":[null,1,"x",{"title":"Real","view_url":"https://x.co/a"}]}}""",
+            NullLogger.Instance);
+
+        Assert.NotNull(page);
+        Assert.Single(page.Jobs);
+        Assert.Equal("Real", page.Jobs[0].Title);
     }
 
     /// <summary>
@@ -140,15 +218,68 @@ public class TalentApplyTests
         Assert.Equal(["some_unexpected_name", "another"], job.FieldNames);
     }
 
-    [Fact]
-    public void ADeadlineIsReadWhenTheListingCarriesOne()
+    /// <summary>
+    /// A date with no timezone is read as UTC, not as the server's local time.
+    /// </summary>
+    /// <remarks>
+    /// AdjustToUniversal without AssumeUniversal reads an offset-less date as local and then
+    /// shifts it, so on a UTC+1 host a 1 March deadline is stored as 28 February 23:00Z. Every
+    /// deadline-derived answer - HasClosed, DaysUntilDeadline, the urgency label - then fires a
+    /// day early, and somebody is told a listing that is open has closed.
+    ///
+    /// Asserted as an exact instant and an exact Kind. The previous version of this test compared
+    /// .Date on a Z-suffixed input, which absorbs any sub-day shift and passed against the broken
+    /// implementation on every UTC+ host.
+    /// </remarks>
+    [Theory]
+    [InlineData("2027-03-01T00:00:00Z")]
+    [InlineData("2027-03-01")]
+    [InlineData("2027-03-01 00:00:00")]
+    public void ADeadlineWithoutATimezoneIsStillReadAsUtc(string raw)
     {
-        var job = Job("""
-            {"title":"Analyst","view_url":"https://x.co/a","job_deadline_at":"2027-03-01T00:00:00Z"}
-            """);
+        var job = Job($$"""{"title":"Analyst","view_url":"https://x.co/a","job_deadline_at":"{{raw}}"}""");
 
-        Assert.Equal(new DateTime(2027, 3, 1), job.Deadline?.Date);
+        Assert.Equal(new DateTime(2027, 3, 1, 0, 0, 0, DateTimeKind.Utc), job.Deadline);
+        Assert.Equal(DateTimeKind.Utc, job.Deadline!.Value.Kind);
+    }
+
+    /// <summary>A day-first date means the same day wherever the server is.</summary>
+    /// <remarks>
+    /// Read with a null provider it took the host's culture, so the same listing was a March
+    /// deadline on one machine and a January one on another.
+    /// </remarks>
+    [Fact]
+    public void ADateIsReadTheSameWayRegardlessOfTheHostCulture()
+    {
+        var job = Job("""{"title":"A","view_url":"https://x.co/a","job_deadline_at":"03/01/2027"}""");
+
+        Assert.Equal(new DateTime(2027, 3, 1, 0, 0, 0, DateTimeKind.Utc), job.Deadline);
+    }
+
+    [Fact]
+    public void AListingWithNoDeadlineHasNone() =>
         Assert.Null(Job("""{"title":"Analyst","view_url":"https://x.co/a"}""").Deadline);
+
+    /// <summary>
+    /// A nested field of an unexpected type is skipped, not thrown from.
+    /// </summary>
+    /// <remarks>
+    /// GetString throws for any kind but String and Null, so a listing carrying
+    /// {"location":{"name":160}} threw from inside IsUsable - in the per-listing loop, with no
+    /// per-listing guard, ending every remaining listing, page and query. Precisely the "the
+    /// inferred names were wrong" case the reader exists to absorb, and it crashed instead.
+    /// </remarks>
+    [Theory]
+    [InlineData("""{"title":"A","view_url":"https://x.co/a","location":{"id":160,"name":160}}""")]
+    [InlineData("""{"title":"A","view_url":"https://x.co/a","location":{"name":{"en":"Lagos"}}}""")]
+    [InlineData("""{"title":"A","view_url":"https://x.co/a","location":{"name":null}}""")]
+    [InlineData("""{"title":"A","view_url":"https://x.co/a","location":[1,2]}""")]
+    public void ANestedFieldOfTheWrongTypeDoesNotThrow(string json)
+    {
+        var job = Job(json);
+
+        Assert.Null(job.Location);
+        Assert.True(job.IsUsable);
     }
 
     // ── the source register ──────────────────────────────────────────────────

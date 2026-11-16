@@ -417,14 +417,11 @@ public partial class OpportunityIngestionService
 
     private static string? Value(XElement element, XName name) => element.Element(name)?.Value;
 
-    private static string Clean(string? value) =>
-        string.IsNullOrWhiteSpace(value)
-            ? string.Empty
-            : WebUtility.HtmlDecode(HtmlTags().Replace(value, " "))
-                .Replace('\n', ' ').Replace('\r', ' ')
-                .Replace("  ", " ")
-                .Trim();
+    // Both delegate to FeedText, which is where this code now lives once rather than twice. The
+    // copy that was here stripped tags before decoding entities - the order that lets an encoded
+    // tag through into stored text - collapsed only doubled spaces rather than runs of them, and
+    // cut by UTF-16 unit, so a title ending in an emoji stored half a character.
+    private static string Clean(string? value) => FeedText.Clean(value);
 
-    private static string Shorten(string value, int max) =>
-        value.Length <= max ? value : value[..max].TrimEnd() + "…";
+    private static string Shorten(string value, int max) => FeedText.Shorten(value, max);
 }
