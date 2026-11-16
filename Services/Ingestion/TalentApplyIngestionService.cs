@@ -55,12 +55,12 @@ public class TalentApplyIngestionService
     /// </remarks>
     private const string PostedWithinDays = "60";
 
-    private readonly TalentApplyClient _client;
+    private readonly ITalentApplyJobs _client;
     private readonly RadarDatabase _db;
     private readonly ILogger<TalentApplyIngestionService> _log;
 
     public TalentApplyIngestionService(
-        TalentApplyClient client,
+        ITalentApplyJobs client,
         RadarDatabase db,
         ILogger<TalentApplyIngestionService> log)
     {

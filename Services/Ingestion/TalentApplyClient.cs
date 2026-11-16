@@ -19,7 +19,24 @@ namespace RadarV2.Services.Ingestion;
 /// Everything here follows the published spec except the shape of a job itself, which TalentApply
 /// publishes as an empty schema. See <see cref="TalentApplyJob"/>.
 /// </remarks>
-public class TalentApplyClient
+public interface ITalentApplyJobs
+{
+    /// <summary>Whether a key has been configured at all.</summary>
+    bool IsConfigured { get; }
+
+    /// <summary>One page of job listings, or null when the call could not be made.</summary>
+    Task<TalentApplyPage?> FetchJobsAsync(
+        IReadOnlyDictionary<string, string> filters, int page, CancellationToken ct);
+}
+
+/// <inheritdoc cref="ITalentApplyJobs"/>
+/// <remarks>
+/// The interface exists so the ingestion service can be tested. Without it the paging loop, the
+/// per-query budget, the region tagging and the skip-an-unreadable-listing rule were reachable
+/// only by making real HTTP calls, so none of them had a test - and those are exactly where the
+/// review found the defects.
+/// </remarks>
+public class TalentApplyClient : ITalentApplyJobs
 {
     /// <summary>
     /// A backstop on the whole run, well under their 120 a minute.

@@ -304,7 +304,7 @@ builder.Services.AddHttpClient("TalentApply", client =>
     client.Timeout = TimeSpan.FromSeconds(30);
     client.DefaultRequestHeaders.Add("Accept", "application/json");
 });
-builder.Services.AddScoped<TalentApplyClient>();
+builder.Services.AddScoped<ITalentApplyJobs, TalentApplyClient>();
 builder.Services.AddScoped<TalentApplyIngestionService>();
 
 // Ingestion services
