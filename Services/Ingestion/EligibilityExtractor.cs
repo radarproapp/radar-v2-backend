@@ -1,0 +1,272 @@
+using System.Text.RegularExpressions;
+using RadarV2.Models;
+
+namespace RadarV2.Services.Ingestion;
+
+/// <summary>
+/// Reading the criteria a posting actually states, and recording nothing else.
+/// </summary>
+/// <remarks>
+/// Both ingesters left <see cref="Opportunity.Eligibility"/> empty on purpose, and the reason
+/// still stands: "inventing them from a summary is how people end up applying for things they do
+/// not qualify for." The consequence was that the whole eligibility half of the engine had no
+/// input - every posting read as unchecked, and a comparator with nothing to compare is a
+/// comparator that decides nothing.
+///
+/// So this extracts rather than infers. Every pattern below matches an explicit statement, and
+/// anything short of one is left absent, because absent means "not stated" everywhere else in the
+/// model and that is the honest reading. A posting that says "the ideal candidate will be
+/// experienced" states nothing this can use, and the right answer is to record nothing.
+///
+/// Deliberately conservative in a specific direction. A missed criterion costs somebody a listing
+/// they would have been shown anyway - the verdict falls back to Unchecked or CannotTell, both of
+/// which still display. A wrong criterion costs them an opportunity they qualify for, silently.
+/// Those are not symmetrical, so every pattern here would rather match nothing than guess.
+///
+/// Reading a posting is not republishing it. These run over text Radar is permitted to fetch
+/// regardless of whether it may store the description, the same argument the deadline and region
+/// inference already rest on: a closing date is a fact about the opportunity, not the source's
+/// expression of it.
+/// </remarks>
+public static partial class EligibilityExtractor
+{
+    /// <summary>
+    /// What a posting says about who may apply.
+    /// </summary>
+    /// <remarks>
+    /// Returns an Eligibility whose <see cref="Eligibility.WasStated"/> is false when nothing was
+    /// found, which is exactly what the callers already store - so a posting this cannot read is
+    /// no worse off than before.
+    /// </remarks>
+    public static Eligibility From(string? title, string? body)
+    {
+        var text = $"{title} {body}";
+        var eligibility = new Eligibility();
+
+        if (string.IsNullOrWhiteSpace(text)) return eligibility;
+
+        eligibility.MinimumQualification = ReadQualification(text);
+        ReadExperience(text, eligibility);
+        ReadAge(text, eligibility);
+        eligibility.Nationalities = ReadNationalities(text);
+
+        return eligibility;
+    }
+
+    // ── qualifications ───────────────────────────────────────────────────────
+
+    /// <summary>
+    /// The lowest qualification a posting asks for.
+    /// </summary>
+    /// <remarks>
+    /// Matched only where the phrasing marks it as a floor - "minimum", "at least", "or higher",
+    /// "or above", "required". A description that merely mentions a master's degree is often
+    /// describing the programme rather than the applicant, and "scholarship for a master's
+    /// degree" asks for a bachelor's, not a master's. Taking every mention as a floor would read
+    /// that one exactly backwards.
+    ///
+    /// Where several are stated the lowest wins, because a posting saying "HND or BSc" is open to
+    /// both and the floor is the lower rung.
+    /// </remarks>
+    private static QualificationLevel? ReadQualification(string text)
+    {
+        var found = new List<QualificationLevel>();
+
+        foreach (var (pattern, level) in Qualifications)
+            if (Regex.IsMatch(text, pattern, RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(200)))
+                found.Add(level);
+
+        return found.Count > 0 ? found.Min() : null;
+    }
+
+    /// <summary>
+    /// Each rung, and the phrasings that mark it as a requirement rather than a mention.
+    /// </summary>
+    /// <remarks>
+    /// The qualifying words are the whole point. Without them "a PhD programme" reads as "needs a
+    /// PhD", which excludes exactly the people it is for.
+    /// </remarks>
+    private static readonly (string Pattern, QualificationLevel Level)[] Qualifications =
+    [
+        (@"(?:minimum|at least|must (?:have|possess)|requires?|required)[^.]{0,40}\bO(?:'|')?\s?level\b", QualificationLevel.SecondarySchool),
+        (@"\bO(?:'|')?\s?level\b[^.]{0,30}(?:required|or (?:higher|above)|minimum)", QualificationLevel.SecondarySchool),
+        (@"(?:minimum|at least|must (?:have|possess)|requires?|required)[^.]{0,40}\bNCE\b", QualificationLevel.Nce),
+        (@"\bNCE\b[^.]{0,30}(?:required|or (?:higher|above)|minimum)", QualificationLevel.Nce),
+        (@"(?:minimum|at least|must (?:have|possess)|requires?|required)[^.]{0,40}\bOND\b", QualificationLevel.Ond),
+        (@"\bOND\b[^.]{0,30}(?:required|or (?:higher|above)|minimum)", QualificationLevel.Ond),
+        (@"(?:minimum|at least|must (?:have|possess)|requires?|required)[^.]{0,40}\bHND\b", QualificationLevel.Hnd),
+        (@"\bHND\b[^.]{0,30}(?:required|or (?:higher|above)|minimum)", QualificationLevel.Hnd),
+        (@"(?:minimum|at least|must (?:have|possess)|requires?|required)[^.]{0,40}(?:bachelor(?:'|')?s?|b\.?sc|first degree|university degree)", QualificationLevel.Bachelors),
+        (@"(?:bachelor(?:'|')?s?|b\.?sc|first degree|university degree)[^.]{0,30}(?:required|or (?:higher|above)|minimum)", QualificationLevel.Bachelors),
+        (@"(?:minimum|at least|must (?:have|possess)|requires?|required)[^.]{0,40}(?:master(?:'|')?s?|m\.?sc|postgraduate degree)", QualificationLevel.Masters),
+        (@"(?:master(?:'|')?s?|m\.?sc)[^.]{0,30}(?:required|or (?:higher|above)|minimum)", QualificationLevel.Masters),
+        (@"(?:minimum|at least|must (?:have|possess)|requires?|required)[^.]{0,40}(?:ph\.?d|doctorate|doctoral degree)", QualificationLevel.Doctorate),
+        (@"(?:ph\.?d|doctorate)[^.]{0,30}(?:required|or (?:higher|above)|minimum)", QualificationLevel.Doctorate),
+    ];
+
+    // ── experience ───────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Years of experience, in whichever direction the posting states.
+    /// </summary>
+    /// <remarks>
+    /// The ceiling is read as carefully as the floor, because it is the one that matters for the
+    /// graduate programmes this product is mostly about - "no more than two years" is the rule
+    /// that makes a scheme a graduate scheme.
+    ///
+    /// A range like "3-5 years" sets both. Anything above thirty is ignored: it is far more
+    /// likely to be a year, a salary or a street number that happened to sit beside the word.
+    /// </remarks>
+    private static void ReadExperience(string text, Eligibility eligibility)
+    {
+        var floor = MinimumExperience().Match(text);
+        if (floor.Success && int.TryParse(floor.Groups[1].Value, out var least) && least is > 0 and <= 30)
+            eligibility.MinimumYearsExperience = least;
+
+        var ceiling = MaximumExperience().Match(text);
+        if (ceiling.Success && int.TryParse(ceiling.Groups[1].Value, out var most) && most is > 0 and <= 30)
+            eligibility.MaximumYearsExperience = most;
+
+        var range = ExperienceRange().Match(text);
+        if (range.Success
+            && int.TryParse(range.Groups[1].Value, out var from)
+            && int.TryParse(range.Groups[2].Value, out var to)
+            && from <= to && to <= 30)
+        {
+            eligibility.MinimumYearsExperience = from;
+            eligibility.MaximumYearsExperience = to;
+        }
+    }
+
+    [GeneratedRegex(@"(?:minimum of|at least|a minimum|not less than|over)\s+(\d{1,2})\+?\s*(?:years?|yrs?)[^.]{0,30}experience", RegexOptions.IgnoreCase)]
+    private static partial Regex MinimumExperience();
+
+    [GeneratedRegex(@"(?:no more than|not more than|less than|under|up to|maximum of|at most)\s+(\d{1,2})\s*(?:years?|yrs?)[^.]{0,30}experience", RegexOptions.IgnoreCase)]
+    private static partial Regex MaximumExperience();
+
+    [GeneratedRegex(@"\b(\d{1,2})\s*(?:-|–|to)\s*(\d{1,2})\s*(?:years?|yrs?)[^.]{0,30}experience", RegexOptions.IgnoreCase)]
+    private static partial Regex ExperienceRange();
+
+    // ── age ──────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// An age range, which is the one criterion nobody can acquire.
+    /// </summary>
+    /// <remarks>
+    /// Bounded to a plausible human range on the way in. "Under 30" beside a figure like 2030 is
+    /// a year, and an age bound Radar invented is worse than none - it is the criterion that can
+    /// never be satisfied by trying harder.
+    /// </remarks>
+    private static void ReadAge(string text, Eligibility eligibility)
+    {
+        var range = AgeRange().Match(text);
+        if (range.Success
+            && int.TryParse(range.Groups[1].Value, out var from)
+            && int.TryParse(range.Groups[2].Value, out var to)
+            && Plausible(from) && Plausible(to) && from <= to)
+        {
+            eligibility.MinimumAge = from;
+            eligibility.MaximumAge = to;
+            return;
+        }
+
+        var ceiling = MaximumAge().Match(text);
+        if (ceiling.Success && int.TryParse(ceiling.Groups[1].Value, out var oldest) && Plausible(oldest))
+            eligibility.MaximumAge = oldest;
+
+        var floor = MinimumAge().Match(text);
+        if (floor.Success && int.TryParse(floor.Groups[1].Value, out var youngest) && Plausible(youngest))
+            eligibility.MinimumAge = youngest;
+    }
+
+    private static bool Plausible(int age) => age is >= 10 and <= 75;
+
+    [GeneratedRegex(@"(?:aged?|age)\s*(?:between\s*)?(\d{2})\s*(?:-|–|to|and)\s*(\d{2})", RegexOptions.IgnoreCase)]
+    private static partial Regex AgeRange();
+
+    [GeneratedRegex(@"(?:under|below|younger than|not (?:more than|older than)|maximum age of|up to)\s*(?:the age of\s*)?(\d{2})\s*(?:years?(?:\s*old)?|$|\b)", RegexOptions.IgnoreCase)]
+    private static partial Regex MaximumAge();
+
+    [GeneratedRegex(@"(?:at least|minimum age of|over|older than|above)\s*(?:the age of\s*)?(\d{2})\s*years?(?:\s*old)?", RegexOptions.IgnoreCase)]
+    private static partial Regex MinimumAge();
+
+    // ── nationality ──────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Nationalities a posting says it is open to.
+    /// </summary>
+    /// <remarks>
+    /// The narrowest extraction here, and on purpose. The brief singles this one out - "do not
+    /// infer nationality eligibility merely because a programme is described as international" -
+    /// and a wrongly recorded nationality is the criterion most likely to hide something from
+    /// exactly the person it was meant for.
+    ///
+    /// So only an explicit restriction counts: "open to Nigerian nationals", "Nigerian citizens
+    /// only", "applicants must be Ghanaian". A posting that merely mentions Nigeria - which is
+    /// most of them, on a Nigerian job board - states nothing about nationality at all.
+    /// </remarks>
+    private static List<string> ReadNationalities(string text)
+    {
+        var found = new List<string>();
+
+        foreach (Match match in Nationality().Matches(text))
+        {
+            var word = match.Groups[1].Value.Trim();
+
+            if (Demonyms.TryGetValue(word, out var canonical) && !found.Contains(canonical))
+                found.Add(canonical);
+        }
+
+        return found;
+    }
+
+    [GeneratedRegex(@"(?:open to|restricted to|must be|applicants? (?:must be|should be)|only)\s+(?:citizens of\s+|nationals of\s+)?([A-Z][a-z]+)(?:\s+(?:nationals?|citizens?|passport holders?|applicants?|candidates?))", RegexOptions.IgnoreCase)]
+    private static partial Regex Nationality();
+
+    /// <summary>
+    /// The demonyms worth recognising, and their canonical spelling.
+    /// </summary>
+    /// <remarks>
+    /// A closed list rather than anything that captures a capitalised word. An open capture would
+    /// read "open to Graduate nationals" or "must be Senior candidates" as nationalities, and
+    /// every one of those silently hides the posting from everybody.
+    ///
+    /// Matched to how the onboarding profile stores them, so the comparison in EligibilityCheck
+    /// is against the same spelling a person would have given.
+    /// </remarks>
+    private static readonly Dictionary<string, string> Demonyms = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Nigerian"] = "Nigerian",
+        ["Ghanaian"] = "Ghanaian",
+        ["Kenyan"] = "Kenyan",
+        ["Ugandan"] = "Ugandan",
+        ["Tanzanian"] = "Tanzanian",
+        ["Rwandan"] = "Rwandan",
+        ["Ethiopian"] = "Ethiopian",
+        ["Egyptian"] = "Egyptian",
+        ["Moroccan"] = "Moroccan",
+        ["Senegalese"] = "Senegalese",
+        ["Cameroonian"] = "Cameroonian",
+        ["Zambian"] = "Zambian",
+        ["Zimbabwean"] = "Zimbabwean",
+        ["Botswanan"] = "Botswanan",
+        ["Namibian"] = "Namibian",
+        ["Malawian"] = "Malawian",
+        ["Ivorian"] = "Ivorian",
+        ["Beninese"] = "Beninese",
+        ["Togolese"] = "Togolese",
+        ["Liberian"] = "Liberian",
+        ["Sierra Leonean"] = "Sierra Leonean",
+        ["Gambian"] = "Gambian",
+        ["Sudanese"] = "Sudanese",
+        ["Somali"] = "Somali",
+        ["Angolan"] = "Angolan",
+        ["Mozambican"] = "Mozambican",
+        ["Congolese"] = "Congolese",
+        ["Algerian"] = "Algerian",
+        ["Tunisian"] = "Tunisian",
+        ["Burkinabe"] = "Burkinabe",
+        ["Malian"] = "Malian",
+        ["Nigerien"] = "Nigerien",
+    };
+}

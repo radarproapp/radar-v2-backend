@@ -209,6 +209,10 @@ public class TalentApplyIngestionService
                             // somebody applies for a thing they do not qualify for.
                             Benefits = string.Empty,
                             WhoIsEligible = [],
+
+                            // Same extractor, same rule. Read from the listing's own
+                            // text, and absent whenever the listing states nothing.
+                            Eligibility = EligibilityExtractor.From(job.Title, job.Description),
                         }, cancellationToken: ct);
 
                         added++;

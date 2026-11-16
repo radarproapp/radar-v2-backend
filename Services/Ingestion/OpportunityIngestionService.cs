@@ -239,6 +239,16 @@ public partial class OpportunityIngestionService
                 // they do not qualify for. The detail page links to the original instead.
                 Benefits = string.Empty,
                 WhoIsEligible = [],
+                // Read rather than invented, which is what the rule above has always been about.
+                // Eligibility, benefits and selection process stayed empty because guessing them
+                // from a summary is how somebody applies for a thing they do not qualify for -
+                // and the cost was that the eligibility check had no input and decided nothing.
+                //
+                // The extractor only records explicit statements, so a posting that says nothing
+                // still produces an eligibility that says nothing. Reading the text is not
+                // republishing it: a stated qualification floor is a fact about the opportunity,
+                // the same argument the deadline and region inference already rest on.
+                Eligibility = EligibilityExtractor.From(title, body),
             }, cancellationToken: cts.Token);
 
             added++;
