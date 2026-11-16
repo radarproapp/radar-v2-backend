@@ -105,6 +105,25 @@ public static class EligibilityCheck
             : unknown.Count > 0 ? EligibilityVerdict.CannotTell
             : EligibilityVerdict.Eligible;
 
+        // Criteria Radar read for itself can inform and cannot exclude.
+        //
+        // A review ran the extractor over real job-board text and it fired wrongly more often
+        // than rightly: "up to 20 hours per week" became an age limit of 20, company boilerplate
+        // about fifteen years in the market became an experience floor, and "a degree is not
+        // required" became a requirement. Every one of those hid a posting from somebody who
+        // qualified, and they would never know.
+        //
+        // The patterns are being fixed. This is here because they will still sometimes be wrong,
+        // and the design has always said the two directions are not symmetrical: a missed
+        // criterion costs a listing that would have shown anyway, a wrongly read one costs an
+        // opportunity. Capping extracted criteria at CannotTell makes that asymmetry structural
+        // instead of a property of how good the regexes happen to be.
+        //
+        // The reasons still render, so a reader is told what the posting asks for and what Radar
+        // could not confirm. They are simply not acted on behind their back.
+        if (verdict == EligibilityVerdict.NotEligible && eligibility.Source == EligibilitySource.Extracted)
+            verdict = EligibilityVerdict.CannotTell;
+
         return new EligibilityResult(verdict, met, failed, unknown);
     }
 

@@ -21,6 +21,28 @@ namespace RadarV2.Models;
 /// </remarks>
 public class Eligibility
 {
+    /// <summary>
+    /// Where these criteria came from, which decides how far they are trusted.
+    /// </summary>
+    /// <remarks>
+    /// Added after a review executed the extractor against real Nigerian job-board text and found
+    /// it fired wrongly more often than rightly. "Not more than 14 days from the date of this
+    /// publication" became an age limit of 14. "With over 15 years of experience in the Nigerian
+    /// market" - company boilerplate - became an experience floor and an age floor. "A university
+    /// degree is not required" became a requirement for one. Each of those hid the posting from
+    /// people who qualified, silently.
+    ///
+    /// Better regexes are part of the answer and cannot be all of it, because the failure is not
+    /// that the patterns were careless - it is that a machine reading somebody else's prose will
+    /// sometimes be wrong, and the cost of being wrong here falls entirely on the person who
+    /// never sees what they lost.
+    ///
+    /// So provenance is recorded and the check reads it: criteria Radar extracted can inform and
+    /// cannot exclude. The asymmetry the design always claimed - a missed criterion is cheap, a
+    /// wrongly read one is not - is now enforced by structure rather than by pattern quality.
+    /// </remarks>
+    public EligibilitySource Source { get; set; } = EligibilitySource.Stated;
+
     /// <summary>Nationalities that may apply, empty when the source did not say.</summary>
     /// <remarks>
     /// Kept apart from <see cref="Countries"/> because they are different claims. A scholarship
@@ -129,6 +151,31 @@ public class Eligibility
         || RequiredCertifications?.Count > 0
         || MinimumAge is not null
         || MaximumAge is not null;
+}
+
+/// <summary>
+/// Who said so.
+/// </summary>
+public enum EligibilitySource
+{
+    /// <summary>
+    /// The source stated it, or a person recorded it.
+    /// </summary>
+    /// <remarks>
+    /// Trusted to exclude. The default, because anything written by hand into this model is
+    /// somebody asserting it on purpose.
+    /// </remarks>
+    Stated,
+
+    /// <summary>
+    /// Radar read it out of the posting's prose.
+    /// </summary>
+    /// <remarks>
+    /// Trusted to inform and never to exclude. A reader still sees "this asks for a bachelor's
+    /// degree and you have an OND", which is useful; what they do not get is the posting
+    /// disappearing on the strength of a regex that misread a sentence about hours per week.
+    /// </remarks>
+    Extracted,
 }
 
 /// <summary>

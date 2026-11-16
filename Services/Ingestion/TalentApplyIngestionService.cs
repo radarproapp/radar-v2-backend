@@ -212,7 +212,9 @@ public class TalentApplyIngestionService
 
                             // Same extractor, same rule. Read from the listing's own
                             // text, and absent whenever the listing states nothing.
-                            Eligibility = EligibilityExtractor.From(job.Title, job.Description),
+                            Eligibility = EligibilityExtractor.From(
+                                FeedText.Clean(job.Title),
+                                FeedText.Clean(job.Description)),
                         }, cancellationToken: ct);
 
                         added++;

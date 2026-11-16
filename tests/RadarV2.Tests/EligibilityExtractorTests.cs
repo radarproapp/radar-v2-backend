@@ -245,9 +245,17 @@ public class EligibilityExtractorTests
             YearsOfExperience = 1,
         };
 
-        Assert.Equal(
-            RadarV2.Services.EligibilityVerdict.NotEligible,
-            RadarV2.Services.EligibilityCheck.For(tooExperienced, eligibility).Verdict);
+        // CannotTell rather than NotEligible, and that is the fix rather than a regression.
+        // Criteria Radar read out of prose can inform and cannot exclude: a review ran this
+        // extractor over real job-board text and it invented an age limit from "up to 20 hours
+        // per week" and an experience floor from company boilerplate, each of which hid a
+        // posting from somebody who qualified. The reasons still render; they are simply not
+        // acted on behind the reader's back.
+        var tooMany = RadarV2.Services.EligibilityCheck.For(tooExperienced, eligibility);
+
+        Assert.Equal(RadarV2.Services.EligibilityVerdict.CannotTell, tooMany.Verdict);
+        Assert.NotEmpty(tooMany.Failed);
+        Assert.True(tooMany.WorthShowing);
 
         Assert.Equal(
             RadarV2.Services.EligibilityVerdict.Eligible,

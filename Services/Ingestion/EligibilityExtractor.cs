@@ -40,8 +40,15 @@ public static partial class EligibilityExtractor
     /// </remarks>
     public static Eligibility From(string? title, string? body)
     {
-        var text = $"{title} {body}";
-        var eligibility = new Eligibility();
+        // A full stop between them. Joined with a space, a match ran from the end of the title
+        // into the start of the body - "Massive Recruitment: Up to 25 Positions" followed by any
+        // body text produced an age limit of 25.
+        //
+        // Capped at the length that actually gets stored, which is also what bounds the cost: the
+        // RSS path passes the whole body, and 198KB of it took a regex past its timeout - which
+        // escaped the entry loop and blocked every older entry in that feed on every later run.
+        var text = Shorten($"{title}. {body}", 2000);
+        var eligibility = new Eligibility { Source = EligibilitySource.Extracted };
 
         if (string.IsNullOrWhiteSpace(text)) return eligibility;
 
@@ -52,6 +59,9 @@ public static partial class EligibilityExtractor
 
         return eligibility;
     }
+
+    private static string Shorten(string value, int most) =>
+        value.Length <= most ? value : value[..most];
 
     // ── qualifications ───────────────────────────────────────────────────────
 
@@ -70,14 +80,76 @@ public static partial class EligibilityExtractor
     /// </remarks>
     private static QualificationLevel? ReadQualification(string text)
     {
+        // Abbreviation dots are not sentence ends. The windows below stop at a full stop, so the
+        // dot inside "B.Sc" cut "HND or B.Sc required" in half and the HND half never matched -
+        // recording a bachelor's floor on a posting that names HND first, and excluding exactly
+        // the people it was open to.
+        var flat = Abbreviations().Replace(text, m => m.Value.Replace(".", ""));
+
+        // Nothing is read out of a sentence that denies it. "A university degree is not
+        // required" recorded a bachelor's requirement; "no B.Sc required" recorded one too.
+        // Both are the posting saying the opposite of what was stored.
         var found = new List<QualificationLevel>();
 
         foreach (var (pattern, level) in Qualifications)
-            if (Regex.IsMatch(text, pattern, RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(200)))
+        {
+            foreach (Match match in Regex.Matches(flat, pattern, RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(200)))
+            {
+                if (Denied(flat, match)) continue;
+                if (AwardedRatherThanRequired(flat, match)) continue;
+
                 found.Add(level);
+                break;
+            }
+        }
 
         return found.Count > 0 ? found.Min() : null;
     }
+
+    /// <summary>Whether the sentence around a match denies it.</summary>
+    /// <remarks>
+    /// Checked on the clause the match sits in rather than the whole text, so a denial elsewhere
+    /// in a long posting does not suppress a real requirement.
+    /// </remarks>
+    private static bool Denied(string text, Match match) =>
+        Negation().IsMatch(Clause(text, match));
+
+    /// <summary>
+    /// Whether the degree is what the programme gives rather than what it asks for.
+    /// </summary>
+    /// <remarks>
+    /// The failure this extractor was most at risk of, and the tests only covered the easy half.
+    /// "Applicants must have been admitted to a master degree programme" carries a requirement
+    /// cue and is still describing the award - so a bachelor's-holding graduate was marked
+    /// ineligible for the scholarship aimed at them.
+    /// </remarks>
+    private static bool AwardedRatherThanRequired(string text, Match match) =>
+        Awarded().IsMatch(Clause(text, match));
+
+    /// <summary>The clause a match sits in, bounded by ordinary sentence punctuation.</summary>
+    private static string Clause(string text, Match match)
+    {
+        var from = text.LastIndexOfAny(['.', ';', '\n'], Math.Max(0, match.Index - 1)) + 1;
+        var toIndex = text.IndexOfAny(['.', ';', '\n'], match.Index + match.Length);
+        var to = toIndex < 0 ? text.Length : toIndex;
+
+        return text[from..to];
+    }
+
+    /// <remarks>
+    /// "No more than" and "not less than" are bounds, not denials, and the distinction matters:
+    /// "a bachelor's degree, no more than 2 years experience" is one clause carrying a real
+    /// requirement and a real ceiling, and vetoing the whole thing on the word "no" threw the
+    /// qualification away.
+    /// </remarks>
+    [GeneratedRegex(@"\b(?:no|not)\b(?!\s+(?:more|less|fewer)\s+than)|\bwithout\b|\bnever\b|n(?:'|')t\b", RegexOptions.IgnoreCase, 200)]
+    private static partial Regex Negation();
+
+    [GeneratedRegex(@"\b(?:programme|program|scholarship|fellowship|admission|admitted|enrol(?:led|ment)?|funding|award(?:ed|s)?|towards?|study|studies)\b", RegexOptions.IgnoreCase, 200)]
+    private static partial Regex Awarded();
+
+    [GeneratedRegex(@"\b(?:B\.Sc|M\.Sc|Ph\.D|B\.A|M\.A|B\.Eng|M\.Eng)\b", RegexOptions.IgnoreCase, 200)]
+    private static partial Regex Abbreviations();
 
     /// <summary>
     /// Each rung, and the phrasings that mark it as a requirement rather than a mention.
@@ -88,20 +160,20 @@ public static partial class EligibilityExtractor
     /// </remarks>
     private static readonly (string Pattern, QualificationLevel Level)[] Qualifications =
     [
-        (@"(?:minimum|at least|must (?:have|possess)|requires?|required)[^.]{0,40}\bO(?:'|')?\s?level\b", QualificationLevel.SecondarySchool),
-        (@"\bO(?:'|')?\s?level\b[^.]{0,30}(?:required|or (?:higher|above)|minimum)", QualificationLevel.SecondarySchool),
-        (@"(?:minimum|at least|must (?:have|possess)|requires?|required)[^.]{0,40}\bNCE\b", QualificationLevel.Nce),
-        (@"\bNCE\b[^.]{0,30}(?:required|or (?:higher|above)|minimum)", QualificationLevel.Nce),
-        (@"(?:minimum|at least|must (?:have|possess)|requires?|required)[^.]{0,40}\bOND\b", QualificationLevel.Ond),
-        (@"\bOND\b[^.]{0,30}(?:required|or (?:higher|above)|minimum)", QualificationLevel.Ond),
-        (@"(?:minimum|at least|must (?:have|possess)|requires?|required)[^.]{0,40}\bHND\b", QualificationLevel.Hnd),
-        (@"\bHND\b[^.]{0,30}(?:required|or (?:higher|above)|minimum)", QualificationLevel.Hnd),
-        (@"(?:minimum|at least|must (?:have|possess)|requires?|required)[^.]{0,40}(?:bachelor(?:'|')?s?|b\.?sc|first degree|university degree)", QualificationLevel.Bachelors),
-        (@"(?:bachelor(?:'|')?s?|b\.?sc|first degree|university degree)[^.]{0,30}(?:required|or (?:higher|above)|minimum)", QualificationLevel.Bachelors),
-        (@"(?:minimum|at least|must (?:have|possess)|requires?|required)[^.]{0,40}(?:master(?:'|')?s?|m\.?sc|postgraduate degree)", QualificationLevel.Masters),
-        (@"(?:master(?:'|')?s?|m\.?sc)[^.]{0,30}(?:required|or (?:higher|above)|minimum)", QualificationLevel.Masters),
-        (@"(?:minimum|at least|must (?:have|possess)|requires?|required)[^.]{0,40}(?:ph\.?d|doctorate|doctoral degree)", QualificationLevel.Doctorate),
-        (@"(?:ph\.?d|doctorate)[^.]{0,30}(?:required|or (?:higher|above)|minimum)", QualificationLevel.Doctorate),
+        (@"(?:minimum|at least|must (?:have|possess)|requires?|required)[^.;:,]{0,18}\bO(?:'|')?\s?level\b", QualificationLevel.SecondarySchool),
+        (@"\bO(?:'|')?\s?level\b[^.;:,]{0,15}(?:required|or (?:higher|above)|minimum)", QualificationLevel.SecondarySchool),
+        (@"(?:minimum|at least|must (?:have|possess)|requires?|required)[^.;:,]{0,18}\bNCE\b", QualificationLevel.Nce),
+        (@"\bNCE\b[^.;:,]{0,15}(?:required|or (?:higher|above)|minimum)", QualificationLevel.Nce),
+        (@"(?:minimum|at least|must (?:have|possess)|requires?|required)[^.;:,]{0,18}\bOND\b", QualificationLevel.Ond),
+        (@"\bOND\b[^.;:,]{0,15}(?:required|or (?:higher|above)|minimum)", QualificationLevel.Ond),
+        (@"(?:minimum|at least|must (?:have|possess)|requires?|required)[^.;:,]{0,18}\bHND\b", QualificationLevel.Hnd),
+        (@"\bHND\b[^.;:,]{0,15}(?:required|or (?:higher|above)|minimum)", QualificationLevel.Hnd),
+        (@"(?:minimum|at least|must (?:have|possess)|requires?|required)[^.;:,]{0,18}(?:bachelor(?:'|')?s?|b\.?sc|first degree|university degree)", QualificationLevel.Bachelors),
+        (@"(?:bachelor(?:'|')?s?|b\.?sc|first degree|university degree)[^.;:,]{0,15}(?:required|or (?:higher|above)|minimum)", QualificationLevel.Bachelors),
+        (@"(?:minimum|at least|must (?:have|possess)|requires?|required)[^.;:,]{0,18}(?:master(?:'|')?s?|m\.?sc|postgraduate degree)", QualificationLevel.Masters),
+        (@"(?:master(?:'|')?s?|m\.?sc)[^.;:,]{0,15}(?:required|or (?:higher|above)|minimum)", QualificationLevel.Masters),
+        (@"(?:minimum|at least|must (?:have|possess)|requires?|required)[^.;:,]{0,18}(?:ph\.?d|doctorate|doctoral degree)", QualificationLevel.Doctorate),
+        (@"(?:ph\.?d|doctorate)[^.;:,]{0,15}(?:required|or (?:higher|above)|minimum)", QualificationLevel.Doctorate),
     ];
 
     // ── experience ───────────────────────────────────────────────────────────
@@ -127,6 +199,14 @@ public static partial class EligibilityExtractor
         if (ceiling.Success && int.TryParse(ceiling.Groups[1].Value, out var most) && most is > 0 and <= 30)
             eligibility.MaximumYearsExperience = most;
 
+        // Only when neither bound was read on its own. The range used to overwrite both, so
+        // "at least 8 years experience; the scheme offers 1-2 years of experience to new joiners"
+        // destroyed the real floor of eight and invented a ceiling of two - excluding precisely
+        // the senior candidate the advert was for. Where two readings disagree the design says
+        // record nothing, and that is what leaving the stated bound alone amounts to.
+        if (eligibility.MinimumYearsExperience is not null || eligibility.MaximumYearsExperience is not null)
+            return;
+
         var range = ExperienceRange().Match(text);
         if (range.Success
             && int.TryParse(range.Groups[1].Value, out var from)
@@ -138,13 +218,25 @@ public static partial class EligibilityExtractor
         }
     }
 
-    [GeneratedRegex(@"(?:minimum of|at least|a minimum|not less than|over)\s+(\d{1,2})\+?\s*(?:years?|yrs?)[^.]{0,30}experience", RegexOptions.IgnoreCase)]
+    /// <remarks>
+    /// "Experience" has to follow closely and the bare "over" is gone. The old window let thirty
+    /// characters sit between, so "the fellowship runs for a minimum of 2 years and offers
+    /// hands-on experience" recorded a two-year floor, and "at least 3 years of experience
+    /// working with us is typical" recorded three.
+    /// </remarks>
+    [GeneratedRegex(
+        @"(?:minimum of|at least|a minimum of|not less than)\s+(\d{1,2})\+?\s*(?:years?|yrs?)\s*(?:of\s+)?(?:relevant\s+|work\s+|professional\s+|hands-on\s+|post-NYSC\s+)?experience",
+        RegexOptions.IgnoreCase, 200)]
     private static partial Regex MinimumExperience();
 
-    [GeneratedRegex(@"(?:no more than|not more than|less than|under|up to|maximum of|at most)\s+(\d{1,2})\s*(?:years?|yrs?)[^.]{0,30}experience", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(
+        @"(?:no more than|not more than|less than|under|up to|maximum of|at most)\s+(\d{1,2})\s*(?:years?|yrs?)\s*(?:of\s+)?(?:relevant\s+|work\s+|professional\s+|post-NYSC\s+)?experience",
+        RegexOptions.IgnoreCase, 200)]
     private static partial Regex MaximumExperience();
 
-    [GeneratedRegex(@"\b(\d{1,2})\s*(?:-|–|to)\s*(\d{1,2})\s*(?:years?|yrs?)[^.]{0,30}experience", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(
+        @"\b(\d{1,2})\s*(?:-|–|to)\s*(\d{1,2})\s*(?:years?|yrs?)\s*(?:of\s+)?(?:relevant\s+|work\s+|professional\s+)?experience",
+        RegexOptions.IgnoreCase, 200)]
     private static partial Regex ExperienceRange();
 
     // ── age ──────────────────────────────────────────────────────────────────
@@ -170,24 +262,61 @@ public static partial class EligibilityExtractor
             return;
         }
 
-        var ceiling = MaximumAge().Match(text);
-        if (ceiling.Success && int.TryParse(ceiling.Groups[1].Value, out var oldest) && Plausible(oldest))
+        if (Captured(MaximumAge().Match(text)) is { } oldest && Plausible(oldest))
             eligibility.MaximumAge = oldest;
 
-        var floor = MinimumAge().Match(text);
-        if (floor.Success && int.TryParse(floor.Groups[1].Value, out var youngest) && Plausible(youngest))
+        if (Captured(MinimumAge().Match(text)) is { } youngest && Plausible(youngest))
             eligibility.MinimumAge = youngest;
     }
 
     private static bool Plausible(int age) => age is >= 10 and <= 75;
 
-    [GeneratedRegex(@"(?:aged?|age)\s*(?:between\s*)?(\d{2})\s*(?:-|–|to|and)\s*(\d{2})", RegexOptions.IgnoreCase)]
+    /// <summary>The number from whichever branch of the pattern matched.</summary>
+    /// <remarks>
+    /// Both age patterns have two alternatives - one requiring an age cue, one requiring the word
+    /// "years" - so the digits land in group 1 or group 2 depending which fired. Reading group 1
+    /// alone silently stopped extracting anything phrased the second way.
+    /// </remarks>
+    private static int? Captured(Match match)
+    {
+        if (!match.Success) return null;
+
+        for (var group = 1; group < match.Groups.Count; group++)
+            if (match.Groups[group].Success && int.TryParse(match.Groups[group].Value, out var value))
+                return value;
+
+        return null;
+    }
+
+    /// <remarks>
+    /// Word-bounded, because without it "average", "package", "coverage", "percentage" and
+    /// "language" all ended in "age" and fired. "Average 40-45 hours per week" in a graduate
+    /// advert recorded an age range of 40 to 45 and hid it from every graduate.
+    /// </remarks>
+    [GeneratedRegex(@"\b(?:aged|age)\b\s*(?:between\s*)?(\d{2})\s*(?:-|–|to|and)\s*(\d{2})", RegexOptions.IgnoreCase, 200)]
     private static partial Regex AgeRange();
 
-    [GeneratedRegex(@"(?:under|below|younger than|not (?:more than|older than)|maximum age of|up to)\s*(?:the age of\s*)?(\d{2})\s*(?:years?(?:\s*old)?|$|\b)", RegexOptions.IgnoreCase)]
+    /// <remarks>
+    /// A unit is mandatory, or an age cue is. The first version ended in "|$|\b", which matches
+    /// immediately after any two digits - so "not more than 14 days from the date of this
+    /// publication" recorded an age limit of fourteen, "up to 20 hours per week" recorded twenty,
+    /// and both hid the posting from everyone who had given a date of birth.
+    /// </remarks>
+    [GeneratedRegex(
+        @"(?:(?:maximum age of|up to the age of|under the age of|below the age of)\s*(\d{2})\b|(?:under|below|younger than|not (?:more than|older than))\s*(\d{2})\s*years?(?:\s*old)?\b)",
+        RegexOptions.IgnoreCase, 200)]
     private static partial Regex MaximumAge();
 
-    [GeneratedRegex(@"(?:at least|minimum age of|over|older than|above)\s*(?:the age of\s*)?(\d{2})\s*years?(?:\s*old)?", RegexOptions.IgnoreCase)]
+    /// <remarks>
+    /// An age cue is required rather than optional. "Over 20 years" and "at least 15 years" are
+    /// overwhelmingly about a company's history on a job board - "with over 15 years of
+    /// experience in the Nigerian market" recorded an age floor of fifteen and an experience
+    /// floor of fifteen, and excluded both a graduate and a mid-career applicant from an ordinary
+    /// advert.
+    /// </remarks>
+    [GeneratedRegex(
+        @"(?:minimum age of|(?:at least|over|older than|above)\s*the age of)\s*(\d{2})\b|(?:at least|older than|above)\s*(\d{2})\s*years?\s*(?:old|of age)",
+        RegexOptions.IgnoreCase, 200)]
     private static partial Regex MinimumAge();
 
     // ── nationality ──────────────────────────────────────────────────────────
@@ -211,10 +340,34 @@ public static partial class EligibilityExtractor
 
         foreach (Match match in Nationality().Matches(text))
         {
-            var word = match.Groups[1].Value.Trim();
+            var clause = Clause(text, match);
 
-            if (Demonyms.TryGetValue(word, out var canonical) && !found.Contains(canonical))
-                found.Add(canonical);
+            // "This programme is not open to Nigerian nationals" recorded it as open to
+            // Nigerians only - the posting inverted, and the one group excluded became the one
+            // group allowed.
+            if (Negation().IsMatch(clause)) continue;
+
+            // Every demonym in the clause, not only the one the cue happened to touch. "Open to
+            // Nigerian citizens, Ghanaian citizens and Kenyan citizens" recorded Nigerian alone,
+            // which hid the scholarship from the two groups it explicitly named.
+            var words = AnyDemonym().Matches(clause).Select(w => w.Value).ToList();
+
+            for (var i = 0; i < words.Count; i++)
+            {
+                // The pair first, so "Sierra Leonean" is not read as "Sierra" and discarded. The
+                // single-token scan it replaces made every multi-word demonym unreachable.
+                var pair = i + 1 < words.Count ? $"{words[i]} {words[i + 1]}" : null;
+
+                if (pair is not null && Demonyms.TryGetValue(pair, out var both))
+                {
+                    if (!found.Contains(both)) found.Add(both);
+                    i++;
+                    continue;
+                }
+
+                if (Demonyms.TryGetValue(words[i], out var one) && !found.Contains(one))
+                    found.Add(one);
+            }
         }
 
         return found;
@@ -222,6 +375,9 @@ public static partial class EligibilityExtractor
 
     [GeneratedRegex(@"(?:open to|restricted to|must be|applicants? (?:must be|should be)|only)\s+(?:citizens of\s+|nationals of\s+)?([A-Z][a-z]+)(?:\s+(?:nationals?|citizens?|passport holders?|applicants?|candidates?))", RegexOptions.IgnoreCase)]
     private static partial Regex Nationality();
+
+    [GeneratedRegex(@"[A-Za-z]+", RegexOptions.IgnoreCase, 200)]
+    private static partial Regex AnyDemonym();
 
     /// <summary>
     /// The demonyms worth recognising, and their canonical spelling.
