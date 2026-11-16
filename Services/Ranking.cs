@@ -17,8 +17,16 @@ namespace RadarV2.Services;
 /// silently not being shown everything in it.
 ///
 /// So every comparison here ends on the id. Not because the id means anything, but because it
-/// makes the order total: no ties survive to be broken arbitrarily, the same inputs always give
-/// the same page, and a refresh stops reshuffling the screen.
+/// makes the order total: given the same items and the same scores, the order is the same every
+/// time, and a refresh stops reshuffling the screen.
+///
+/// Worth stating precisely, because the first version of this comment claimed more. A total order
+/// fixes ties and nothing else. Two larger sources of page drift sit upstream and are untouched:
+/// the match score is recomputed per request and an AI refinement step can succeed on one request
+/// and fail on the next, moving items between bands wholesale; and the candidate window is the
+/// newest five hundred, so ingestion between two requests pushes rows off the bottom. Paging is
+/// deterministic here and still not stable end to end - that needs the ranking computed once and
+/// held, which is its own piece of work.
 /// </remarks>
 public static class Ranking
 {
@@ -39,6 +47,17 @@ public static class Ranking
     [
         .. opportunities
             .OrderByDescending(o => o.MatchScorePercent)
+
+            // Closed last, and this clause has to come first among the tiebreaks. DaysUntilDeadline
+            // floors at zero for a deadline that has passed, so a closed opportunity reports the
+            // smallest possible value and sorted to the very top of its score band - the feed is
+            // served with a day's grace, so this was reachable on every request rather than being
+            // a theoretical edge.
+            //
+            // Opportunity.DaysUntilDeadline says so in its own remarks: "Callers deciding what to
+            // show must ask whether it has closed first." This did not ask.
+            .ThenBy(o => o.HasClosed)
+
             .ThenBy(o => o.DaysUntilDeadline)
             .ThenByDescending(o => o.DiscoveredAt)
             .ThenBy(o => o.Id, StringComparer.Ordinal),

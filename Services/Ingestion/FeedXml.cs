@@ -39,7 +39,7 @@ public static class FeedXml
         {
             try
             {
-                var document = XDocument.Parse(candidate);
+                var document = Read(candidate);
                 if (IsFeed(document)) return document;
             }
             catch (System.Xml.XmlException)
@@ -49,6 +49,36 @@ public static class FeedXml
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Reads a document with entity expansion turned off.
+    /// </summary>
+    /// <remarks>
+    /// XDocument.Parse allows internal entities and caps expansion at ten million characters, so
+    /// a four-hundred byte body nests ten entities six deep and arrives as a six-million
+    /// character document - measured, not theorised. Eight feeds are fetched at once and the
+    /// ingestion client sets no response size limit, and these are 250 URLs Radar does not
+    /// control: one compromised publisher is enough.
+    ///
+    /// External entities were already inert - the default resolver is null, so no file read and
+    /// no outbound request - and this changes nothing about that. It closes the internal case,
+    /// which was open long before this file existed and is cheap to close now that every content
+    /// and opportunity feed passes through one place.
+    ///
+    /// Prohibit throws XmlException, which the caller already catches, so a feed carrying a DTD
+    /// is simply not read. No real RSS or Atom feed carries one.
+    /// </remarks>
+    private static XDocument Read(string body)
+    {
+        var settings = new System.Xml.XmlReaderSettings
+        {
+            DtdProcessing = System.Xml.DtdProcessing.Prohibit,
+            XmlResolver = null,
+        };
+
+        using var reader = System.Xml.XmlReader.Create(new StringReader(body), settings);
+        return XDocument.Load(reader);
     }
 
     /// <summary>
@@ -64,8 +94,23 @@ public static class FeedXml
     /// Checked on the root element only, by local name, so a namespace Radar has not seen does
     /// not disqualify a real feed.
     /// </remarks>
-    private static bool IsFeed(XDocument document) =>
-        document.Root?.Name.LocalName is "rss" or "feed" or "RDF";
+    private static bool IsFeed(XDocument document)
+    {
+        var root = document.Root?.Name.LocalName;
+
+        // Case-insensitively, because the first version compared ordinally and so rejected <RSS>
+        // and <Feed> - which parsed and yielded items perfectly well before this check existed.
+        // A hand-rolled or ASP-era CMS emits those, and the result was a new way to lose a source
+        // inside the commit written to stop losing sources.
+        //
+        // "channel" too: a bare <channel> document with no <rss> wrapper is malformed by the spec
+        // and is still a feed with items in it, which is the only question being asked here.
+        return root is not null
+            && (root.Equals("rss", StringComparison.OrdinalIgnoreCase)
+                || root.Equals("feed", StringComparison.OrdinalIgnoreCase)
+                || root.Equals("RDF", StringComparison.OrdinalIgnoreCase)
+                || root.Equals("channel", StringComparison.OrdinalIgnoreCase));
+    }
 
     /// <summary>
     /// The body as given, then from its declaration, then from its first element.
@@ -79,8 +124,10 @@ public static class FeedXml
     {
         yield return body;
 
-        var trimmed = body.TrimStart('﻿', '​', ' ', '\t', '\r', '\n');
-        if (!ReferenceEquals(trimmed, body) && trimmed.Length != body.Length) yield return trimmed;
+        var trimmed = body.TrimStart('\uFEFF', '\u200B', ' ', '\t', '\r', '\n');
+        // TrimStart returns the same instance when it trims nothing, so the length check
+        // alone says everything the reference check did.
+        if (trimmed.Length != body.Length) yield return trimmed;
 
         foreach (var opening in new[] { "<?xml", "<rss", "<feed", "<rdf:RDF" })
         {

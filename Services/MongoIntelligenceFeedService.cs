@@ -47,7 +47,7 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
             .Limit(page * pageSize * 3)
             .ToListAsync();
 
-        RankByInterest(profile, items, await _records.BuildAsync(profile));
+        items = RankByInterest(profile, items, await _records.BuildAsync(profile));
         items = items.Skip((page - 1) * pageSize).Take(pageSize).ToList();
 
         await DecorateAsync(profile, items);
@@ -177,7 +177,7 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
             ? Cursor.Encode(batch[^1].PublishedAt, batch[^1].Id)
             : null;
 
-        RankByInterest(profile, batch, await _records.BuildAsync(profile));
+        batch = RankByInterest(profile, batch, await _records.BuildAsync(profile));
         await DecorateAsync(profile, batch);
 
         return new PagedResult<ContentItem>
@@ -387,18 +387,17 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
 
     /// <summary>Orders a page by how well it matches this reader.</summary>
     /// <remarks>
-    /// Sorts in place because callers hold the list, and delegates the order itself to
-    /// <see cref="Ranking"/> so the two feeds cannot drift apart on what "most relevant" means.
+    /// Returns the ordered list rather than rewriting the caller's. The first version cleared the
+    /// list and refilled it, which worked only because Ranking.ByRelevance materialises before
+    /// returning - had it ever returned a lazy sequence, Clear would have emptied the source
+    /// before the sequence was read and the feed would have gone blank with no exception and no
+    /// failing test. Neither caller needed the mutation; both reassign immediately.
+    ///
+    /// The order itself lives in <see cref="Ranking"/>, so the feeds cannot drift apart on what
+    /// "most relevant" means.
     /// </remarks>
-    private static void RankByInterest(UserProfile profile, List<ContentItem> items, UserLearningRecord? record = null)
-    {
-        var ranked = Ranking.ByRelevance(
-            items,
-            item => InterestPersonalization.ContentScore(item, profile, record));
-
-        items.Clear();
-        items.AddRange(ranked);
-    }
+    private static List<ContentItem> RankByInterest(UserProfile profile, List<ContentItem> items, UserLearningRecord? record = null) =>
+        Ranking.ByRelevance(items, item => InterestPersonalization.ContentScore(item, profile, record));
 
     /// <summary>
     /// Per-user decoration applied after the page is chosen: AI relevance ranking, then the saved

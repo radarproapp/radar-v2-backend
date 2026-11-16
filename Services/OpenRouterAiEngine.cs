@@ -371,6 +371,12 @@ public sealed class OpenRouterAiEngine : IAiEngine
                         attempt,
                         error.Length > 400 ? error[..400] : error);
 
+                    // The same guard as the json path. Applied there and not here, a dead
+                    // account still doubled every doomed text call - and this loop logs at
+                    // Error rather than Warning, so the half that was missed was the noisier
+                    // half. One fix, two loops.
+                    if (IsOutOfCredit(response.StatusCode, error)) break;
+
                     var backoff = RetryDelayFor((int)response.StatusCode, error, attempt);
                     if (attempt == maxAttempts || sw.Elapsed + backoff >= deadline) break;
                     await Task.Delay(backoff, ct);

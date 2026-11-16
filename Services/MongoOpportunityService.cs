@@ -383,14 +383,18 @@ public class MongoOpportunityService : IOpportunityService
             o => OpportunityMix.IsNearby(o.RegionTag, o.IsRemote, where),
             DailyBatchSize);
 
-        // Sort curated batch: Strong matches first, but prioritising urgent deadlines
-        curated.Sort((a, b) =>
-        {
-            // Give urgent items (<= 7 days) a priority boost in ordering
-            int aWeight = a.MatchScorePercent + (a.DaysUntilDeadline <= 7 ? 6 : 0);
-            int bWeight = b.MatchScorePercent + (b.DaysUntilDeadline <= 7 ? 6 : 0);
-            return bWeight.CompareTo(aWeight);
-        });
+        // The same order as every other feed, which is the whole point of Ranking existing.
+        //
+        // This was the third sort and it disagreed with the other two on doctrine: a six point
+        // boost for anything inside seven days let urgency beat relevance outright, so a 64%
+        // match closing on Friday outranked a genuine 69% match. It was also the last unstable
+        // List.Sort in the service, so the stored batch for a day was in an order that could not
+        // be reproduced.
+        //
+        // And the boost applied to closed opportunities too - DaysUntilDeadline floors at zero,
+        // so "<= 7" is true for something that shut last week, which got promoted six points for
+        // the privilege.
+        curated = Ranking.ByRelevance(curated);
 
         var feed = new DailyOpportunityFeed
         {

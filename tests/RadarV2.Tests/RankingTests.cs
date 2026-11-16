@@ -58,6 +58,49 @@ public class RankingTests
         Assert.Equal(["closes-sooner", "closes-later"], tied.Select(o => o.Id));
     }
 
+    /// <summary>
+    /// A closed opportunity never outranks a live one it ties with.
+    /// </summary>
+    /// <remarks>
+    /// The defect this file failed to catch the first time, because every fixture in it had a
+    /// future deadline or none. DaysUntilDeadline floors at zero for a deadline that has passed,
+    /// so a closed opportunity reported the smallest possible value and sorted to the very top of
+    /// its score band - above everything still open.
+    ///
+    /// Not an edge case: the feed deliberately keeps a day's grace after a deadline, so a
+    /// bursary that shut six hours ago is in the candidate set and was being rendered first.
+    /// Opportunity.DaysUntilDeadline warns about exactly this in its own remarks.
+    /// </remarks>
+    [Fact]
+    public void AClosedOpportunityDoesNotOutrankALiveOneAtTheSameScore()
+    {
+        var ranked = Ranking.ByRelevance([
+            Opp("closed-yesterday", 70, daysToDeadline: -1),
+            Opp("closes-in-three-days", 70, daysToDeadline: 3),
+            Opp("closes-in-a-month", 70, daysToDeadline: 30),
+        ]);
+
+        Assert.Equal(["closes-in-three-days", "closes-in-a-month", "closed-yesterday"],
+            ranked.Select(o => o.Id));
+    }
+
+    /// <summary>Being closed loses a tie; it does not override the score.</summary>
+    /// <remarks>
+    /// A strong closed match still outranks a weak open one, because relevance leads. Burying
+    /// closed items entirely is a filtering decision and belongs where the grace window is
+    /// decided, not in the comparison.
+    /// </remarks>
+    [Fact]
+    public void BeingClosedBreaksATieRatherThanBeatingTheScore()
+    {
+        var ranked = Ranking.ByRelevance([
+            Opp("weak-and-open", 40, daysToDeadline: 5),
+            Opp("strong-but-closed", 90, daysToDeadline: -1),
+        ]);
+
+        Assert.Equal(["strong-but-closed", "weak-and-open"], ranked.Select(o => o.Id));
+    }
+
     /// <summary>An opportunity that states no deadline sorts after ones that do.</summary>
     [Fact]
     public void AnUndatedOpportunitySortsAfterEquallyMatchedDatedOnes()

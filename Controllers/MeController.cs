@@ -357,8 +357,18 @@ public class MeController : ControllerBase
 
         if (!string.IsNullOrWhiteSpace(persona))
         {
-            if (!Enum.TryParse<PersonaType>(persona, ignoreCase: true, out var requested))
+            // IsDefined as well as TryParse. TryParse accepts a number and does not range-check,
+            // so "99" parsed happily into (PersonaType)99 and came back as a real answer - and a
+            // client echoing that into the profile would store it, at which point
+            // HasChosenCategory reads true because 99 is not the default, the category question
+            // is never asked again, and every switch on PersonaType silently takes its fallback
+            // arm for ever. TryParse also honours comma lists, so "Student,Graduate" returned
+            // Graduate.
+            if (!Enum.TryParse<PersonaType>(persona, ignoreCase: true, out var requested)
+                || !Enum.IsDefined(requested))
+            {
                 return BadRequest(new { error = $"Unknown category '{persona}'." });
+            }
 
             asked = requested;
         }
