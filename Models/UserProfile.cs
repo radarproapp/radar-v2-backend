@@ -160,8 +160,15 @@ public class UserProfile
     /// their degree: an AI-interested director and an AI-interested graduate both match "AI", and
     /// only one of them should be shown the senior role. Null means not stated.
     /// </remarks>
+    /// <remarks>
+    /// Named SeniorityLevel rather than Seniority because a property sharing its type's name
+    /// makes that type unnameable in any expression inside this class - the C# rule that usually
+    /// rescues this does not apply to a nullable one. Anyone adding a computed property here,
+    /// and this file already has one, would find Seniority.Entry does not compile and reasonably
+    /// conclude the build was broken.
+    /// </remarks>
     [BsonIgnoreIfNull]
-    public Seniority? Seniority { get; set; }
+    public Seniority? SeniorityLevel { get; set; }
 
     /// <summary>
     /// Whether they describe themselves as running something of their own.
@@ -175,7 +182,13 @@ public class UserProfile
     /// Kept because it changes what is worth showing: funding, partnerships and tenders are for
     /// this person in a way they are not for an employee of the same seniority.
     /// </remarks>
-    public bool IsFounder { get; set; }
+    /// <remarks>
+    /// Nullable, like the two fields above it. A plain bool answers "no" on behalf of every
+    /// profile that was never asked - and /api/me returns this object directly, so it would have
+    /// told the client "isFounder": false about everyone, which is an answer nobody gave.
+    /// </remarks>
+    [BsonIgnoreIfNull]
+    public bool? IsFounder { get; set; }
 
     /// <summary>
     /// What the learner wants to achieve — box 2 of personalisation.

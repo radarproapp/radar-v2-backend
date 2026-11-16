@@ -71,6 +71,24 @@ public class TalentApplyClient : ITalentApplyJobs
     /// </remarks>
     public const int MostPagesPerQuery = 40;
 
+    /// <summary>
+    /// The least time between two requests.
+    /// </summary>
+    /// <remarks>
+    /// A real limiter, because there was none. The run was argued to be safe on the grounds that
+    /// the first production pass took about eight seconds a page - but that is a measurement of
+    /// TalentApply's server on one day, not a property of Radar. A page served from cache in a
+    /// hundred milliseconds would have this loop firing ten a second, five times their limit,
+    /// and the only thing incidentally slowing it down was the per-listing database round trip -
+    /// which a page of unusable listings skips entirely.
+    ///
+    /// Six hundred milliseconds is a hundred a minute against their limit of 120, leaving room
+    /// for anything else sharing the key. Across 160 requests it costs about ninety seconds, and
+    /// it makes the budget self-limiting rather than dependent on how fast the source happens to
+    /// answer.
+    /// </remarks>
+    public static readonly TimeSpan LeastTimeBetweenRequests = TimeSpan.FromMilliseconds(600);
+
     /// <summary>Their maximum page size, and the one that costs the fewest requests.</summary>
     public const int PageSize = 50;
 
@@ -103,10 +121,16 @@ public class TalentApplyClient : ITalentApplyJobs
     /// paging loop: no results is a reason to stop, a failed request is not a reason to conclude
     /// the source is exhausted.
     /// </remarks>
-    public async Task<TalentApplyPage?> FetchJobsAsync(
+    public Task<TalentApplyPage?> FetchJobsAsync(
         IReadOnlyDictionary<string, string> filters,
         int page,
-        CancellationToken ct)
+        CancellationToken ct) => FetchJobsAsync(filters, page, ct, retrying: false);
+
+    private async Task<TalentApplyPage?> FetchJobsAsync(
+        IReadOnlyDictionary<string, string> filters,
+        int page,
+        CancellationToken ct,
+        bool retrying)
     {
         if (!IsConfigured)
         {
@@ -123,6 +147,8 @@ public class TalentApplyClient : ITalentApplyJobs
         request.Headers.Authorization = new("Bearer", ApiKey);
 
         var http = _httpFactory.CreateClient("TalentApply");
+
+        await PaceAsync(ct);
 
         HttpResponseMessage response;
         try
@@ -148,6 +174,29 @@ public class TalentApplyClient : ITalentApplyJobs
                 return null;
             }
 
+            // Throttled, which is a wait rather than a failure. Treated as a generic error it
+            // ended the query silently: one warning indistinguishable from a 500, a log line
+            // saying "read 11 of 203 pages", and a run that reported success. Raising the page
+            // budget made this more likely, not less.
+            if (response.StatusCode == HttpStatusCode.TooManyRequests)
+            {
+                var wait = RetryAfter(response) ?? TimeSpan.FromSeconds(10);
+                _log.LogWarning(
+                    "TalentApply rate-limited the run; waiting {Seconds}s before one retry.",
+                    wait.TotalSeconds);
+
+                try
+                {
+                    await Task.Delay(wait, ct);
+                }
+                catch (OperationCanceledException)
+                {
+                    return null;
+                }
+
+                return retrying ? null : await FetchJobsAsync(filters, page, ct, retrying: true);
+            }
+
             if (!response.IsSuccessStatusCode)
             {
                 _log.LogWarning(
@@ -158,6 +207,48 @@ public class TalentApplyClient : ITalentApplyJobs
             var body = await response.Content.ReadAsStringAsync(ct);
             return Parse(body, _log);
         }
+    }
+
+    /// <summary>Waits long enough since the last request to stay inside their limit.</summary>
+    /// <remarks>
+    /// A single gate for the whole process rather than a counter per run, because two runs can
+    /// overlap - the in-process timer and the deploy's cron - and their limit is per key, not per
+    /// run. A semaphore makes the pacing hold across both.
+    /// </remarks>
+    private static readonly SemaphoreSlim Gate = new(1, 1);
+    private static DateTime _lastRequest = DateTime.MinValue;
+
+    private static async Task PaceAsync(CancellationToken ct)
+    {
+        await Gate.WaitAsync(ct);
+        try
+        {
+            var since = DateTime.UtcNow - _lastRequest;
+            if (since < LeastTimeBetweenRequests)
+                await Task.Delay(LeastTimeBetweenRequests - since, ct);
+
+            _lastRequest = DateTime.UtcNow;
+        }
+        finally
+        {
+            Gate.Release();
+        }
+    }
+
+    /// <summary>What the response asked us to wait, when it said.</summary>
+    internal static TimeSpan? RetryAfter(HttpResponseMessage response)
+    {
+        var header = response.Headers.RetryAfter;
+        if (header?.Delta is { } delta) return delta;
+        if (header?.Date is { } date)
+        {
+            var wait = date - DateTimeOffset.UtcNow;
+            if (wait > TimeSpan.Zero) return wait;
+        }
+
+        // Capped rather than trusted. A source asking for an hour should not hold a nightly run
+        // open for one, and the next run is never far away.
+        return null;
     }
 
     /// <summary>

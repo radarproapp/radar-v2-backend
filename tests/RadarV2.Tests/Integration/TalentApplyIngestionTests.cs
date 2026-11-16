@@ -15,7 +15,8 @@ namespace RadarV2.Tests.Integration;
 /// HTTP calls - and every one of those is where the review found a defect. A fake that answers
 /// pages, against a real Mongo, reaches all of them.
 /// </remarks>
-public class TalentApplyIngestionTests : IClassFixture<RadarDatabaseFixture>
+[Collection(RadarDatabaseCollection.Name)]
+public class TalentApplyIngestionTests
 {
     private readonly RadarDatabaseFixture _fixture;
 
@@ -118,8 +119,15 @@ public class TalentApplyIngestionTests : IClassFixture<RadarDatabaseFixture>
         var service = Service(jobs, out _);
         await service.RunAsync();
 
+        var queries = jobs.Calls.GroupBy(call => call.Filters).ToList();
+
+        // Asserted before the loop. Every assertion here used to live inside it, so a run that
+        // made no calls at all - the failure most worth catching - produced no iterations and
+        // passed.
+        Assert.Equal(4, queries.Count);
+
         // Two pages per query: the one with an item, then the empty one that stops it.
-        foreach (var group in jobs.Calls.GroupBy(call => call.Filters))
+        foreach (var group in queries)
             Assert.Equal(2, group.Count());
     }
 
@@ -165,6 +173,10 @@ public class TalentApplyIngestionTests : IClassFixture<RadarDatabaseFixture>
         await service.RunAsync();
 
         var stored = await db.Opportunities.Find(FilterDefinition<Opportunity>.Empty).ToListAsync();
+
+        // The count first. Assert.All and Assert.DoesNotContain both pass over an empty list, so
+        // an ingester that stored nothing at all satisfied every assertion this test used to make.
+        Assert.Single(stored);
 
         Assert.All(stored, o => Assert.StartsWith("https://app.talentapply.io/j/", o.Url));
         Assert.DoesNotContain(stored, o => o.Title == "No link");

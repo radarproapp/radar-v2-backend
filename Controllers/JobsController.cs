@@ -147,21 +147,38 @@ public class JobsController : ControllerBase
     {
         if (!TryAuthorizeCron(out var failure)) return failure!;
 
-        // Twenty minutes, measured rather than assumed. The first production run took about two
-        // minutes per query at fifteen pages, so four queries at forty pages is roughly twenty -
-        // and the five minutes this allowed would have cancelled the run partway through the
-        // second query, every time, reporting whatever it had managed as the result.
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(TimeSpan.FromMinutes(20));
+        // A budget each, rather than one shared deadline. Shared, the feed sweep spent whatever
+        // it needed first and TalentApply got the remainder - so with four queries taking around
+        // twenty minutes between them, the deadline landed inside the last one. Queries run in a
+        // fixed order, which made "remote roles" deterministically the query that never finished:
+        // the same last-query starvation the per-query allowance exists to prevent, arriving by
+        // the clock instead of the pool.
+        using var feedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        feedCts.CancelAfter(TimeSpan.FromMinutes(10));
 
-        var fromFeeds = await _opportunityIngestion.RunAsync(cts.Token);
+        var fromFeeds = 0;
+        try
+        {
+            fromFeeds = await _opportunityIngestion.RunAsync(feedCts.Token);
+        }
+        catch (Exception ex)
+        {
+            // Previously unguarded, so a slow feed sweep threw out of the action and TalentApply
+            // never ran at all.
+            _log.LogWarning(ex, "Feed ingestion failed; continuing to the partner sources.");
+        }
 
-        // Its own try/catch, for the same reason the nightly job has one: a partner outage must
-        // not turn a run that successfully read six feeds into a failed request.
+        // Sized from measurement with room to spare: 160 requests at the eight seconds a page
+        // the first production run showed is about twenty-one minutes, and the pacing floor adds
+        // ninety seconds. Thirty-five leaves headroom for a slow night without the deadline
+        // silently deciding which query gets dropped.
+        using var partnerCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        partnerCts.CancelAfter(TimeSpan.FromMinutes(35));
+
         var fromPartners = 0;
         try
         {
-            fromPartners = await _talentApply.RunAsync(cts.Token);
+            fromPartners = await _talentApply.RunAsync(partnerCts.Token);
         }
         catch (Exception ex)
         {

@@ -79,7 +79,7 @@ public class EnumValueTests
         },
         {
             "OpportunityTrackingStatus (saved/applied state)", typeof(OpportunityTrackingStatus),
-            ["None", "Saved", "Interested", "Applied", "NotRelevant", "Accepted", "Rejected"]
+            ["None", "Saved", "Interested", "Applied", "NotRelevant", "Accepted", "Rejected", "NotEligible"]
         },
         {
             "InterestCategory", typeof(InterestCategory),
@@ -91,7 +91,7 @@ public class EnumValueTests
         },
         {
             "Seniority (UserProfile.Seniority)", typeof(Seniority),
-            ["NotStated", "Entry", "Mid", "Senior", "Manager", "Director"]
+            ["Entry", "Mid", "Senior", "Manager", "Director"]
         },
         {
             "QualificationLevel (Eligibility.MinimumQualification)", typeof(QualificationLevel),

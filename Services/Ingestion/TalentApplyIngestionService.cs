@@ -155,7 +155,21 @@ public class TalentApplyIngestionService
 
                     var url = job.AttributedUrl!;
 
-                    var exists = await _db.Opportunities.Find(o => o.Url == url).AnyAsync(ct);
+                    bool exists;
+                    try
+                    {
+                        exists = await _db.Opportunities.Find(o => o.Url == url).AnyAsync(ct);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // The run is out of time. Everything written so far is written, and
+                        // saying so is the whole point - an exception here escaped RunAsync, was
+                        // swallowed by the caller, and reported zero while several thousand rows
+                        // had actually been stored. The per-query totals were lost with it, and
+                        // those are the instrument the budget is set from.
+                        return Report(added, requests, skipped, cancelled: true);
+                    }
+
                     if (exists) continue;
 
                     try
@@ -184,9 +198,7 @@ public class TalentApplyIngestionService
                             Location = job.Location,
                             IsRemote = string.Equals(job.WorkArrangement, "remote", StringComparison.OrdinalIgnoreCase)
                                 || type == OpportunityType.RemoteJob,
-                            RegionTag = job.Location is { } where && where.Contains("Nigeria", StringComparison.OrdinalIgnoreCase)
-                                ? "Nigeria"
-                                : region,
+                            RegionTag = LooksNigerian(job.Location) ? "Nigeria" : region,
                             GoalTag = source.GoalTag,
                             Deadline = job.Deadline,
                             DiscoveredAt = DateTime.UtcNow,
@@ -200,6 +212,10 @@ public class TalentApplyIngestionService
                         }, cancellationToken: ct);
 
                         added++;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        return Report(added, requests, skipped, cancelled: true);
                     }
                     catch (MongoWriteException ex) when (ex.WriteError?.Category == ServerErrorCategory.DuplicateKey)
                     {
@@ -223,13 +239,68 @@ public class TalentApplyIngestionService
                 label, pagesRead, lastPage, reportedTotal);
         }
 
-        // Skipped is in the line because without it "0 new from 20 requests" reads identically
-        // whether every listing was already stored, which is the normal steady state, or none of
-        // them could be read at all, which is the emergency.
-        _log.LogInformation(
-            "TalentApply: {Added} new opportunities from {Requests} requests, {Skipped} listings unreadable.",
-            added, requests, skipped);
+        return Report(added, requests, skipped, cancelled: false);
+    }
+
+    /// <summary>The run's own account of itself, however it ended.</summary>
+    /// <remarks>
+    /// Skipped is in the line because without it "0 new from 20 requests" reads identically
+    /// whether every listing was already stored, which is the normal steady state, or none could
+    /// be read at all, which is the emergency. Cancelled is there because a run that ran out of
+    /// time has not finished the queries after the one it was in, and a number that does not say
+    /// so invites raising a budget that was never the problem.
+    /// </remarks>
+    private int Report(int added, int requests, int skipped, bool cancelled)
+    {
+        if (cancelled)
+        {
+            _log.LogWarning(
+                "TalentApply ran out of time: {Added} new opportunities from {Requests} requests, "
+                + "{Skipped} listings unreadable. Later queries did not run.",
+                added, requests, skipped);
+        }
+        else
+        {
+            _log.LogInformation(
+                "TalentApply: {Added} new opportunities from {Requests} requests, {Skipped} listings unreadable.",
+                added, requests, skipped);
+        }
+
         return added;
     }
+
+    /// <summary>
+    /// Whether a listing's own location places it in Nigeria.
+    /// </summary>
+    /// <remarks>
+    /// Matching the country name alone was not enough, and the test that passed on it only
+    /// covered the one query whose fallback happens to be "Nigeria" anyway. A listing from the
+    /// internships or remote query whose location reads "Lagos" fell back to that query's region
+    /// - Global - and the nearby check compares the tag, so a Lagos internship was excluded from
+    /// the feed of a reader in Lagos.
+    ///
+    /// Cities rather than every state, because this reads a free-text field somebody typed. The
+    /// list covers where the jobs actually are; anything else keeps the query's own region, which
+    /// is still better than guessing.
+    /// </remarks>
+    internal static bool LooksNigerian(string? location)
+    {
+        if (string.IsNullOrWhiteSpace(location)) return false;
+
+        foreach (var place in NigerianPlaces)
+            if (location.Contains(place, StringComparison.OrdinalIgnoreCase))
+                return true;
+
+        return false;
+    }
+
+    private static readonly string[] NigerianPlaces =
+    [
+        "Nigeria", "Lagos", "Abuja", "Ibadan", "Port Harcourt", "Kano", "Benin City",
+        "Enugu", "Kaduna", "Abeokuta", "Ilorin", "Jos", "Owerri", "Uyo", "Calabar",
+        "Warri", "Onitsha", "Akure", "Maiduguri", "Zaria", "Awka", "Asaba", "Lekki",
+        "Ikeja", "Victoria Island", "Yaba",
+    ];
+
 
 }
