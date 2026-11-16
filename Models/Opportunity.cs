@@ -1,3 +1,5 @@
+using MongoDB.Bson.Serialization.Attributes;
+
 namespace RadarV2.Models;
 
 public class Opportunity
@@ -28,7 +30,45 @@ public class Opportunity
     public string GoalTag { get; set; } = "Career"; // Career, Education, Business, Research, Networking, Funding, Skills
     public string Benefits { get; set; } = string.Empty; // e.g. Full tuition, $5,000 grant, $75k stipend
     public string Cost { get; set; } = "Free / Fully Funded";
+    /// <summary>Who may apply, in the source's own words.</summary>
+    /// <remarks>
+    /// Kept for display. <see cref="Eligibility"/> beside it is the same question in a form
+    /// something can compare against a person - prose can be shown and cannot be matched.
+    /// </remarks>
     public List<string> WhoIsEligible { get; set; } = [];
+
+    /// <summary>Who may apply, in a form the matcher can read.</summary>
+    /// <remarks>
+    /// Empty on everything ingested before this existed, and empty means "not stated" rather
+    /// than "open to all" - see Eligibility.WasStated. A screen that claims to check eligibility
+    /// must not treat silence as permission.
+    /// </remarks>
+    public Eligibility Eligibility { get; set; } = new();
+
+    /// <summary>Which of the eight families this belongs to.</summary>
+    /// <remarks>
+    /// Derived from the type rather than stored, so the two can never disagree and nothing has
+    /// to be backfilled.
+    /// </remarks>
+    [BsonIgnore]
+    public OpportunityFamily Family => OpportunityFamilies.Of(Type);
+
+    /// <summary>What Radar is permitted to show from the source this came from.</summary>
+    /// <remarks>
+    /// Carried onto the record so a reader of one opportunity can answer the question without
+    /// looking up where it came from - and so a listing whose rights were never confirmed cannot
+    /// be rendered as though they had been.
+    /// </remarks>
+    public Redistribution Rights { get; set; } = Redistribution.Unconfirmed;
+
+    /// <summary>When a person or a check last confirmed this is still open.</summary>
+    /// <remarks>
+    /// The brief asks only for opportunities that are currently open. A deadline in the future
+    /// is not the same as a posting that still exists, and without this there is no way to tell
+    /// a verified listing from one nobody has looked at since it was fetched.
+    /// </remarks>
+    [BsonIgnoreIfNull]
+    public DateTime? LastVerifiedAt { get; set; }
     public List<string> RadarsAdvice { get; set; } = []; // Actionable tips on how to get ahead
     public List<string> NextMoveSteps { get; set; } = []; // Check eligibility → Prepare CV → Draft application → Apply
     public string SelectionProcess { get; set; } = string.Empty;

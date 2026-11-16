@@ -16,31 +16,70 @@ namespace RadarV2.Services.Ingestion;
 /// </summary>
 public static class OpportunitySourceRegistry
 {
+    /// <param name="Access">How the source is reached.</param>
+    /// <param name="Rights">
+    /// What Radar may show from it. No default on purpose: adding a source without saying what
+    /// may be done with its listings should be something you notice while writing the line.
+    /// "Free website or public portal does not automatically grant commercial redistribution
+    /// rights" - and six of these were ingested and rendered for months under an assumption
+    /// nobody had written down.
+    /// </param>
+    /// <param name="Note">Where the rights position came from, or what still needs confirming.</param>
     public sealed record OpportunityFeed(
         string Name,
         string Url,
         string RegionTag,
         OpportunityType DefaultType,
-        string GoalTag);
+        string GoalTag,
+        SourceAccess Access,
+        Redistribution Rights,
+        string Note = "")
+    {
+        /// <summary>The family this source mostly files into.</summary>
+        public OpportunityFamily Family => OpportunityFamilies.Of(DefaultType);
+
+        /// <summary>
+        /// Whether anything from here may be stored and shown.
+        /// </summary>
+        /// <remarks>
+        /// Unconfirmed counts as no. A source nobody has checked is not a source nobody objects
+        /// to, and the ingestion pipeline should treat the two the same way until somebody
+        /// looks.
+        /// </remarks>
+        public bool MayPublish => Rights is Redistribution.Permitted or Redistribution.LinkOnly;
+
+        /// <summary>Whether the description may be stored, as opposed to only the link.</summary>
+        public bool MayStoreDescription => Rights is Redistribution.Permitted;
+    }
 
     public static readonly IReadOnlyList<OpportunityFeed> All =
     [
         // Africa and global youth opportunities: scholarships, fellowships, grants, competitions.
         new("Opportunity Desk", "https://opportunitydesk.org/feed/",
-            "Global", OpportunityType.Fellowship, "Education"),
+            "Global", OpportunityType.Fellowship, "Education",
+            SourceAccess.Feed, Redistribution.Unconfirmed,
+            "Public WordPress feed. Terms never checked - confirm before the description is shown."),
 
         new("Opportunities For Africans", "https://www.opportunitiesforafricans.com/feed/",
-            "Africa", OpportunityType.Fellowship, "Education"),
+            "Africa", OpportunityType.Fellowship, "Education",
+            SourceAccess.Feed, Redistribution.Unconfirmed,
+            "Public feed. Terms never checked."),
 
         new("Opportunities For Youth", "https://www.opportunitiesforyouth.org/feed/",
-            "Global", OpportunityType.Fellowship, "Education"),
+            "Global", OpportunityType.Fellowship, "Education",
+            SourceAccess.Feed, Redistribution.Unconfirmed,
+            "Public feed. Terms never checked."),
 
         // Remote roles, which matter for the "find suitable remote work" outcome in the spec.
         new("We Work Remotely", "https://weworkremotely.com/categories/remote-programming-jobs.rss",
-            "Remote", OpportunityType.RemoteJob, "Career"),
+            "Remote", OpportunityType.RemoteJob, "Career",
+            SourceAccess.Feed, Redistribution.Unconfirmed,
+            "Commercial job board. Redistribution is the least likely to be permitted here."),
 
         new("Remotive", "https://remotive.com/remote-jobs/feed",
-            "Remote", OpportunityType.RemoteJob, "Career"),
+            "Remote", OpportunityType.RemoteJob, "Career",
+            SourceAccess.Feed, Redistribution.Unconfirmed,
+            "Commercial job board. Confirm terms before the description is shown."),
 
         // Jobs in Nigeria, which nothing here carried.
         //
@@ -51,7 +90,9 @@ public static class OpportunitySourceRegistry
         //
         // 595 entries when checked, dated the same day, each linking back to the posting.
         new("Hot Nigerian Jobs", "https://www.hotnigerianjobs.com/feed/rss.xml",
-            "Nigeria", OpportunityType.Job, "Career"),
+            "Nigeria", OpportunityType.Job, "Career",
+            SourceAccess.Feed, Redistribution.Unconfirmed,
+            "Nigeria-first coverage, which is where the users are. Terms never checked."),
     ];
 
     // Checked and deliberately excluded, so nobody re-adds them hopefully:
