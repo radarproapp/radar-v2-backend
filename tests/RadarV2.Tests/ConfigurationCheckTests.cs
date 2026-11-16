@@ -96,6 +96,57 @@ public class ConfigurationCheckTests : IDisposable
         Assert.DoesNotContain(Run().Warnings, line => line.Contains("GroqWhisper"));
     }
 
+    /// <summary>
+    /// Half the name is still obviously the same intent.
+    /// </summary>
+    /// <remarks>
+    /// Both of these were really set on the production service. "GroqWhisper" lost the key half
+    /// in a rename; "publicUrl" never had the section. Each reads, on a dashboard, as the
+    /// setting it was meant to be - and a check comparing whole names said nothing about either,
+    /// so transcription was off and nobody could have known from the logs.
+    /// </remarks>
+    [Theory]
+    [InlineData("GroqWhisper", "GroqWhisper:ApiKey")]
+    [InlineData("GROQWHISPER", "GroqWhisper:ApiKey")]
+    [InlineData("TalentApply", "TalentApply:ApiKey")]
+    public void AVariableMissingHalfItsNameIsStillReported(string wrong, string key)
+    {
+        Env(wrong, "a-value");
+
+        Assert.Contains(Run().Warnings, line => line.Contains(key) && line.Contains(wrong));
+    }
+
+    /// <summary>
+    /// A correctly named setting is never reported as a mistake about its neighbour.
+    /// </summary>
+    /// <remarks>
+    /// SendByte__ApiKey and SendByte__From share a section, so a check matching on fragments
+    /// would have each accusing the other and every properly configured service shouting at
+    /// startup - which is how a useful warning becomes one people learn to ignore.
+    /// </remarks>
+    [Fact]
+    public void CorrectlyNamedNeighboursDoNotAccuseEachOther()
+    {
+        Env("SendByte__ApiKey", "a-value");
+        Env("Taddy__ApiKey", "a-value");
+        Env("PodcastIndex__ApiKey", "a-value");
+        Env("PodcastIndex__ApiSecret", "a-value");
+
+        Assert.Empty(Run().Warnings);
+    }
+
+    /// <summary>A short fragment is not evidence of anything.</summary>
+    [Theory]
+    [InlineData("Key")]
+    [InlineData("ApiKey")]
+    [InlineData("PORT")]
+    public void AShortFragmentIsNotTreatedAsANearMiss(string name)
+    {
+        Env(name, "a-value");
+
+        Assert.Empty(Run().Warnings);
+    }
+
     [Fact]
     public void AnUnrelatedVariableIsNotMistakenForOne()
     {

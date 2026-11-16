@@ -158,9 +158,40 @@ public static class ConfigurationCheck
             if (string.Equals(name, correct, StringComparison.Ordinal)) continue;
             if (string.IsNullOrWhiteSpace(entry.Value as string)) continue;
 
-            if (Flatten(name) == wanted) yield return name;
+            var flat = Flatten(name);
+
+            // Exactly the same letters and digits: a separator or casing mistake.
+            if (flat == wanted)
+            {
+                yield return name;
+                continue;
+            }
+
+            // Or most of them. Two real variables were set this way - "GroqWhisper" for
+            // GroqWhisper:ApiKey, which lost the key half in a rename, and "publicUrl" for
+            // App:PublicUrl, which never had the section. Both are obviously the intended
+            // setting to a person reading the dashboard, and neither is an exact match, so a
+            // check comparing whole names said nothing about either.
+            //
+            // Bounded by length so this stays a near miss rather than a guess: a short fragment
+            // like "Key" is inside half the names here and means nothing.
+            if (flat.Length >= 8 && !IsSomeOtherSettingsName(name)
+                && (wanted.StartsWith(flat, StringComparison.Ordinal)
+                    || wanted.EndsWith(flat, StringComparison.Ordinal)))
+            {
+                yield return name;
+            }
         }
     }
+
+    /// <summary>Whether this variable is the correct spelling of a different setting.</summary>
+    /// <remarks>
+    /// Without this, SendByte__ApiKey would be reported as a near miss for SendByte:From and
+    /// every correctly configured pair would accuse its neighbour. A variable that is already
+    /// right about something is not a mistake about something else.
+    /// </remarks>
+    private static bool IsSomeOtherSettingsName(string name) =>
+        SectionedKeys.Any(key => string.Equals(key.Replace(":", "__"), name, StringComparison.Ordinal));
 
     private static string Flatten(string value) =>
         string.Concat(value.Where(char.IsLetterOrDigit)).ToLowerInvariant();
