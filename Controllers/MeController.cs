@@ -382,6 +382,125 @@ public class MeController : ControllerBase
         });
     }
 
+    /// <summary>Answers to the three questions.</summary>
+    /// <param name="Persona">
+    /// The category the questions were answered under, so the server validates against the same
+    /// set it served rather than against whatever the profile says now.
+    /// </param>
+    /// <param name="Answers">
+    /// Keyed by the field id the question was served under - interests, skills, goals,
+    /// qualification, level - so what is stored is tied to what was asked rather than to the
+    /// order a client happened to send.
+    /// </param>
+    public sealed record OnboardingAnswersRequest(
+        string? Persona,
+        Dictionary<string, List<string>>? Answers);
+
+    /// <summary>
+    /// Stores the answers to the three questions.
+    /// </summary>
+    /// <remarks>
+    /// Separate from onboarding-complete, which predates these questions and carries a different
+    /// and partly incompatible set of fields: interests, goals and challenges, where the three
+    /// questions ask interests, capabilities and aspirations. Capabilities had no transport at
+    /// all, so the half of the engine that decides eligibility could never be told anything.
+    ///
+    /// Every answer is checked against the options actually offered for that persona. Not for
+    /// tidiness: the answer text <em>is</em> the term the feed is selected by, so an endpoint
+    /// that accepted free text would let a caller put anything into the matching - and a typo
+    /// would silently become a search nobody meant. If it was not offered, it was not asked, and
+    /// Radar does not record an answer to a question it did not put.
+    /// </remarks>
+    [HttpPost("onboarding-answers")]
+    public async Task<IActionResult> SaveOnboardingAnswersAsync([FromBody] OnboardingAnswersRequest request)
+    {
+        var profile = await _profiles.GetCurrentUserAsync();
+        if (profile is null) return NotFound(new { error = "Profile not found" });
+
+        var persona = profile.Persona;
+        if (!string.IsNullOrWhiteSpace(request.Persona))
+        {
+            if (!Enum.TryParse<PersonaType>(request.Persona, ignoreCase: true, out var chosen)
+                || !Enum.IsDefined(chosen))
+            {
+                return BadRequest(new { error = $"Unknown category '{request.Persona}'." });
+            }
+
+            persona = chosen;
+        }
+
+        if (request.Answers is not { Count: > 0 })
+            return BadRequest(new { error = "No answers were sent." });
+
+        var questions = OnboardingQuestions.For(persona);
+        var fields = questions
+            .SelectMany(question => question.Fields)
+            .ToDictionary(field => field.Id, StringComparer.OrdinalIgnoreCase);
+
+        var accepted = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var (fieldId, chosen) in request.Answers)
+        {
+            if (!fields.TryGetValue(fieldId, out var field))
+                return BadRequest(new { error = $"'{fieldId}' is not one of the questions asked." });
+
+            var picked = Clean(chosen ?? []);
+
+            if (picked.Count > field.MostSelections)
+            {
+                return BadRequest(new
+                {
+                    error = $"'{fieldId}' allows up to {field.MostSelections} choices; {picked.Count} were sent.",
+                });
+            }
+
+            var offered = field.Options.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var unknown = picked.Where(choice => !offered.Contains(choice)).ToList();
+
+            if (unknown.Count > 0)
+            {
+                return BadRequest(new
+                {
+                    error = $"'{fieldId}' was not offered: {string.Join(", ", unknown)}",
+                });
+            }
+
+            accepted[fieldId] = picked;
+        }
+
+        var previousInterests = profile.Interests.ToList();
+
+        OnboardingAnswers.Read(profile, accepted);
+
+        // Recorded because it is what makes HasChosenCategory honest: the persona here is the one
+        // the questions were answered under, so it is a real choice rather than the enum default.
+        profile.Persona = persona;
+        profile.PersonaChosenAt ??= DateTime.UtcNow;
+
+        // The first goal drives the learning path, which is built around one at a time. Only when
+        // nothing has been set, so this never overwrites a path somebody is partway through.
+        if (string.IsNullOrWhiteSpace(profile.PrimaryGoal) && profile.Goals.Count > 0)
+            profile.PrimaryGoal = profile.Goals[0];
+
+        profile.OnboardingComplete = true;
+
+        await _profiles.SaveProfileAsync(profile);
+        await SyncDeclaredSignalsAsync(profile.Id, previousInterests, profile.Interests);
+
+        return Ok(new
+        {
+            persona = profile.Persona.ToString(),
+            isPersonalised = profile.IsPersonalised,
+            interests = profile.Interests,
+            capabilities = profile.Capabilities,
+            goals = profile.Goals,
+            qualification = profile.Qualification?.ToString(),
+            seniority = profile.SeniorityLevel?.ToString(),
+            certifications = profile.Certifications,
+            isFounder = profile.IsFounder,
+        });
+    }
+
     [HttpPost("onboarding-complete")]
     public async Task<IActionResult> CompleteOnboardingAsync([FromBody] UpdateProfileRequest request)
     {
