@@ -70,6 +70,25 @@ public static class OpportunitySourceRegistry
         public bool MayStoreDescription => Rights is Redistribution.Permitted;
     }
 
+    /// <summary>
+    /// Sources reached through an API under an agreement, rather than a public feed.
+    /// </summary>
+    /// <remarks>
+    /// Kept apart from <see cref="All"/> because the RSS ingester iterates that list and would
+    /// try to parse an API base URL as a feed. The separation is about how a source is read, not
+    /// how much it is trusted - the rights tests cover <see cref="Everything"/>, so a partner
+    /// cannot be added without stating its position either.
+    /// </remarks>
+    public static readonly IReadOnlyList<OpportunityFeed> Partners =
+    [
+        // The first source Radar reads with permission rather than an assumption, and so far the
+        // only one whose descriptions may be stored.
+        new("TalentApply", "https://app.talentapply.io/api/v1/partner-api",
+            "Global", OpportunityType.Job, "Career",
+            SourceAccess.Negotiated, Redistribution.Permitted,
+            "Partner agreement signed. Attribution rides on each listing's view_url."),
+    ];
+
     public static readonly IReadOnlyList<OpportunityFeed> All =
     [
         // Africa and global youth opportunities: scholarships, fellowships, grants, competitions.
@@ -112,6 +131,14 @@ public static class OpportunitySourceRegistry
             SourceAccess.Feed, Redistribution.Unconfirmed,
             "Nigeria-first coverage, which is where the users are. Terms never checked."),
     ];
+
+    /// <summary>Every source, however it is reached.</summary>
+    /// <remarks>
+    /// Declared after All on purpose. Static field initialisers run in the order they are written,
+    /// so this spread read a null All and threw in the type initialiser when it sat above it -
+    /// which compiles cleanly and fails the first time anything touches the registry.
+    /// </remarks>
+    public static readonly IReadOnlyList<OpportunityFeed> Everything = [.. All, .. Partners];
 
     // Checked and deliberately excluded, so nobody re-adds them hopefully:
     //   scholarshipregion.com/feed/   → 403, blocks automated fetches

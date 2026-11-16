@@ -302,6 +302,18 @@ public class ContentIngestionService : BackgroundService
                 _log.LogWarning(ex, "Opportunity ingestion failed; continuing with content sources.");
             }
 
+            // TalentApply is a keyed JSON API rather than an RSS feed, so it runs beside the feed
+            // ingester rather than inside it. Its own try/catch for the same reason as above: a
+            // partner outage must not take the content sources down with it.
+            try
+            {
+                await sp.GetRequiredService<TalentApplyIngestionService>().RunAsync(ct);
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "TalentApply ingestion failed; continuing with content sources.");
+            }
+
             // YouTube channels (public Atom feeds; first run resolves and caches channel ids).
             var youtubeItems = await youtube.FetchAllAsync(ct);
             totalNew += await RunFetchBatchAsync(db, enricher, youtubeItems, ct);

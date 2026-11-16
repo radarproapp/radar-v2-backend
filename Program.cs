@@ -295,6 +295,18 @@ builder.Services.AddScoped<YouTubeClient>();
 builder.Services.AddScoped<YouTubeIngestionService>();
 builder.Services.AddScoped<OpportunityIngestionService>();
 
+// TalentApply — partner API, Bearer key per request. The trailing slash on the base address is
+// load-bearing: HttpClient drops the last segment of a base URL without one, so "partner-api"
+// would be thrown away and every request would hit /api/v1/jobs.
+builder.Services.AddHttpClient("TalentApply", client =>
+{
+    client.BaseAddress = new Uri("https://app.talentapply.io/api/v1/partner-api/");
+    client.Timeout = TimeSpan.FromSeconds(30);
+    client.DefaultRequestHeaders.Add("Accept", "application/json");
+});
+builder.Services.AddScoped<TalentApplyClient>();
+builder.Services.AddScoped<TalentApplyIngestionService>();
+
 // Ingestion services
 builder.Services.AddScoped<RssIngestionService>();
 builder.Services.AddScoped<ContentEnricherService>();

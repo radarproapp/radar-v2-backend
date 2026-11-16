@@ -220,9 +220,9 @@ public class OpportunityTaxonomyTests
     [Fact]
     public void EverySourceInTheRegisterSaysWhatMayBeDoneWithIt()
     {
-        Assert.NotEmpty(OpportunitySourceRegistry.All);
+        Assert.NotEmpty(OpportunitySourceRegistry.Everything);
 
-        foreach (var feed in OpportunitySourceRegistry.All)
+        foreach (var feed in OpportunitySourceRegistry.Everything)
         {
             Assert.False(string.IsNullOrWhiteSpace(feed.Name));
 
@@ -312,7 +312,7 @@ public class OpportunityTaxonomyTests
     [Fact]
     public void EverySourceFallsUnderAFamily()
     {
-        foreach (var feed in OpportunitySourceRegistry.All)
+        foreach (var feed in OpportunitySourceRegistry.Everything)
             Assert.Contains(feed.Family, OpportunityFamilies.All);
     }
 }
