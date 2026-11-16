@@ -63,6 +63,8 @@ public class OpportunitiesController : ControllerBase
         // Rights is deliberately absent and is JsonIgnore'd on the model besides: it is Radar's
         // legal posture, not part of a job posting.
         ["family"] = o => o.Family,
+        ["eligibilityVerdict"] = o => o.EligibilityVerdict,
+        ["eligibilityNotes"] = o => o.EligibilityNotes,
         ["eligibility"] = o => o.Eligibility,
     };
 

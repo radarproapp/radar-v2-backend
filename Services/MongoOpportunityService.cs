@@ -126,6 +126,15 @@ public class MongoOpportunityService : IOpportunityService
         // what somebody wants rather than deriving it.
         valid = valid.Where(o => aboutThisLearner.Contains(o.Id)).ToList();
 
+        // Then whether they could actually get it.
+        //
+        // Relevance and eligibility are different questions and this is where the second one is
+        // asked: an AI-interested director and an AI-interested graduate both survive the filter
+        // above, and only one of them should see each role. Only a known contradiction removes
+        // anything - not stated on the posting and not asked of the person both mean Radar does
+        // not know, and hiding on that would cost somebody a scholarship they qualify for.
+        valid = valid.Where(o => Explain(profile, o).WorthShowing).ToList();
+
         // Apply filters
         if (filterType.HasValue)
         {
@@ -175,6 +184,24 @@ public class MongoOpportunityService : IOpportunityService
     /// and builds on demand otherwise — a user who signs up between runs still gets a batch, and
     /// the feature does not silently depend on the cron being healthy.
     /// </summary>
+    /// <summary>
+    /// Runs the eligibility check and leaves its answer on the record.
+    /// </summary>
+    /// <remarks>
+    /// Writing the verdict onto the opportunity as well as returning it, so the card can say why
+    /// something is in front of somebody. A gate that silently drops what fails and says nothing
+    /// about what passed is indistinguishable, from the outside, from a gate that is not running.
+    /// </remarks>
+    private static EligibilityResult Explain(UserProfile profile, Opportunity opportunity)
+    {
+        var result = EligibilityCheck.For(profile, opportunity.Eligibility);
+
+        opportunity.EligibilityVerdict = result.Verdict.ToString();
+        opportunity.EligibilityNotes = [.. result.Met, .. result.Failed, .. result.Unknown];
+
+        return result;
+    }
+
     public async Task<DailyOpportunityFeed> GetDailyFeedAsync(UserProfile profile)
     {
         var today = DateTime.UtcNow.ToString("yyyy-MM-dd");
@@ -334,6 +361,10 @@ public class MongoOpportunityService : IOpportunityService
         // That is the same rule as the Intelligence feed, and it is the honest one: Radar asks
         // what somebody wants rather than deriving it.
         valid = valid.Where(o => aboutThisLearner.Contains(o.Id)).ToList();
+
+        // The same gate as the main feed. Applied in one place and not the other, the daily batch
+        // would quietly become the surface that shows people things they cannot apply for.
+        valid = valid.Where(o => Explain(profile, o).WorthShowing).ToList();
 
         // What this user has already been shown on a previous day. Without this the "daily" batch is
         // just a deterministic ranking of a static set, so the same twelve items return every day —

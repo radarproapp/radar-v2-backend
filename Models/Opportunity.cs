@@ -54,6 +54,30 @@ public class Opportunity
     [BsonIgnore]
     public OpportunityFamily Family => OpportunityFamilies.Of(Type);
 
+    /// <summary>
+    /// What the eligibility check concluded for the person being served.
+    /// </summary>
+    /// <remarks>
+    /// Computed per request and never stored, like the match score beside it: the answer is about
+    /// a particular reader, and persisting it would be writing one person's circumstances onto a
+    /// posting everybody sees.
+    ///
+    /// Carried on the record rather than returned separately so the card that shows an
+    /// opportunity can show why it is there. An eligibility check nobody can read the result of
+    /// is a check that may as well not have run.
+    /// </remarks>
+    [BsonIgnore]
+    public string EligibilityVerdict { get; set; } = nameof(Services.EligibilityVerdict.Unchecked);
+
+    /// <summary>Why, in sentences a person can read.</summary>
+    /// <remarks>
+    /// Includes what could not be checked, not only what passed or failed. "Open to Nigerian
+    /// nationals, Radar has not asked yours" is the line that makes a partial check honest, and
+    /// leaving it out is how a partial check comes to look like a complete one.
+    /// </remarks>
+    [BsonIgnore]
+    public List<string> EligibilityNotes { get; set; } = [];
+
     /// <summary>What Radar is permitted to show from the source this came from.</summary>
     /// <remarks>
     /// Carried onto the record so a reader of one opportunity can answer the question without
