@@ -50,6 +50,30 @@ public class Eligibility
     [BsonIgnoreIfNull]
     public int? MaximumYearsExperience { get; set; }
 
+    /// <summary>The least senior somebody may be, where a posting says.</summary>
+    /// <remarks>
+    /// Seniority and years of experience are not the same claim and a posting may state either.
+    /// Six years in one role and six across four are different seniorities, and "we want a
+    /// manager" is a statement about scope rather than duration.
+    ///
+    /// This is the field <see cref="UserProfile.SeniorityLevel"/> is compared against. Without it
+    /// the profile held a seniority with nothing on the other side of the comparison, which is
+    /// half a feature and reads as a whole one.
+    /// </remarks>
+    [BsonIgnoreIfNull]
+    public Seniority? MinimumSeniority { get; set; }
+
+    /// <summary>
+    /// The most senior somebody may be, where a programme is aimed at a level.
+    /// </summary>
+    /// <remarks>
+    /// Not redundant with the floor. A graduate scheme excluding a director is a real rule, and
+    /// it is the direction that catches the mistake Radar is most likely to make: showing
+    /// somebody an opportunity they are far too senior for because it matched on subject.
+    /// </remarks>
+    [BsonIgnoreIfNull]
+    public Seniority? MaximumSeniority { get; set; }
+
     /// <summary>Skills the posting asks for.</summary>
     /// <remarks>
     /// Matched against what somebody says they can do and, once Radar Learn can vouch for it,
@@ -98,6 +122,8 @@ public class Eligibility
         // is "no more than two years' experience" read as having stated nothing - so the posting
         // whose single rule excludes a six-year professional was the one Radar called unchecked.
         || MaximumYearsExperience is not null
+        || MinimumSeniority is not null
+        || MaximumSeniority is not null
 
         || RequiredSkills?.Count > 0
         || RequiredCertifications?.Count > 0
