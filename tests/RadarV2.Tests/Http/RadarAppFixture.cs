@@ -21,7 +21,7 @@ namespace RadarV2.Tests.Http;
 /// </remarks>
 public sealed class RadarAppFixture : WebApplicationFactory<Program>, IAsyncLifetime
 {
-    private readonly IMongoRunner _mongo;
+    private readonly Integration.LocalMongod.IHost _mongo;
 
     /// <summary>An address the configuration grants super admin, for the break-glass path.</summary>
     public const string ConfiguredSuperAdmin = "owner@radar-test.com";
@@ -31,7 +31,7 @@ public sealed class RadarAppFixture : WebApplicationFactory<Program>, IAsyncLife
 
     public RadarAppFixture()
     {
-        _mongo = MongoRunner.Run(new MongoRunnerOptions { UseSingleNodeReplicaSet = false });
+        _mongo = Integration.LocalMongod.Start();
 
         // Environment variables, not ConfigureAppConfiguration.
         //

@@ -25,16 +25,13 @@ namespace RadarV2.Tests.Integration;
 /// </remarks>
 public sealed class RadarDatabaseFixture : IDisposable
 {
-    private readonly IMongoRunner _runner;
+    private readonly LocalMongod.IHost _mongo;
 
     public RadarDatabaseFixture()
     {
-        _runner = MongoRunner.Run(new MongoRunnerOptions
-        {
-            UseSingleNodeReplicaSet = false,
-        });
+        _mongo = LocalMongod.Start();
 
-        _client = new Lazy<IMongoClient>(() => new MongoClient(_runner.ConnectionString));
+        _client = new Lazy<IMongoClient>(() => new MongoClient(_mongo.ConnectionString));
     }
 
     /// <summary>
@@ -71,7 +68,7 @@ public sealed class RadarDatabaseFixture : IDisposable
                 })
                 .Build());
 
-    public void Dispose() => _runner.Dispose();
+    public void Dispose() => _mongo.Dispose();
 }
 
 /// <summary>
