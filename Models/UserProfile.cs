@@ -191,6 +191,75 @@ public class UserProfile
     public bool? IsFounder { get; set; }
 
     /// <summary>
+    /// Nationalities the person holds, where they have said.
+    /// </summary>
+    /// <remarks>
+    /// A list, because dual nationality is the case this exists to get right: a scholarship open
+    /// to Nigerian nationals is open to somebody who is Nigerian and something else, and a single
+    /// field would make Radar decide which of their nationalities counts.
+    ///
+    /// Kept apart from <see cref="CountryOfResidence"/> because they are different claims, which
+    /// is the same distinction Eligibility draws. A programme can be open to Nigerian nationals
+    /// living anywhere, or to anybody resident in Nigeria, and a person can satisfy one without
+    /// the other.
+    ///
+    /// Not an onboarding question. The brief is firm that onboarding is three questions and that
+    /// Radar should learn the rest; this belongs on a profile screen, asked when an opportunity
+    /// turns out to need it.
+    /// </remarks>
+    public List<string> Nationalities { get; set; } = [];
+
+    /// <summary>Where the person actually lives, where they have said.</summary>
+    /// <remarks>
+    /// <see cref="Region"/> already exists and is too coarse to check a country list against -
+    /// it holds things like "Africa". This is the specific answer, so an eligibility check can
+    /// stop reporting "cannot tell" for somebody who has told us.
+    /// </remarks>
+    public string CountryOfResidence { get; set; } = string.Empty;
+
+    /// <summary>Years of professional experience, where the person has said.</summary>
+    /// <remarks>
+    /// Nullable because zero is a real answer and a meaningful one - a graduate scheme asking for
+    /// no more than two years wants exactly this person, and a default of zero would have claimed
+    /// it on behalf of everybody who was never asked.
+    /// </remarks>
+    [BsonIgnoreIfNull]
+    public int? YearsOfExperience { get; set; }
+
+    /// <summary>
+    /// Date of birth, where the person has given it.
+    /// </summary>
+    /// <remarks>
+    /// Stored as the date rather than as an age, because an age is wrong the moment it is
+    /// written. Somebody who answers 29 is still 29 in Radar three years later, and the youth
+    /// programmes this is for are exactly the ones with an upper age limit - so a stale age
+    /// quietly recommends things people have aged out of, which is the specific failure
+    /// Eligibility.MaximumAge exists to prevent.
+    /// </remarks>
+    [BsonIgnoreIfNull]
+    public DateTime? DateOfBirth { get; set; }
+
+    /// <summary>How old the person is today, or null if they have not said.</summary>
+    /// <remarks>
+    /// Computed rather than stored, and not persisted, so it cannot go stale. Counts birthdays
+    /// rather than dividing days, because an age range is a statement about birthdays.
+    /// </remarks>
+    [BsonIgnore]
+    public int? Age
+    {
+        get
+        {
+            if (DateOfBirth is not { } born) return null;
+
+            var today = DateTime.UtcNow.Date;
+            var age = today.Year - born.Year;
+            if (born.Date > today.AddYears(-age)) age--;
+
+            return age >= 0 ? age : null;
+        }
+    }
+
+    /// <summary>
     /// What the learner wants to achieve — box 2 of personalisation.
     /// </summary>
     /// <remarks>

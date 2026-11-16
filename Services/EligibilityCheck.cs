@@ -96,7 +96,9 @@ public static class EligibilityCheck
         CheckSeniority(profile, eligibility, met, failed, unknown);
         CheckCertifications(profile, eligibility, met, failed, unknown);
         CheckLocation(profile, eligibility, met, failed, unknown);
-        CheckFactsNobodyHasAsked(eligibility, unknown);
+        CheckNationality(profile, eligibility, met, failed, unknown);
+        CheckExperience(profile, eligibility, met, failed, unknown);
+        CheckAge(profile, eligibility, met, failed, unknown);
 
         var verdict = failed.Count > 0 ? EligibilityVerdict.NotEligible
             : unknown.Count > 0 ? EligibilityVerdict.CannotTell
@@ -193,42 +195,136 @@ public static class EligibilityCheck
     {
         if (asked.Countries is not { Count: > 0 } countries) return;
 
+        // The specific answer first. Region holds things like "Africa", which cannot be compared
+        // against a country list without guessing in one direction or the other.
+        if (!string.IsNullOrWhiteSpace(profile.CountryOfResidence))
+        {
+            var lives = countries.Any(country =>
+                country.Equals(profile.CountryOfResidence, StringComparison.OrdinalIgnoreCase));
+
+            if (lives) met.Add($"Open to {Join(countries)}, and you are in {profile.CountryOfResidence}.");
+            else failed.Add($"Open to {Join(countries)} only. You are in {profile.CountryOfResidence}.");
+
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(profile.Region))
         {
             unknown.Add($"Open to {Join(countries)}. You have not told Radar where you are.");
             return;
         }
 
+        // Region is coarse, so it is allowed to confirm and never to deny: a region that does not
+        // appear is not evidence, because the list may name countries while the profile holds a
+        // continent. Matched whole rather than by substring - "Niger" is inside "Nigeria", and a
+        // containment test would have quietly made one country eligible for the other's rules.
         var here = countries.Any(country =>
-            country.Contains(profile.Region, StringComparison.OrdinalIgnoreCase)
-            || profile.Region.Contains(country, StringComparison.OrdinalIgnoreCase));
+            country.Equals(profile.Region, StringComparison.OrdinalIgnoreCase));
 
         if (here) met.Add($"Open to {Join(countries)}, which includes you.");
         else unknown.Add($"Open to {Join(countries)}. Radar cannot tell whether that includes you.");
     }
 
     /// <summary>
-    /// Criteria Radar has never asked anybody about.
+    /// Nationality, which is never inferred.
     /// </summary>
     /// <remarks>
-    /// Nationality, age and years of experience are all things a posting can require and nothing
-    /// on the profile holds. Reporting them as unknown rather than ignoring them is the point:
-    /// silently dropping a criterion makes a partial check look like a complete one, and the
-    /// brief is explicit that nationality in particular must never be inferred.
+    /// The brief names this one specifically: "do not infer nationality eligibility merely
+    /// because a programme is described as international." So a person who has not said is
+    /// unknown, and a person who has said is checked against the list rather than against where
+    /// they live - a Nigerian national studying in Ghana is still a Nigerian national, and the
+    /// two fields exist precisely so that is not confused.
     ///
-    /// Each line is phrased as what is missing, so the eventual fix - asking - is obvious from
-    /// the output rather than needing to be rediscovered.
+    /// Any one nationality matching is enough. Dual nationality is the case this exists for, and
+    /// a scholarship open to Nigerians does not stop being open because somebody is also
+    /// something else.
     /// </remarks>
-    private static void CheckFactsNobodyHasAsked(Eligibility asked, List<string> unknown)
+    private static void CheckNationality(
+        UserProfile profile, Eligibility asked, List<string> met, List<string> failed, List<string> unknown)
     {
-        if (asked.Nationalities is { Count: > 0 } nationalities)
-            unknown.Add($"Open to {Join(nationalities)} nationals. Radar has not asked yours.");
+        if (asked.Nationalities is not { Count: > 0 } wanted) return;
 
-        if (asked.MinimumYearsExperience is not null || asked.MaximumYearsExperience is not null)
-            unknown.Add("Asks for a particular amount of experience. Radar has not asked yours.");
+        var held = profile.Nationalities ?? [];
 
-        if (asked.MinimumAge is not null || asked.MaximumAge is not null)
-            unknown.Add("Has an age range. Radar has not asked your age.");
+        if (held.Count == 0)
+        {
+            unknown.Add($"Open to {Join(wanted)} nationals. You have not told Radar your nationality.");
+            return;
+        }
+
+        var matches = held.Any(mine =>
+            wanted.Any(theirs => theirs.Equals(mine, StringComparison.OrdinalIgnoreCase)));
+
+        if (matches) met.Add($"Open to {Join(wanted)} nationals, and you are one.");
+        else failed.Add($"Open to {Join(wanted)} nationals only.");
+    }
+
+    /// <summary>
+    /// Years of experience, in both directions.
+    /// </summary>
+    /// <remarks>
+    /// The ceiling is the half that is easy to forget and the half that does the work here. A
+    /// graduate programme whose only rule is "no more than two years" is excluding a six-year
+    /// professional on purpose, and without this it was the posting Radar called unchecked.
+    /// </remarks>
+    private static void CheckExperience(
+        UserProfile profile, Eligibility asked, List<string> met, List<string> failed, List<string> unknown)
+    {
+        if (asked.MinimumYearsExperience is null && asked.MaximumYearsExperience is null) return;
+
+        if (profile.YearsOfExperience is not { } years)
+        {
+            unknown.Add("Asks for a particular amount of experience. You have not told Radar yours.");
+            return;
+        }
+
+        if (asked.MinimumYearsExperience is { } least && years < least)
+        {
+            failed.Add($"Asks for at least {least} years. You have {years}.");
+            return;
+        }
+
+        if (asked.MaximumYearsExperience is { } most && years > most)
+        {
+            failed.Add($"Is for people with no more than {most} years. You have {years}.");
+            return;
+        }
+
+        met.Add($"Your {years} years of experience fits what this asks for.");
+    }
+
+    /// <summary>
+    /// An age range, which is the one criterion nobody can acquire.
+    /// </summary>
+    /// <remarks>
+    /// Read from the date of birth rather than a stored age, so it cannot go stale - which
+    /// matters most here, because the programmes with upper age limits are exactly the ones
+    /// somebody ages out of while Radar still has their old answer.
+    /// </remarks>
+    private static void CheckAge(
+        UserProfile profile, Eligibility asked, List<string> met, List<string> failed, List<string> unknown)
+    {
+        if (asked.MinimumAge is null && asked.MaximumAge is null) return;
+
+        if (profile.Age is not { } age)
+        {
+            unknown.Add("Has an age range. You have not told Radar your date of birth.");
+            return;
+        }
+
+        if (asked.MinimumAge is { } youngest && age < youngest)
+        {
+            failed.Add($"Is for people {youngest} and over. You are {age}.");
+            return;
+        }
+
+        if (asked.MaximumAge is { } oldest && age > oldest)
+        {
+            failed.Add($"Is for people up to {oldest}. You are {age}.");
+            return;
+        }
+
+        met.Add($"You are {age}, which is inside the age range.");
     }
 
     private static string Join(IEnumerable<string> values) => string.Join(", ", values);

@@ -62,6 +62,15 @@ public class MeController : ControllerBase
         public string? TargetRole { get; set; }
         public string? TargetIndustry { get; set; }
         public List<string>? Capabilities { get; set; }
+
+        // The facts an eligibility check needs and onboarding deliberately does not ask for.
+        // The brief keeps onboarding to three questions and lets Radar learn the rest, so these
+        // belong on a profile screen - asked once an opportunity turns out to need them, rather
+        // than up front of everybody.
+        public List<string>? Nationalities { get; set; }
+        public string? CountryOfResidence { get; set; }
+        public int? YearsOfExperience { get; set; }
+        public DateTime? DateOfBirth { get; set; }
         public List<string>? OpportunityPreferences { get; set; }
         public List<string>? Geography { get; set; }
         public List<string>? DecisionNeeds { get; set; }
@@ -543,6 +552,24 @@ public class MeController : ControllerBase
         if (!string.IsNullOrWhiteSpace(request.PrimaryGoal))    profile.PrimaryGoal = request.PrimaryGoal.Trim();
         if (request.Region is not null)                          profile.Region = request.Region;
         if (request.City is not null)                            profile.City = request.City;
+        if (request.CountryOfResidence is not null)              profile.CountryOfResidence = request.CountryOfResidence.Trim();
+        if (request.Nationalities is not null)                   profile.Nationalities = Clean(request.Nationalities);
+
+        // Range-checked rather than trusted. A negative or absurd value is not a fact about
+        // anybody, and an eligibility check comparing against one would exclude or include
+        // people on the strength of a typo.
+        if (request.YearsOfExperience is { } years && years is >= 0 and <= 70)
+            profile.YearsOfExperience = years;
+
+        // Bounded the same way, and in the past: a date of birth in the future makes Age
+        // negative, and an Age property that can be negative is one every caller has to defend
+        // against.
+        if (request.DateOfBirth is { } born
+            && born < DateTime.UtcNow
+            && born > DateTime.UtcNow.AddYears(-120))
+        {
+            profile.DateOfBirth = born.Date;
+        }
         if (request.Interests is not null)
         {
             profile.Interests = request.Interests.Where(i => !string.IsNullOrWhiteSpace(i)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
