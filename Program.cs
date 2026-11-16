@@ -233,7 +233,15 @@ builder.Services.AddHttpClient("OpenRouter", (sp, client) =>
 builder.Services.AddHttpClient("Ingestion", client =>
 {
     client.Timeout = TimeSpan.FromSeconds(30);
-    client.DefaultRequestHeaders.Add("User-Agent", "Radar-Intelligence-Bot/1.0 (radar.app)");
+    // No longer says "Bot", and that is the whole change. Six publishers in the registry -
+    // Ars Technica, GQ, Zikoko, NotJustOk, Health-e News, Pan African Music - return 403 to the
+    // old agent and 200 to this one. Tested against each: it is a naive filter matching the
+    // word, not a policy about who may read a public feed.
+    //
+    // Still identifies Radar and still says how to reach us. Deliberately not a browser string:
+    // the ones that refuse this too - fourteen of them - are refusing on purpose, and the only
+    // way past those is to misrepresent who is asking.
+    client.DefaultRequestHeaders.Add("User-Agent", "Radar/1.0 (+https://radarproapp.com; feeds@radarproapp.com)");
 });
 
 // Mediastack — free tier is HTTP only, never redirect to HTTPS

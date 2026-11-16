@@ -122,6 +122,61 @@ public class UserProfile
     public string TargetRole { get; set; } = string.Empty;
     public string TargetIndustry { get; set; } = string.Empty;
     public List<string> Capabilities { get; set; } = [];
+
+    /// <summary>
+    /// How far the person got in formal education, when they have said.
+    /// </summary>
+    /// <remarks>
+    /// The half of question two that <see cref="Capabilities"/> could not hold. Skills are a set
+    /// and match by overlap; a qualification is a position on a ladder and matches by comparison,
+    /// which is the only way to check an opportunity asking for "a bachelor's degree or higher".
+    ///
+    /// Without this the eligibility half of the engine had nothing to read: Eligibility records
+    /// what a posting requires and there was nowhere to record what a person has, so the
+    /// comparison could never be made in either direction.
+    ///
+    /// Null means not stated, and not stated is never read as "meets the floor". Radar asks.
+    /// </remarks>
+    [BsonIgnoreIfNull]
+    public QualificationLevel? Qualification { get; set; }
+
+    /// <summary>
+    /// Certifications the person holds, which are not a rung on that ladder.
+    /// </summary>
+    /// <remarks>
+    /// Their own field for the reason the ladder learned the hard way: a certification was
+    /// briefly a QualificationLevel, above Doctorate, so a PhD failed a "PMP required" floor and
+    /// a CompTIA A+ cleared a degree one. The onboarding question still offers "Professional
+    /// Certification" as an answer, because it is a true thing to say - it just belongs here
+    /// rather than on the ladder, matching Eligibility.RequiredCertifications.
+    /// </remarks>
+    public List<string> Certifications { get; set; } = [];
+
+    /// <summary>
+    /// How senior the person is, for those who answer the professional question.
+    /// </summary>
+    /// <remarks>
+    /// The distinction the whole engine turns on, stated by the person rather than guessed from
+    /// their degree: an AI-interested director and an AI-interested graduate both match "AI", and
+    /// only one of them should be shown the senior role. Null means not stated.
+    /// </remarks>
+    [BsonIgnoreIfNull]
+    public Seniority? Seniority { get; set; }
+
+    /// <summary>
+    /// Whether they describe themselves as running something of their own.
+    /// </summary>
+    /// <remarks>
+    /// "Entrepreneur / Founder" is offered beside the seniority levels on the same question, and
+    /// it is not one of them - it is not more senior than a director or less than a manager, it
+    /// is a different axis. Exactly the mistake certifications made on the qualification ladder,
+    /// avoided this time by not putting it there.
+    ///
+    /// Kept because it changes what is worth showing: funding, partnerships and tenders are for
+    /// this person in a way they are not for an employee of the same seniority.
+    /// </remarks>
+    public bool IsFounder { get; set; }
+
     /// <summary>
     /// What the learner wants to achieve — box 2 of personalisation.
     /// </summary>

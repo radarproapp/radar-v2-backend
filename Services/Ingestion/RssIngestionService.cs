@@ -66,7 +66,18 @@ public class RssIngestionService
             }
 
             var xml = await response.Content.ReadAsStringAsync(ct);
-            var doc = XDocument.Parse(xml);
+
+            // Parsed leniently about its preamble only. Twenty of this registry's sources serve a
+            // current feed behind a byte-order mark or a blank line, which a strict reader rejects
+            // outright - they were logged as "fetch failed" and dropped every night.
+            var doc = FeedXml.Parse(xml);
+            if (doc is null)
+            {
+                error = "the body was not a feed";
+                _log.LogWarning(
+                    "Feed {Source} returned {Status} but the body is not a feed.", source.Name, status);
+                return new FetchOutcome(items, status, error);
+            }
 
             // Detect Atom vs RSS
             if (doc.Root?.Name.LocalName == "feed")

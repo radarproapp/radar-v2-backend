@@ -131,3 +131,32 @@ public enum NavigatorCardType
     Apply,
     Build
 }
+
+/// <summary>
+/// How far along somebody is professionally, as they describe themselves.
+/// </summary>
+/// <remarks>
+/// Ordered, for the same reason QualificationLevel is: an opportunity asking for a senior
+/// candidate is a floor to compare against, not a label to match. It is what stops an
+/// AI-interested director being shown a graduate internship and an AI-interested graduate being
+/// shown a head-of-department role - both match "AI", and only one of them should see each.
+///
+/// "Entrepreneur / Founder" is offered beside these on the same question and is deliberately not
+/// a member. It is not more senior than a director or less than a manager; it is a different
+/// axis, and putting it here would make every comparison wrong in one direction or the other -
+/// which is precisely what a professional certification did to the qualification ladder.
+/// UserProfile.IsFounder holds it instead.
+///
+/// Appended to, never reordered: these persist by value.
+/// </remarks>
+public enum Seniority
+{
+    /// <summary>Nobody has said. Never read as meeting a floor.</summary>
+    NotStated,
+
+    Entry,
+    Mid,
+    Senior,
+    Manager,
+    Director
+}

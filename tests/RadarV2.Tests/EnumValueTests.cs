@@ -90,6 +90,10 @@ public class EnumValueTests
             ["Learn", "Read", "Watch", "Listen", "Apply", "Build"]
         },
         {
+            "Seniority (UserProfile.Seniority)", typeof(Seniority),
+            ["NotStated", "Entry", "Mid", "Senior", "Manager", "Director"]
+        },
+        {
             "QualificationLevel (Eligibility.MinimumQualification)", typeof(QualificationLevel),
             ["InProgress", "SecondarySchool", "Nce", "Ond", "Hnd", "Bachelors", "Masters", "Doctorate"]
         },

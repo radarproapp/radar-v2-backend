@@ -157,7 +157,15 @@ public partial class OpportunityIngestionService
         cts.CancelAfter(TimeSpan.FromSeconds(30));
 
         var xml = await client.GetStringAsync(feed.Url, cts.Token);
-        var doc = XDocument.Parse(xml);
+        // Same lenience as the content path: a leading byte-order mark is not a reason to drop
+        // a day of opportunities.
+        var doc = FeedXml.Parse(xml);
+        if (doc is null)
+        {
+            _log.LogWarning("Opportunity feed {Feed} returned a body that is not a feed.", feed.Name);
+            return 0;
+        }
+
 
         // Newest first, and only so many from any one source per run.
         //
