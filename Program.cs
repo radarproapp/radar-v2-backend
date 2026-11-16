@@ -344,6 +344,11 @@ builder.Services.AddScoped<IUserSessionService, UserSessionService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 
 // Real service implementations
+// Who is reading, and what they are entitled to see. Scoped, and resolved once per request by
+// the middleware below, so the hundred and thirteen callers of GetCurrentUserAsync share one read
+// instead of each making two.
+builder.Services.AddScoped<ReaderContext>();
+
 builder.Services.AddScoped<IUserProfileService, MongoUserProfileService>();
 builder.Services.AddScoped<IIntelligenceFeedService, MongoIntelligenceFeedService>();
 builder.Services.AddScoped<IAskRadarService, OpenRouterAskRadarService>();
@@ -532,6 +537,22 @@ app.Use(async (context, next) =>
         if (userId is not null)
             session.SetUser(userId, userName);
     }
+
+    // Who is reading, resolved once, before any handler runs.
+    //
+    // Authentication says who somebody is and authorisation says what they may do. Neither says
+    // what they should be shown, so that was decided separately in every endpoint that serves
+    // anything - a hundred and thirteen places, each a chance to forget, and the symptom of
+    // forgetting is a reader seeing things with nothing to do with them.
+    //
+    // Resolving here rather than per handler also collapses the cost: this used to be two round
+    // trips per call, so one request to the mentor could ask the same question thirty-four times.
+    //
+    // It decides nothing. A handler that wants to reject reads the context and rejects; the
+    // relevance gate itself sits in the data path, where it cannot be bypassed by a new endpoint
+    // that forgets to ask.
+    await context.RequestServices.GetRequiredService<ReaderContext>().LoadAsync(context.RequestAborted);
+
     await next(context);
 });
 app.UseAuthorization();

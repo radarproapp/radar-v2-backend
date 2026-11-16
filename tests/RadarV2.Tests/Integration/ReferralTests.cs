@@ -27,7 +27,9 @@ public class ReferralTests
     public ReferralTests(RadarDatabaseFixture fixture)
     {
         _db = fixture.Database("referrals");
-        _referrals = new ReferralService(_db);
+        // A context with nobody signed in: these tests call the service directly rather than
+        // through a request, and it only ever clears what it resolved.
+        _referrals = new ReferralService(_db, new ReaderContext(_db, new UserSessionService()));
 
         // Built here rather than left to the database's own setup, which runs fire-and-forget
         // from the constructor - so relying on it would make this a race, and the test would

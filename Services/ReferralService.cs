@@ -34,8 +34,13 @@ namespace RadarV2.Services;
 public class ReferralService
 {
     private readonly RadarDatabase _db;
+    private readonly ReaderContext _reader;
 
-    public ReferralService(RadarDatabase db) => _db = db;
+    public ReferralService(RadarDatabase db, ReaderContext reader)
+    {
+        _db = db;
+        _reader = reader;
+    }
 
     /// <summary>
     /// This participant's code, issuing one the first time they ask.
@@ -76,7 +81,14 @@ public class ReferralService
                     cancellationToken: ct);
 
                 var saved = await _db.Profiles.Find(p => p.Id == profileId).FirstOrDefaultAsync(ct);
-                if (!string.IsNullOrWhiteSpace(saved?.ReferralCode)) return saved.ReferralCode;
+                if (!string.IsNullOrWhiteSpace(saved?.ReferralCode))
+                {
+                    // The profile just changed underneath this request. Cheaper to re-read once
+                    // than to reason about which later caller might hold the version from
+                    // before a code existed.
+                    _reader.Invalidate();
+                    return saved.ReferralCode;
+                }
             }
             catch (MongoWriteException e) when (e.WriteError?.Category == ServerErrorCategory.DuplicateKey)
             {

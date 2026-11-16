@@ -24,16 +24,19 @@ public class NotificationsController : ControllerBase
     private readonly IUserProfileService _profiles;
     private readonly IConfiguration _config;
     private readonly ILogger<NotificationsController> _log;
+    private readonly Services.ReaderContext _reader;
 
     public NotificationsController(
         RadarDatabase db,
         IUserProfileService profiles,
         IConfiguration config,
+        Services.ReaderContext reader,
         ILogger<NotificationsController> log)
     {
         _db = db;
         _profiles = profiles;
         _config = config;
+        _reader = reader;
         _log = log;
     }
 
@@ -81,6 +84,9 @@ public class NotificationsController : ControllerBase
         if (update is null) return Ok(new { message = "You will not get that message again." });
 
         await _db.Profiles.UpdateOneAsync(p => p.Id == profileId, update, cancellationToken: ct);
+
+        // The profile this request is being served from is now behind the stored one.
+        _reader.Invalidate();
 
         return Ok(new { message = "You will not get that message again." });
     }

@@ -14,11 +14,13 @@ public class MongoAnalyticsService : IAnalyticsService
 {
     private readonly RadarDatabase _db;
     private readonly IBehavioralSignalService _signals;
+    private readonly ReaderContext _reader;
 
-    public MongoAnalyticsService(RadarDatabase db, IBehavioralSignalService signals)
+    public MongoAnalyticsService(RadarDatabase db, IBehavioralSignalService signals, ReaderContext reader)
     {
         _db = db;
         _signals = signals;
+        _reader = reader;
     }
 
     public async Task LogEventAsync(AnalyticsEvent evt)
@@ -55,6 +57,9 @@ public class MongoAnalyticsService : IAnalyticsService
             {
                 profile.InterestActivityScores[interest] = profile.InterestActivityScores.GetValueOrDefault(interest) + weight;
                 await _db.Profiles.ReplaceOneAsync(p => p.Id == profile.Id, profile);
+
+                // The version this request is being served from is now behind the stored one.
+                _reader.Replace(profile);
             }
         }
 

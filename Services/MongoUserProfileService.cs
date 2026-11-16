@@ -9,28 +9,39 @@ public class MongoUserProfileService : IUserProfileService
 {
     private readonly RadarDatabase _db;
     private readonly IUserSessionService _session;
+    private readonly ReaderContext _reader;
 
-    public MongoUserProfileService(RadarDatabase db, IUserSessionService session)
+    public MongoUserProfileService(RadarDatabase db, IUserSessionService session, ReaderContext reader)
     {
         _db = db;
         _session = session;
+        _reader = reader;
     }
 
+    /// <summary>
+    /// The profile this request is being served for.
+    /// </summary>
+    /// <remarks>
+    /// Served from <see cref="ReaderContext"/>, which resolves it once per request. This is
+    /// called from a hundred and thirteen places - seventeen of them in one controller - and
+    /// used to be two round trips every time, so a single request could ask the database the
+    /// same question thirty-four times.
+    ///
+    /// The callers are unchanged: they still ask whenever they need it, and all but the first
+    /// now cost nothing.
+    /// </remarks>
     public async Task<UserProfile?> GetCurrentUserAsync()
     {
         if (!_session.IsAuthenticated) return null;
+
+        var profile = await _reader.LoadAsync();
+        if (profile is null) return null;
 
         var user = await _db.Users
             .Find(u => u.Id == _session.UserId)
             .FirstOrDefaultAsync();
 
         if (user == null) return null;
-
-        var profile = await _db.Profiles
-            .Find(p => p.Id == user.ProfileId)
-            .FirstOrDefaultAsync();
-
-        if (profile is null) return null;
 
         // Backfilled on read. Profiles written before an account could hold more than one have no
         // owner recorded, and without it they cannot be listed alongside a second profile.
@@ -84,6 +95,9 @@ public class MongoUserProfileService : IUserProfileService
 
         await _db.Profiles.InsertOneAsync(profile, cancellationToken: ct);
 
+        // Which profile is current may have changed with it.
+        _reader.Invalidate();
+
         await _db.Users.UpdateOneAsync(
             u => u.Id == user.Id,
             Builders<Data.Documents.UserDocument>.Update.Set(u => u.ProfileId, profile.Id),
@@ -109,6 +123,9 @@ public class MongoUserProfileService : IUserProfileService
             Builders<Data.Documents.UserDocument>.Update.Set(u => u.ProfileId, profileId),
             cancellationToken: ct);
 
+        // Switching profile changes which one this request is being served for.
+        _reader.Invalidate();
+
         return true;
     }
 
@@ -128,6 +145,12 @@ public class MongoUserProfileService : IUserProfileService
             p => p.Id == profile.Id,
             profile,
             new ReplaceOptions { IsUpsert = true });
+
+        // The rest of this request reads the version just written, not the one from before it.
+        // Without this, personalising and then rendering in the same request would render
+        // against the unpersonalised profile - which is how the three questions once got asked
+        // a second time immediately after being answered.
+        if (_reader.Profile is null || _reader.Profile.Id == profile.Id) _reader.Replace(profile);
     }
 
     public async Task UpdateStatsAsync(UserStats stats)
