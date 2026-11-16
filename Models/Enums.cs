@@ -86,7 +86,20 @@ public enum OpportunityType
     // job fair had nowhere to go at all - which means nobody could filter for either, and the
     // persona scoring could not say they suit anybody.
     Seminar,
-    JobFair
+    JobFair,
+
+    // Two of the eight families had no type that could land in them, so Social Impact and
+    // Business & Institutional were offerable on the onboarding question and structurally
+    // unfillable - a person would choose one, Radar would have asked and been answered, and the
+    // feed would be empty for ever rather than until something was ingested.
+    //
+    // Mentorship, Award and CallForPapers are named categories in the taxonomy that were being
+    // filed as something else, which meant nobody could filter for them either.
+    Volunteering,
+    Tender,
+    Mentorship,
+    Award,
+    CallForPapers
 }
 
 public enum OpportunityTrackingStatus

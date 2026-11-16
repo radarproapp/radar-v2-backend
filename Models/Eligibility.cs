@@ -58,6 +58,18 @@ public class Eligibility
     /// </remarks>
     public List<string> RequiredSkills { get; set; } = [];
 
+    /// <summary>
+    /// Certifications a posting asks for, which are not a rung on the academic ladder.
+    /// </summary>
+    /// <remarks>
+    /// Their own field because they were briefly a <see cref="QualificationLevel"/> value, and a
+    /// value above Doctorate at that - so a PhD failed a "PMP required" floor, and a CompTIA A+
+    /// cleared a "bachelor's degree or higher" one. Both wrong, and wrong in opposite directions,
+    /// because a certification is orthogonal to how far somebody got in formal education rather
+    /// than further along it.
+    /// </remarks>
+    public List<string> RequiredCertifications { get; set; } = [];
+
     /// <summary>An age range, where a programme states one.</summary>
     /// <remarks>
     /// Common in youth fellowships and graduate schemes, and the one criterion nobody can
@@ -77,11 +89,18 @@ public class Eligibility
     /// </remarks>
     [BsonIgnore]
     public bool WasStated =>
-        Nationalities.Count > 0
-        || Countries.Count > 0
+        Nationalities?.Count > 0
+        || Countries?.Count > 0
         || MinimumQualification is not null
         || MinimumYearsExperience is not null
-        || RequiredSkills.Count > 0
+
+        // Every field, and this one was missed. A graduate programme whose only stated criterion
+        // is "no more than two years' experience" read as having stated nothing - so the posting
+        // whose single rule excludes a six-year professional was the one Radar called unchecked.
+        || MaximumYearsExperience is not null
+
+        || RequiredSkills?.Count > 0
+        || RequiredCertifications?.Count > 0
         || MinimumAge is not null
         || MaximumAge is not null;
 }
@@ -107,6 +126,12 @@ public enum QualificationLevel
     Masters,
     Doctorate,
 
-    /// <summary>A professional certification rather than an academic award.</summary>
-    ProfessionalCertification,
+    // Nothing below Doctorate, deliberately and permanently. A professional certification was
+    // briefly a member here and sat above a PhD, which made the floor comparison wrong in both
+    // directions; certifications now live in Eligibility.RequiredCertifications, where they are
+    // not being ranked against degrees at all.
+    //
+    // Anything added must be appended, never inserted: these persist by value, so a new member
+    // in the middle silently relabels every record already stored. EnumValueTests pins all of
+    // them, because four comments saying so enforced nothing.
 }

@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using MongoDB.Bson.Serialization.Attributes;
 
 namespace RadarV2.Models;
@@ -58,7 +59,15 @@ public class Opportunity
     /// Carried onto the record so a reader of one opportunity can answer the question without
     /// looking up where it came from - and so a listing whose rights were never confirmed cannot
     /// be rendered as though they had been.
+    ///
+    /// Stored and never sent. JsonIgnore does not touch the BSON serialiser, so this persists
+    /// exactly as before and stops appearing in API responses - where it was going out on every
+    /// opportunity, because a caller that omits ?fields= gets the whole object. Which sources
+    /// Radar considers unchecked is a question about Radar's legal position, not information a
+    /// reader of a job posting is owed, and it reads as an admission in a payload anybody can
+    /// fetch.
     /// </remarks>
+    [JsonIgnore]
     public Redistribution Rights { get; set; } = Redistribution.Unconfirmed;
 
     /// <summary>When a person or a check last confirmed this is still open.</summary>

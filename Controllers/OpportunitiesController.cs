@@ -55,6 +55,15 @@ public class OpportunitiesController : ControllerBase
         ["reminderSet"] = o => o.ReminderSet,
         ["matchTier"] = o => o.MatchTier,
         ["urgencyLabel"] = o => o.UrgencyLabel,
+
+        // Requestable, because a caller that passes ?fields= was otherwise unable to ask for
+        // them at all - the whitelist is the whole vocabulary, so a field missing from it is
+        // invisible to every client that trims its payload.
+        //
+        // Rights is deliberately absent and is JsonIgnore'd on the model besides: it is Radar's
+        // legal posture, not part of a job posting.
+        ["family"] = o => o.Family,
+        ["eligibility"] = o => o.Eligibility,
     };
 
     [HttpGet]

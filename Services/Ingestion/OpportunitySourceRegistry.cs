@@ -48,6 +48,24 @@ public static class OpportunitySourceRegistry
         /// </remarks>
         public bool MayPublish => Rights is Redistribution.Permitted or Redistribution.LinkOnly;
 
+    /// <summary>Whether ingestion reads this source at all.</summary>
+    /// <remarks>
+    /// Deliberately wider than <see cref="MayPublish"/>, and the gap between them is the point.
+    /// MayPublish answers the legal question - has somebody confirmed Radar may republish this -
+    /// and the honest answer for every feed in this register today is no, because nobody has
+    /// checked. Gating ingestion on it would stop all six sources this afternoon and leave the
+    /// opportunity feed with nothing new in it.
+    ///
+    /// So the hard block is the unambiguous case: a source whose terms are known to forbid it.
+    /// Unconfirmed is ingested as title and link, with the description left behind - which is
+    /// what <see cref="MayStoreDescription"/> already distinguishes, and is the part that
+    /// actually republishes somebody's words. Discovery continues; the copying stops.
+    ///
+    /// Tightening this to MayPublish is a one-line change once the rights are confirmed per
+    /// source, and the warning logged each run is there so the question keeps being asked.
+    /// </remarks>
+    public bool MayBeIngested => Rights is not Redistribution.DoNotPublish;
+
         /// <summary>Whether the description may be stored, as opposed to only the link.</summary>
         public bool MayStoreDescription => Rights is Redistribution.Permitted;
     }

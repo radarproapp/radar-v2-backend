@@ -1,3 +1,4 @@
+using MongoDB.Bson;
 using RadarV2.Models;
 using RadarV2.Services.Ingestion;
 
@@ -44,6 +45,11 @@ public class OpportunityTaxonomyTests
     [InlineData(OpportunityType.JobFair, OpportunityFamily.EventsAndNetworking)]
     [InlineData(OpportunityType.ResearchGrant, OpportunityFamily.ResearchAndKnowledge)]
     [InlineData(OpportunityType.Fellowship, OpportunityFamily.LeadershipAndRecognition)]
+    [InlineData(OpportunityType.Mentorship, OpportunityFamily.LeadershipAndRecognition)]
+    [InlineData(OpportunityType.Award, OpportunityFamily.LeadershipAndRecognition)]
+    [InlineData(OpportunityType.CallForPapers, OpportunityFamily.ResearchAndKnowledge)]
+    [InlineData(OpportunityType.Volunteering, OpportunityFamily.SocialImpactAndParticipation)]
+    [InlineData(OpportunityType.Tender, OpportunityFamily.BusinessAndInstitutional)]
     public void EveryTypeIsFiledUnderAFamilyOnPurpose(OpportunityType type, OpportunityFamily family) =>
         Assert.Equal(family, OpportunityFamilies.Of(type));
 
@@ -77,6 +83,54 @@ public class OpportunityTaxonomyTests
             Assert.False(string.IsNullOrWhiteSpace(OpportunityFamilies.Label(family)));
             Assert.False(string.IsNullOrWhiteSpace(OpportunityFamilies.Covers(family)));
         }
+    }
+
+    /// <summary>
+    /// No family is offered that nothing can ever be filed under.
+    /// </summary>
+    /// <remarks>
+    /// The eight families went in before the types that fill them, so Social Impact and Business
+    /// &amp; Institutional were on the onboarding question with no OpportunityType that could
+    /// land in either. Not empty until something is ingested - empty permanently, by the shape of
+    /// the enum.
+    ///
+    /// That is a worse failure than leaving them out. Radar asks rather than infers, so a person
+    /// choosing one of those has answered a question and earned a feed; what they would have got
+    /// is a blank screen that reads as broken software rather than as a category nobody has a
+    /// source for yet.
+    /// </remarks>
+    [Fact]
+    public void EveryFamilyOfferedCanActuallyBeFilled()
+    {
+        var unreachable = OpportunityFamilies.All
+            .Where(family => !OpportunityFamilies.CanHoldAnything(family))
+            .Select(OpportunityFamilies.Label)
+            .ToList();
+
+        Assert.True(
+            unreachable.Count == 0,
+            $"Offered on the onboarding question and impossible to fill: {string.Join(", ", unreachable)}");
+    }
+
+    /// <summary>The two directions of the mapping agree.</summary>
+    /// <remarks>
+    /// TypesIn exists because a family is derived rather than stored, so a Mongo predicate on it
+    /// throws rather than returning nothing - a caller has to filter on the types instead. Were
+    /// the two hand-written they would drift, and the query would quietly return a subset.
+    /// </remarks>
+    [Fact]
+    public void TypesInIsTheExactReverseOfOf()
+    {
+        foreach (var type in Enum.GetValues<OpportunityType>())
+            Assert.Contains(type, OpportunityFamilies.TypesIn(OpportunityFamilies.Of(type)));
+
+        foreach (var family in OpportunityFamilies.All)
+            foreach (var type in OpportunityFamilies.TypesIn(family))
+                Assert.Equal(family, OpportunityFamilies.Of(type));
+
+        Assert.Equal(
+            Enum.GetValues<OpportunityType>().Length,
+            OpportunityFamilies.All.Sum(family => OpportunityFamilies.TypesIn(family).Count));
     }
 
     // ── eligibility ──────────────────────────────────────────────────────────
@@ -178,6 +232,80 @@ public class OpportunityTaxonomyTests
                 string.IsNullOrWhiteSpace(feed.Note),
                 $"{feed.Name} records no note about its rights position.");
         }
+    }
+
+    /// <summary>
+    /// The gate decides something, rather than describing a decision.
+    /// </summary>
+    /// <remarks>
+    /// MayPublish and MayStoreDescription shipped with no caller anywhere in the running system:
+    /// ingestion looped every source unconditionally and wrote every description. The properties
+    /// were correct and inert, which is the kind of omission a green suite hides, because
+    /// everything they said was true and nothing consulted them.
+    /// </remarks>
+    [Theory]
+    [InlineData(Redistribution.Permitted, true, true)]
+    [InlineData(Redistribution.LinkOnly, true, false)]
+    [InlineData(Redistribution.Unconfirmed, true, false)]
+    [InlineData(Redistribution.DoNotPublish, false, false)]
+    public void IngestionReadsASourceOnlyAsFarAsItsRightsAllow(
+        Redistribution rights, bool ingested, bool storesDescription)
+    {
+        var feed = new OpportunitySourceRegistry.OpportunityFeed(
+            "A Source", "https://example.com/feed", "Nigeria",
+            OpportunityType.Job, "Career", SourceAccess.Feed, rights);
+
+        Assert.Equal(ingested, feed.MayBeIngested);
+        Assert.Equal(storesDescription, feed.MayStoreDescription);
+    }
+
+    /// <summary>
+    /// A source told not to be published is never read, whatever else is true of it.
+    /// </summary>
+    /// <remarks>
+    /// The one case with no judgement in it. Unconfirmed means nobody has checked and is ingested
+    /// as title and link; DoNotPublish means somebody checked and the answer was no.
+    /// </remarks>
+    [Fact]
+    public void DoNotPublishIsTheOneAnswerThatStopsIngestionEntirely()
+    {
+        foreach (var rights in Enum.GetValues<Redistribution>())
+        {
+            var feed = new OpportunitySourceRegistry.OpportunityFeed(
+                "A Source", "https://example.com/feed", "Nigeria",
+                OpportunityType.Job, "Career", SourceAccess.Feed, rights);
+
+            Assert.Equal(rights is not Redistribution.DoNotPublish, feed.MayBeIngested);
+        }
+    }
+
+    /// <summary>
+    /// Radar's legal posture does not go out in a payload anybody can fetch.
+    /// </summary>
+    /// <remarks>
+    /// The opportunities endpoint serialises the whole object when a caller omits ?fields=, so
+    /// every listing was carrying the rights position of the source behind it. Which feeds Radar
+    /// considers unchecked is not information a reader of a job posting is owed, and in a
+    /// response body it reads as an admission.
+    ///
+    /// Asserted through the serialiser rather than by looking for the attribute, because the
+    /// attribute being present is not the claim - the field being absent from the JSON is.
+    /// </remarks>
+    [Fact]
+    public void TheRightsPositionIsStoredButNeverSerialisedToAClient()
+    {
+        var json = System.Text.Json.JsonSerializer.Serialize(
+            new Opportunity { Title = "A Role", Rights = Redistribution.DoNotPublish },
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+
+        Assert.DoesNotContain("rights", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("DoNotPublish", json, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("A Role", json);
+
+        // Still persisted - JsonIgnore is not BsonIgnore, and the register would be worthless if
+        // the value did not survive a round trip.
+        var bson = new Opportunity { Rights = Redistribution.DoNotPublish }.ToBsonDocument();
+        Assert.True(bson.Contains("Rights"));
     }
 
     /// <summary>Each source is filed under a family too, through its type.</summary>

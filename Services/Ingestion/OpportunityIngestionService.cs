@@ -77,6 +77,29 @@ public partial class OpportunityIngestionService
         {
             if (ct.IsCancellationRequested) break;
 
+            // The gate, enforced rather than described. MayPublish was added with the source
+            // register and had no caller, so every feed was read and shown regardless of what the
+            // register said about it - the rights column was documentation that happened to sit
+            // in a type. A source marked DoNotPublish was still being published.
+            if (!feed.MayBeIngested)
+            {
+                _log.LogInformation(
+                    "Opportunity feed {Feed} skipped: redistribution is {Rights}. {Note}",
+                    feed.Name, feed.Rights, feed.Note);
+                continue;
+            }
+
+            // Logged every run, on purpose. Six sources have been read and rendered for months
+            // under an assumption nobody wrote down, and a silent default is how that lasted
+            // this long. This stays noisy until each one is checked and marked.
+            if (!feed.MayPublish)
+            {
+                _log.LogWarning(
+                    "Opportunity feed {Feed} has unconfirmed redistribution rights: taking title "
+                    + "and link only, no description. {Note}",
+                    feed.Name, feed.Note);
+            }
+
             try
             {
                 added += await IngestFeedAsync(feed, ct);
@@ -180,7 +203,21 @@ public partial class OpportunityIngestionService
                 Type = InferType(title, body, feed.DefaultType),
                 Title = Shorten(title, 160),
                 Organisation = InferOrganisation(title, feed.Name),
-                Description = Shorten(body, 600),
+                // Only where the terms allow it. A summary is the source's own words, and storing
+                // one from a feed nobody has checked republishes their copy under Radar's layout
+                // as though Radar wrote it. Title and link carry the find either way, and the
+                // detail page sends the reader to the original.
+                //
+                // Reading the body is not the same as republishing it: the deadline, region and
+                // type below are facts about the opportunity rather than the source's expression,
+                // and they are what makes the item findable at all.
+                Description = feed.MayStoreDescription ? Shorten(body, 600) : string.Empty,
+
+                // Carried from the source, because by the time this is rendered the feed it came
+                // from is no longer in hand. Without it every stored opportunity claimed
+                // Unconfirmed regardless of where it came from, so the field could never be the
+                // thing a caller checked.
+                Rights = feed.Rights,
                 Url = link,
                 RegionTag = InferRegion(title, body, feed.RegionTag),
                 GoalTag = feed.GoalTag,

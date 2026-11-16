@@ -73,14 +73,49 @@ public static class OpportunityFamilies
             or OpportunityType.Seminar or OpportunityType.JobFair
             => OpportunityFamily.EventsAndNetworking,
 
-        OpportunityType.ResearchGrant
+        OpportunityType.ResearchGrant or OpportunityType.CallForPapers
             => OpportunityFamily.ResearchAndKnowledge,
 
-        OpportunityType.Fellowship
+        OpportunityType.Fellowship or OpportunityType.Mentorship or OpportunityType.Award
             => OpportunityFamily.LeadershipAndRecognition,
+
+        OpportunityType.Volunteering
+            => OpportunityFamily.SocialImpactAndParticipation,
+
+        OpportunityType.Tender
+            => OpportunityFamily.BusinessAndInstitutional,
 
         _ => OpportunityFamily.EmploymentAndIncome,
     };
+
+    /// <summary>
+    /// The types that belong to a family.
+    /// </summary>
+    /// <remarks>
+    /// The reverse of <see cref="Of"/>, and the only way to filter a query by family: the family
+    /// on an opportunity is derived rather than stored, so Mongo has no such element and a
+    /// predicate on it throws rather than returning nothing. A caller filters on
+    /// <c>In(o => o.Type, TypesIn(family))</c> instead.
+    ///
+    /// Built from Of rather than listed again, so the two directions cannot disagree.
+    /// </remarks>
+    public static IReadOnlyList<OpportunityType> TypesIn(OpportunityFamily family) =>
+        ByFamily.TryGetValue(family, out var types) ? types : [];
+
+    private static readonly Dictionary<OpportunityFamily, IReadOnlyList<OpportunityType>> ByFamily =
+        Enum.GetValues<OpportunityType>()
+            .GroupBy(Of)
+            .ToDictionary(group => group.Key, IReadOnlyList<OpportunityType> (group) => [.. group]);
+
+    /// <summary>
+    /// Whether anything can ever be filed under this family.
+    /// </summary>
+    /// <remarks>
+    /// Offering a choice that cannot fill is worse than not offering it: the person has answered
+    /// a question, so the empty feed that follows reads as Radar being broken rather than as a
+    /// category nothing has been ingested for yet.
+    /// </remarks>
+    public static bool CanHoldAnything(OpportunityFamily family) => TypesIn(family).Count > 0;
 
     /// <summary>The family in the words the third onboarding question uses.</summary>
     public static string Label(OpportunityFamily family) => family switch

@@ -15,6 +15,17 @@ namespace RadarV2.Models;
 /// </remarks>
 public enum SourceAccess
 {
+    /// <summary>
+    /// Nobody has recorded how this is reached.
+    /// </summary>
+    /// <remarks>
+    /// First, so an uninitialised or absent field reads as "unknown". It previously sat at zero
+    /// with FreeApi - the most permissive of the four - so a missing value claimed a documented
+    /// free API, which is the opposite of what silence means. Redistribution was careful about
+    /// this and the enum beside it was not.
+    /// </remarks>
+    Unknown,
+
     /// <summary>A documented API, free to call. Preferred.</summary>
     FreeApi,
 
