@@ -32,6 +32,20 @@ public static class ConfigurationCheck
         "Auth:Jwt:Key",
         "Cors:Strict",
         "Cors:AllowedOrigins:0",
+
+        // Every other credential the code actually reads. Each of these is optional, and the
+        // failure when its variable is misspelt is the same every time: the feature is simply
+        // off, the dashboard shows the variable set, and nothing says otherwise. GroqWhisper was
+        // the one that proved the point - transcription would have stayed silently off.
+        "GroqWhisper:ApiKey",
+        "Taddy:ApiKey",
+        "Taddy:UserId",
+        "PodcastIndex:ApiKey",
+        "PodcastIndex:ApiSecret",
+        "Mediastack:ApiKey",
+        "SendByte:ApiKey",
+        "Email:Password",
+        "App:PublicUrl",
     ];
 
     /// <summary>
@@ -90,19 +104,57 @@ public static class ConfigurationCheck
             // Already resolving — nothing to say.
             if (!string.IsNullOrWhiteSpace(config[key])) continue;
 
-            var singleUnderscore = key.Replace(":", "_");
-            var noSeparator = key.Replace(":", "");
-
-            foreach (var wrong in new[] { singleUnderscore, noSeparator })
+            // Compared on letters and digits alone, rather than against two spellings guessed in
+            // advance. The old version built "Section_Key" and "SectionKey" and looked each up
+            // exactly, which misses everything else somebody actually types: a stray underscore
+            // inside the section name, or different casing - and casing matters, because Railway
+            // runs Linux, where environment variables are case-sensitive.
+            //
+            // "Groq_whisper_ApiKey" is the one that got through. It is neither of the two
+            // spellings, so the check that exists for exactly this said nothing.
+            foreach (var actual in NearMisses(key))
             {
-                if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(wrong))) continue;
-
                 logger.LogWarning(
                     "Configuration '{Key}' is empty, but an environment variable named '{Wrong}' is set. "
-                    + "Environment variables use a DOUBLE underscore for the section separator: rename it to '{Correct}'. "
+                    + "Environment variables use a DOUBLE underscore for the section separator, and the "
+                    + "name is case-sensitive on Linux: rename it to '{Correct}'. "
                     + "Until then this setting is ignored and the feature using it stays off.",
-                    key, wrong, key.Replace(":", "__"));
+                    key, actual, key.Replace(":", "__"));
             }
         }
     }
+
+    /// <summary>
+    /// Environment variables that were plainly meant to be this setting and are not.
+    /// </summary>
+    /// <remarks>
+    /// Matches on letters and digits only, so separators and casing stop mattering:
+    /// <c>GroqWhisper:ApiKey</c> reduces to "groqwhisperapikey", and so do
+    /// <c>Groq_whisper_ApiKey</c>, <c>GROQWHISPER__APIKEY</c> and <c>groqWhisperApiKey</c>. Any
+    /// of those is obviously the same intent and none of them binds.
+    ///
+    /// The correctly spelt variable is excluded rather than matched, because this only runs when
+    /// the setting failed to resolve - if the right name is somehow present and still empty, the
+    /// problem is an empty value, and telling somebody to rename a variable to the name it
+    /// already has would send them the wrong way.
+    ///
+    /// Names only. A value never reaches the log.
+    /// </remarks>
+    private static IEnumerable<string> NearMisses(string key)
+    {
+        var wanted = Flatten(key);
+        var correct = key.Replace(":", "__");
+
+        foreach (System.Collections.DictionaryEntry entry in Environment.GetEnvironmentVariables())
+        {
+            if (entry.Key is not string name) continue;
+            if (string.Equals(name, correct, StringComparison.Ordinal)) continue;
+            if (string.IsNullOrWhiteSpace(entry.Value as string)) continue;
+
+            if (Flatten(name) == wanted) yield return name;
+        }
+    }
+
+    private static string Flatten(string value) =>
+        string.Concat(value.Where(char.IsLetterOrDigit)).ToLowerInvariant();
 }

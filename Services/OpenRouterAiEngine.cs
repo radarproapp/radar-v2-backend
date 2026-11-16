@@ -222,6 +222,17 @@ public sealed class OpenRouterAiEngine : IAiEngine
                             continue;
                         }
 
+                        // Out of credit is not a transient failure. The affordability retry above
+                        // handles the case where OpenRouter tells us what it can cover; this is the
+                        // other 402 - "Insufficient credits. Add more" - where the only remedy is
+                        // somebody topping up the account, which will not happen in 250 ms.
+                        //
+                        // Retrying it doubled every doomed call: two HTTP requests, two warnings
+                        // and eight client log lines each, across every enrichment at once. That
+                        // is what pushed the host past 500 logs a second and dropped 722 messages,
+                        // which is how an unrelated diagnostic went missing while we looked for it.
+                        if (IsOutOfCredit(response.StatusCode, detail)) break;
+
                         var backoff = RetryDelayFor((int)response.StatusCode, detail, attempt);
                         if (attempt == maxAttempts || sw.Elapsed + backoff >= deadline) break;
                         await Task.Delay(backoff, ct);
@@ -541,6 +552,18 @@ public sealed class OpenRouterAiEngine : IAiEngine
     /// Returns zero for any other refusal. A 402 that does not name a figure is a key with
     /// nothing left, and retrying it differently would only spend the deadline.
     /// </remarks>
+    /// <summary>
+    /// Whether the account is simply out of money, with nothing to retry into.
+    /// </summary>
+    /// <remarks>
+    /// Distinct from the affordability case handled at the call site. There, OpenRouter prices the
+    /// reservation and names a smaller number it <em>can</em> cover, so asking again for less is a
+    /// working request. Here the balance is gone and no size of request fits inside it.
+    /// </remarks>
+    internal static bool IsOutOfCredit(System.Net.HttpStatusCode status, string? providerError) =>
+        status == System.Net.HttpStatusCode.PaymentRequired
+        && AffordableTokens(providerError) <= MinimumUsefulTokens;
+
     internal static int AffordableTokens(string? providerError)
     {
         if (string.IsNullOrWhiteSpace(providerError)) return 0;
