@@ -17,9 +17,15 @@ public static class ConfigurationCheck
     /// <summary>
     /// Settings read as "Section:Key", so their variable form needs a double underscore.
     ///
-    /// Only keys the product actually needs. OpenAlex was listed here and does not belong: it is
-    /// a free, keyless API, and the optional `api_key` is appended to one RSS URL and used nowhere
-    /// else. Listing it told anyone setting Radar up that they had a key to go and find.
+    /// Only keys the product actually needs.
+    ///
+    /// OpenAlex was removed from this list as a free, keyless API whose optional api_key was
+    /// pointless to ask for. That stopped being true in February 2026, when OpenAlex retired the
+    /// polite pool and the mailto parameter and made keys the way to call it. Production is now
+    /// returning 401 on every OpenAlex request, across eighteen subject feeds, and the comment
+    /// explaining why no key was needed is what made that look like somebody else's outage.
+    ///
+    /// A note about why a key is unnecessary ages into a note about why a failure is expected.
     /// </summary>
     private static readonly string[] SectionedKeys =
     [
@@ -38,6 +44,7 @@ public static class ConfigurationCheck
         // off, the dashboard shows the variable set, and nothing says otherwise. GroqWhisper was
         // the one that proved the point - transcription would have stayed silently off.
         "GroqWhisper:ApiKey",
+        "OpenAlex:ApiKey",
         "Taddy:ApiKey",
         "Taddy:UserId",
         "PodcastIndex:ApiKey",

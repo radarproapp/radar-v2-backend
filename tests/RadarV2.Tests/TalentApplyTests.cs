@@ -70,13 +70,24 @@ public class TalentApplyTests
     {
         const int queries = 4;
 
+        // The backstop must sit above what the four queries can spend between them, or it binds
+        // first and the last query is starved by the run total instead of by a shared pool -
+        // the same defect wearing a different hat.
+        //
+        // The inequality here was the wrong way round when the numbers happened to be equal,
+        // which is the kind of mistake equal numbers hide: it asserted the backstop should be at
+        // or below the allowances, and passed only because 4 x 15 was exactly 60.
         Assert.True(
-            queries * TalentApplyClient.MostPagesPerQuery >= TalentApplyClient.MostRequestsPerRun,
+            TalentApplyClient.MostRequestsPerRun >= queries * TalentApplyClient.MostPagesPerQuery,
             "The run backstop is below the per-query allowances, so the last query is starved again.");
 
+        // No cap against 120 here. That limit is 120 requests per minute, not per run, and a run
+        // is sequential: the first production run spent about two minutes per query on fifteen
+        // pages, so even 170 requests are spread across far more than a minute. Capping the run
+        // total was reading a rate limit as a quota.
         Assert.True(
-            TalentApplyClient.MostRequestsPerRun < 120,
-            "A run must stay inside TalentApply's 120 requests per minute.");
+            TalentApplyClient.MostPagesPerQuery > 0 && queries * TalentApplyClient.MostPagesPerQuery > 0,
+            "Every query needs a non-zero page allowance.");
     }
 
     /// <summary>A page without a reported total still reports something sane.</summary>

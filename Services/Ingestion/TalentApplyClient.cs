@@ -47,7 +47,7 @@ public class TalentApplyClient : ITalentApplyJobs
     /// allowance below is what actually decides how much is read, and this only catches a source
     /// that reports far more pages than expected.
     /// </remarks>
-    public const int MostRequestsPerRun = 60;
+    public const int MostRequestsPerRun = 170;
 
     /// <summary>
     /// How many pages any one query may take.
@@ -58,9 +58,18 @@ public class TalentApplyClient : ITalentApplyJobs
     /// internships, Nigerian roles and remote work would go unread on any night graduate schemes
     /// happened to be deep, and the run would log as a success.
     ///
-    /// Fifteen pages at fifty each is 750 listings per query, 3000 across the four.
+    /// Forty, raised from fifteen once the first production run reported what is actually there:
+    /// 203 pages of internships, 91 of Nigerian roles, 60 of graduate schemes - about 17,650
+    /// listings across three of the four queries. Fifteen pages was reading well under a tenth
+    /// of it.
+    ///
+    /// Forty at fifty each is 2000 a query and 8000 across the four, which is a different
+    /// proposition from 3000 and still short of everything. The limit beyond this is not the
+    /// budget: paging restarts at page one every run with no cursor, so raising this reads more
+    /// of the same early pages rather than reaching page 204. Covering a catalogue this size
+    /// properly needs the ingester to remember where it stopped.
     /// </remarks>
-    public const int MostPagesPerQuery = 15;
+    public const int MostPagesPerQuery = 40;
 
     /// <summary>Their maximum page size, and the one that costs the fewest requests.</summary>
     public const int PageSize = 50;

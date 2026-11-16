@@ -147,8 +147,12 @@ public class JobsController : ControllerBase
     {
         if (!TryAuthorizeCron(out var failure)) return failure!;
 
+        // Twenty minutes, measured rather than assumed. The first production run took about two
+        // minutes per query at fifteen pages, so four queries at forty pages is roughly twenty -
+        // and the five minutes this allowed would have cancelled the run partway through the
+        // second query, every time, reporting whatever it had managed as the result.
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(TimeSpan.FromMinutes(5));
+        cts.CancelAfter(TimeSpan.FromMinutes(20));
 
         var fromFeeds = await _opportunityIngestion.RunAsync(cts.Token);
 
