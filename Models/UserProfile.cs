@@ -153,6 +153,50 @@ public class UserProfile
     public List<string> Certifications { get; set; } = [];
 
     /// <summary>
+    /// The person has skills but has not named any yet.
+    /// </summary>
+    /// <remarks>
+    /// From "None yet - I'm exploring", which is an answer rather than a blank and was being
+    /// discarded as though it were one. Someone who says they are starting out is owed
+    /// beginner-level material; dropping the answer left them with an empty Capabilities list,
+    /// indistinguishable from a person who never answered, and so with the empty state.
+    ///
+    /// A flag rather than a term, because the words themselves are not searchable - the matcher
+    /// splits on them and gets "im", which prefix-matches important and implementation.
+    /// </remarks>
+    public bool IsExploring { get; set; }
+
+    /// <summary>
+    /// The person says a professional certification is their qualification.
+    /// </summary>
+    /// <remarks>
+    /// A flag because that is what the answer is. The literal words "Professional Certification"
+    /// were briefly written into Certifications, where no RequiredCertifications entry could
+    /// ever match them - so the only thing it did was make the check report "holds some
+    /// certification, therefore not this one" and hide opportunities from the people honest
+    /// enough to pick it.
+    ///
+    /// Which certification remains unasked, and is a profile question rather than an onboarding
+    /// one.
+    /// </remarks>
+    public bool HasProfessionalCertification { get; set; }
+
+    /// <summary>
+    /// The person wants information more than they want opportunities.
+    /// </summary>
+    /// <remarks>
+    /// From "I just want to learn and stay informed". The brief is explicit that this is a
+    /// setting rather than an absence of one, and it was being thrown away - leaving the goals
+    /// list empty, which makes IsPersonalised false, which the client reads as not yet onboarded.
+    /// So the one answer that says "go easy on the opportunities" produced the screen that asks
+    /// the question again.
+    ///
+    /// Stored now. Acting on it - weighting Information over Opportunities - is the next step
+    /// and is deliberately not claimed here.
+    /// </remarks>
+    public bool PrefersInformation { get; set; }
+
+    /// <summary>
     /// How senior the person is, for those who answer the professional question.
     /// </summary>
     /// <remarks>

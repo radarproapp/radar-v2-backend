@@ -69,7 +69,13 @@ public class OnboardingAnswerTests
         OnboardingAnswers.Read(profile, Answers(("qualification", ["Professional Certification"])));
 
         Assert.Null(profile.Qualification);
-        Assert.Contains("Professional Certification", profile.Certifications);
+        Assert.True(profile.HasProfessionalCertification);
+
+        // Not written into the credential list. No RequiredCertifications entry can match the
+        // words "Professional Certification", so its only effect there was to make the check
+        // report "holds some certification, therefore not this one" and hide opportunities from
+        // the people honest enough to pick it.
+        Assert.Empty(profile.Certifications);
     }
 
     /// <summary>An answer that is not on the ladder leaves the ladder unstated.</summary>
@@ -81,7 +87,9 @@ public class OnboardingAnswerTests
     [Fact]
     public void AQualificationOfOtherLeavesTheLadderUnstated()
     {
-        var profile = new UserProfile();
+        // Against a profile that already holds a value, which is the case that matters. Checked
+        // against a fresh profile this passed without the implementation doing anything at all.
+        var profile = new UserProfile { Qualification = QualificationLevel.Doctorate };
 
         OnboardingAnswers.Read(profile, Answers(("qualification", ["Other"])));
 
@@ -115,7 +123,9 @@ public class OnboardingAnswerTests
     [Fact]
     public void FounderSetsItsOwnFlagAndLeavesSeniorityUnstated()
     {
-        var profile = new UserProfile();
+        // Starts as a Director, so this proves the answer clears the ladder rather than merely
+        // failing to set it.
+        var profile = new UserProfile { SeniorityLevel = Seniority.Director };
 
         OnboardingAnswers.Read(profile, Answers(("level", ["Entrepreneur / Founder"])));
 
@@ -149,6 +159,12 @@ public class OnboardingAnswerTests
         Assert.Equal(["Technology & AI"], profile.Interests);
         Assert.Empty(profile.Capabilities);
         Assert.Empty(profile.Goals);
+
+        // Excluded from the terms and kept as what they are. Dropping them entirely left
+        // somebody who said they are starting out looking exactly like somebody who never
+        // answered, and so getting the empty state - the opposite of what the answer was for.
+        Assert.Equal(answer == OnboardingAnswers.StillExploring, profile.IsExploring);
+        Assert.Equal(answer == OnboardingAnswers.JustInformed, profile.PrefersInformation);
     }
 
     [Fact]
@@ -195,11 +211,23 @@ public class OnboardingAnswerTests
     [Fact]
     public void AnEmptyAnswerClearsTheField()
     {
-        var profile = new UserProfile { Interests = ["Engineering"] };
+        var profile = new UserProfile
+        {
+            Interests = ["Engineering"],
+            Qualification = QualificationLevel.Masters,
+            SeniorityLevel = Seniority.Director,
+        };
 
-        OnboardingAnswers.Read(profile, Answers(("interests", [])));
+        OnboardingAnswers.Read(profile, Answers(
+            ("interests", []), ("qualification", []), ("level", [])));
 
         Assert.Empty(profile.Interests);
+
+        // The two single choices too. They used to fall through every branch and leave the old
+        // value standing, and no other route could clear either - the ordinary profile edit has
+        // no member for them - so a mis-tapped "Director" was permanent.
+        Assert.Null(profile.Qualification);
+        Assert.Null(profile.SeniorityLevel);
     }
 
     /// <summary>

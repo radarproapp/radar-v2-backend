@@ -92,6 +92,7 @@ public static class EligibilityCheck
         if (eligibility is null || !eligibility.WasStated)
             return new EligibilityResult(EligibilityVerdict.Unchecked, met, failed, unknown);
 
+        CheckSkills(profile, eligibility, met, failed, unknown);
         CheckQualification(profile, eligibility, met, failed, unknown);
         CheckSeniority(profile, eligibility, met, failed, unknown);
         CheckCertifications(profile, eligibility, met, failed, unknown);
@@ -167,18 +168,26 @@ public static class EligibilityCheck
 
         var held = profile.Certifications ?? [];
 
-        if (held.Count == 0)
-        {
-            unknown.Add($"Asks for {Join(required)}. You have not told Radar your certifications.");
-            return;
-        }
-
         var missing = required
             .Where(need => !held.Any(have => have.Equals(need, StringComparison.OrdinalIgnoreCase)))
             .ToList();
 
-        if (missing.Count == 0) met.Add($"You hold {Join(required)}.");
-        else failed.Add($"Asks for {Join(missing)}.");
+        if (missing.Count == 0)
+        {
+            met.Add($"You hold {Join(required)}.");
+            return;
+        }
+
+        // Unknown rather than failed, whether or not the person has listed any. A certification
+        // list is never a closed world - nobody enumerates every credential they hold - so "not
+        // in the list" is an absent fact, not a contradiction.
+        //
+        // The asymmetry this replaces punished answering. Having listed nothing reported unknown
+        // and was shown; having listed anything reported failed and was hidden, on the inference
+        // "holds some certification, therefore not this one". So a person who answered the
+        // qualification question truthfully was treated worse than one who skipped it, which is
+        // the ask-never-infer rule inverted.
+        unknown.Add($"Asks for {Join(missing)}. Radar does not know whether you hold it.");
     }
 
     /// <summary>
@@ -223,6 +232,45 @@ public static class EligibilityCheck
 
         if (here) met.Add($"Open to {Join(countries)}, which includes you.");
         else unknown.Add($"Open to {Join(countries)}. Radar cannot tell whether that includes you.");
+    }
+
+    /// <summary>
+    /// Skills, which inform rather than exclude.
+    /// </summary>
+    /// <remarks>
+    /// Checked at all because RequiredSkills counts towards WasStated, so a posting whose only
+    /// stated criterion was a skill list started the check and then matched nothing - every
+    /// branch returned early and the verdict fell through to Eligible, with no met, failed or
+    /// unknown lines behind it. A bare "Eligible" against a posting nothing had been compared to
+    /// is the worst answer this can give, because it is the one a reader would act on.
+    ///
+    /// Never a failure, though. A posting listing five skills rarely requires all five, and
+    /// treating a gap as ineligibility would hide almost everything from almost everybody -
+    /// which is the opposite of what a skills list is for. Overlap is evidence worth stating;
+    /// absence is a question, and the honest answer is that Radar cannot tell.
+    ///
+    /// Judging skill against a required level is Radar Learn's competency model, which is not
+    /// built. This deliberately stops short of pretending otherwise.
+    /// </remarks>
+    private static void CheckSkills(
+        UserProfile profile, Eligibility asked, List<string> met, List<string> failed, List<string> unknown)
+    {
+        if (asked.RequiredSkills is not { Count: > 0 } wanted) return;
+
+        var held = profile.Capabilities ?? [];
+
+        if (held.Count == 0)
+        {
+            unknown.Add($"Asks for {Join(wanted)}. You have not told Radar your skills.");
+            return;
+        }
+
+        var shared = wanted
+            .Where(need => held.Any(have => have.Equals(need, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+
+        if (shared.Count > 0) met.Add($"You have {Join(shared)}, which this asks for.");
+        else unknown.Add($"Asks for {Join(wanted)}. None of those are skills you have listed.");
     }
 
     /// <summary>

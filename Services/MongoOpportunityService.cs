@@ -184,9 +184,7 @@ public class MongoOpportunityService : IOpportunityService
     /// and builds on demand otherwise — a user who signs up between runs still gets a batch, and
     /// the feature does not silently depend on the cron being healthy.
     /// </summary>
-    /// <summary>
-    /// Runs the eligibility check and leaves its answer on the record.
-    /// </summary>
+    /// <summary>Runs the eligibility check and leaves its answer on the record.</summary>
     /// <remarks>
     /// Writing the verdict onto the opportunity as well as returning it, so the card can say why
     /// something is in front of somebody. A gate that silently drops what fails and says nothing

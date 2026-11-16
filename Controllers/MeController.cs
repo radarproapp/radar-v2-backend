@@ -474,17 +474,32 @@ public class MeController : ControllerBase
                 });
             }
 
-            accepted[fieldId] = picked;
+            // Stored in the wording the question used, not the wording the client sent. The
+            // offered check is case-insensitive, so "technology & ai" was accepted and persisted
+            // verbatim - and the option text is the value, so two people who picked the same
+            // thing ended up with different strings in the database.
+            accepted[fieldId] = [.. picked.Select(choice =>
+                field.Options.First(option => option.Equals(choice, StringComparison.OrdinalIgnoreCase)))];
         }
 
         var previousInterests = profile.Interests.ToList();
 
         OnboardingAnswers.Read(profile, accepted);
 
-        // Recorded because it is what makes HasChosenCategory honest: the persona here is the one
-        // the questions were answered under, so it is a real choice rather than the enum default.
-        profile.Persona = persona;
-        profile.PersonaChosenAt ??= DateTime.UtcNow;
+        // Only stamped when a category was actually stated. The date is what makes
+        // HasChosenCategory honest - Persona is an enum whose default is Student, so every
+        // account reads as one until it says otherwise, and the date is the only record of
+        // whether anybody asked.
+        //
+        // Stamping it unconditionally invented that record: answering the three questions
+        // without naming a category marked the default as chosen, after which the feed starts
+        // saying "it suits where you are now" about a stage nobody stated, and the category
+        // question is never put again.
+        if (!string.IsNullOrWhiteSpace(request.Persona))
+        {
+            profile.Persona = persona;
+            profile.PersonaChosenAt ??= DateTime.UtcNow;
+        }
 
         // The first goal drives the learning path, which is built around one at a time. Only when
         // nothing has been set, so this never overwrites a path somebody is partway through.

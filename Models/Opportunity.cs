@@ -66,8 +66,15 @@ public class Opportunity
     /// opportunity can show why it is there. An eligibility check nobody can read the result of
     /// is a check that may as well not have run.
     /// </remarks>
+    /// <remarks>
+    /// Null until the check has run, and deliberately not defaulted to "Unchecked". Those are
+    /// different statements: Unchecked means the posting records no criteria, and null means
+    /// nobody has compared this reader against it yet. The surfaces that list saved and tracked
+    /// opportunities do not gate - hiding something somebody deliberately kept would be wrong -
+    /// so they would have reported "nothing stated" about postings that state plenty.
+    /// </remarks>
     [BsonIgnore]
-    public string EligibilityVerdict { get; set; } = nameof(Services.EligibilityVerdict.Unchecked);
+    public string? EligibilityVerdict { get; set; }
 
     /// <summary>Why, in sentences a person can read.</summary>
     /// <remarks>

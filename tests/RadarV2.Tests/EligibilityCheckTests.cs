@@ -163,8 +163,20 @@ public class EligibilityCheckTests
 
     // ── certifications ───────────────────────────────────────────────────────
 
+    /// <summary>
+    /// A certification Radar has not been told about is unknown, never a denial.
+    /// </summary>
+    /// <remarks>
+    /// Nobody enumerates every credential they hold, so the list is not a closed world and "not
+    /// in it" is an absent fact rather than a contradiction.
+    ///
+    /// The asymmetry this replaces punished answering: having listed nothing reported unknown
+    /// and was shown, having listed anything reported failed and was hidden - on the inference
+    /// "holds some certification, therefore not this one". Somebody who answered honestly was
+    /// treated worse than somebody who skipped the question.
+    /// </remarks>
     [Fact]
-    public void AMissingCertificationIsAFailureAndAHeldOneIsNot()
+    public void AHeldCertificationQualifiesAndAnUnlistedOneIsNotHeldAgainstYou()
     {
         var holder = new UserProfile { Certifications = ["PMP"] };
 
@@ -172,9 +184,57 @@ public class EligibilityCheckTests
             EligibilityVerdict.Eligible,
             EligibilityCheck.For(holder, new Eligibility { RequiredCertifications = ["PMP"] }).Verdict);
 
-        Assert.Equal(
-            EligibilityVerdict.NotEligible,
-            EligibilityCheck.For(holder, new Eligibility { RequiredCertifications = ["CFA"] }).Verdict);
+        var other = EligibilityCheck.For(holder, new Eligibility { RequiredCertifications = ["CFA"] });
+
+        Assert.Equal(EligibilityVerdict.CannotTell, other.Verdict);
+        Assert.Empty(other.Failed);
+        Assert.True(other.WorthShowing);
+
+        var silent = EligibilityCheck.For(new UserProfile(), new Eligibility { RequiredCertifications = ["CFA"] });
+        Assert.Equal(EligibilityVerdict.CannotTell, silent.Verdict);
+    }
+
+    /// <summary>
+    /// A posting whose only criterion is skills does not come back as a bare "Eligible".
+    /// </summary>
+    /// <remarks>
+    /// RequiredSkills counts towards WasStated, so the check started and then matched nothing:
+    /// every branch returned early and the verdict fell through to Eligible with no met, failed
+    /// or unknown lines behind it. A confident yes against a posting nothing was compared to is
+    /// the worst answer this can give, because it is the one somebody acts on.
+    /// </remarks>
+    [Fact]
+    public void APostingThatOnlyAsksForSkillsIsNotSilentlyApproved()
+    {
+        var result = EligibilityCheck.For(
+            new UserProfile(),
+            new Eligibility { RequiredSkills = ["Python", "Kubernetes"] });
+
+        Assert.Equal(EligibilityVerdict.CannotTell, result.Verdict);
+        Assert.NotEmpty(result.Unknown);
+    }
+
+    /// <summary>Overlapping skills are evidence, and a gap is never a denial.</summary>
+    /// <remarks>
+    /// A posting listing five skills rarely requires all five, so treating a gap as
+    /// ineligibility would hide almost everything from almost everybody. Judging skill against a
+    /// required level is Radar Learn's competency model, which is not built.
+    /// </remarks>
+    [Fact]
+    public void SharedSkillsAreEvidenceAndMissingOnesAreNot()
+    {
+        var analyst = new UserProfile { Capabilities = ["Data Analysis", "Research"] };
+
+        var overlap = EligibilityCheck.For(
+            analyst, new Eligibility { RequiredSkills = ["Data Analysis", "Programming"] });
+
+        Assert.Equal(EligibilityVerdict.Eligible, overlap.Verdict);
+        Assert.NotEmpty(overlap.Met);
+
+        var none = EligibilityCheck.For(analyst, new Eligibility { RequiredSkills = ["Welding"] });
+
+        Assert.Equal(EligibilityVerdict.CannotTell, none.Verdict);
+        Assert.Empty(none.Failed);
     }
 
     /// <summary>
@@ -191,7 +251,7 @@ public class EligibilityCheckTests
         var doctor = new UserProfile { Qualification = QualificationLevel.Doctorate, Certifications = [] };
         var certified = new UserProfile { Certifications = ["CompTIA A+"] };
 
-        // A PhD with no certifications cannot clear "PMP required" - it is unknown, not a pass.
+        // A PhD does not clear "PMP required" - it is unknown, not a pass.
         Assert.NotEqual(
             EligibilityVerdict.Eligible,
             EligibilityCheck.For(doctor, new Eligibility { RequiredCertifications = ["PMP"] }).Verdict);

@@ -44,6 +44,18 @@ public static class OnboardingAnswers
     public static bool IsMatchable(string answer) =>
         !string.IsNullOrWhiteSpace(answer) && !NotSubjects.Contains(answer.Trim());
 
+    /// <summary>The skills answer that means "starting out", not "none".</summary>
+    public const string StillExploring = "None yet — I'm exploring";
+
+    /// <summary>The goals answer that asks for information rather than opportunities.</summary>
+    public const string JustInformed = "I just want to learn and stay informed";
+
+    private static bool Exploring(string answer) =>
+        string.Equals(answer?.Trim(), StillExploring, StringComparison.OrdinalIgnoreCase);
+
+    private static bool JustInformation(string answer) =>
+        string.Equals(answer?.Trim(), JustInformed, StringComparison.OrdinalIgnoreCase);
+
     /// <summary>
     /// The qualification ladder, as the question words it.
     /// </summary>
@@ -100,15 +112,39 @@ public static class OnboardingAnswers
     /// </remarks>
     public static void Read(UserProfile profile, IReadOnlyDictionary<string, List<string>> answers)
     {
+        // A legacy document can carry a null where a list is expected, and this method writes to
+        // the profile directly. The service twenty lines away already defends with ?? []; this
+        // did not, and a null Certifications threw out of a profile write.
+        profile.Interests ??= [];
+        profile.Capabilities ??= [];
+        profile.Goals ??= [];
+        profile.Certifications ??= [];
+
         if (answers.TryGetValue("interests", out var interests))
             profile.Interests = [.. interests.Where(IsMatchable)];
 
         if (answers.TryGetValue("skills", out var skills))
+        {
             profile.Capabilities = [.. skills.Where(IsMatchable)];
 
-        if (answers.TryGetValue("goals", out var goals))
-            profile.Goals = [.. goals.Where(IsMatchable)];
+            // Kept, rather than filtered away with the rest. The answer is real and the words
+            // are not searchable, which are two different problems - and solving the second by
+            // discarding the first left somebody who said they are starting out looking exactly
+            // like somebody who never answered.
+            profile.IsExploring = skills.Any(Exploring);
+        }
 
+        if (answers.TryGetValue("goals", out var goals))
+        {
+            profile.Goals = [.. goals.Where(IsMatchable)];
+            profile.PrefersInformation = goals.Any(JustInformation);
+        }
+
+        // The two single choices clear as well as set. Both of these used to fall through every
+        // branch and leave the old value standing, so a person correcting a mis-tap to "Other"
+        // kept the wrong rung for ever - and neither field could be cleared by any route, since
+        // the ordinary profile edit has no member for either. The tests passed because they only
+        // ever checked a fresh profile, where the value was already null.
         if (answers.TryGetValue("qualification", out var qualification))
         {
             var stated = qualification.FirstOrDefault();
@@ -117,28 +153,43 @@ public static class OnboardingAnswers
             {
                 profile.Qualification = level;
             }
-            else if (string.Equals(stated, Certification, StringComparison.OrdinalIgnoreCase))
+            else
             {
-                // A certificate is evidence of a skill, not a position on the academic ladder.
-                // Recorded where Eligibility.RequiredCertifications can be compared against it.
-                profile.Certifications = [.. profile.Certifications.Append(Certification)
-                    .Distinct(StringComparer.OrdinalIgnoreCase)];
+                // "Other", or nothing at all. Either way the ladder is unstated: not being on
+                // the list is not the same as knowing where somebody sits, and a stale rung is
+                // a fact Radar would act on.
+                profile.Qualification = null;
             }
+
+            // A certificate is evidence of a skill, not a position on the academic ladder, so it
+            // is recorded separately - as the flag it actually is. The literal words
+            // "Professional Certification" were briefly written into Certifications, which no
+            // RequiredCertifications entry can ever match, and whose only effect was to turn a
+            // CannotTell into a NotEligible for everyone honest enough to pick it.
+            profile.HasProfessionalCertification =
+                string.Equals(stated, Certification, StringComparison.OrdinalIgnoreCase);
         }
 
-        if (answers.TryGetValue("level", out var level2))
+        if (answers.TryGetValue("level", out var levelAnswer))
         {
-            var stated = level2.FirstOrDefault();
+            var stated = levelAnswer.FirstOrDefault();
 
             if (stated is not null && Levels.TryGetValue(stated, out var seniority))
             {
                 profile.SeniorityLevel = seniority;
+                profile.IsFounder = false;
             }
             else if (string.Equals(stated, Founder, StringComparison.OrdinalIgnoreCase))
             {
-                // Says nothing about seniority, so SeniorityLevel stays as it was - which for a
-                // first answer is null, meaning unstated, which is accurate.
+                // Says nothing about seniority, so the ladder is cleared rather than left
+                // holding whatever was there before.
+                profile.SeniorityLevel = null;
                 profile.IsFounder = true;
+            }
+            else
+            {
+                profile.SeniorityLevel = null;
+                profile.IsFounder = null;
             }
         }
     }
