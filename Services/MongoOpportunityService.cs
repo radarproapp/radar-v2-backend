@@ -252,6 +252,17 @@ public class MongoOpportunityService : IOpportunityService
             .Select(i => i!)
             .ToList();
 
+        // The verdict, on the path that serves most of the day.
+        //
+        // HydrateBatchAsync re-runs the relevance scoring so a profile change at lunchtime takes
+        // effect, and did not re-run the eligibility check - so the badge appeared on the first
+        // load after a batch was built and vanished for every load after it, on the same
+        // opportunities. Its own doctrine, applied to one half.
+        //
+        // Labelled rather than gated: a stored batch is a decision already made, and quietly
+        // shrinking it here would produce the short day the comment below is about.
+        foreach (var opp in ordered) Explain(profile, opp);
+
         // A batch most of which no longer applies is rebuilt, not served short.
         //
         // The fallback used to need the batch to be entirely gone, while the comment above it
@@ -514,6 +525,13 @@ public class MongoOpportunityService : IOpportunityService
             var activeRoadmap = await _db.Roadmaps.Find(r => r.UserId == profile.Id && r.IsActive).FirstOrDefaultAsync();
             var learningRecord = await RecordForAsync(profile);
             EnrichOpportunityWithPersonalization(opp, profile, activeRoadmap, trackingMap, learningRecord);
+
+            // Labelled, not gated. The verdict is computed everywhere an opportunity is
+            // served so a card can say what it knows - but only the two list surfaces drop
+            // anything, because hiding something somebody saved or opened on purpose would be
+            // wrong. Left out of these paths, the field stayed null and the note rendered
+            // nothing on the one route the feed actually uses to open a drawer.
+            Explain(profile, opp);
         }
 
         return opp;
@@ -546,7 +564,11 @@ public class MongoOpportunityService : IOpportunityService
 
         foreach (var opp in items)
         {
-            if (profile != null) EnrichOpportunityWithPersonalization(opp, profile, activeRoadmap, trackingMap, learningRecord);
+            if (profile != null)
+            {
+                EnrichOpportunityWithPersonalization(opp, profile, activeRoadmap, trackingMap, learningRecord);
+                Explain(profile, opp);
+            }
             opp.IsSaved = true;
         }
 
@@ -686,7 +708,11 @@ public class MongoOpportunityService : IOpportunityService
 
         foreach (var opp in items)
         {
-            if (profile != null) EnrichOpportunityWithPersonalization(opp, profile, activeRoadmap, trackingMap, learningRecord);
+            if (profile != null)
+            {
+                EnrichOpportunityWithPersonalization(opp, profile, activeRoadmap, trackingMap, learningRecord);
+                Explain(profile, opp);
+            }
         }
 
         return items;
