@@ -385,9 +385,20 @@ public class MongoIntelligenceFeedService : IIntelligenceFeedService
         return items;
     }
 
-    private static void RankByInterest(UserProfile profile, List<ContentItem> items, UserLearningRecord? record = null) =>
-        items.Sort((a, b) => InterestPersonalization.ContentScore(b, profile, record)
-            .CompareTo(InterestPersonalization.ContentScore(a, profile, record)));
+    /// <summary>Orders a page by how well it matches this reader.</summary>
+    /// <remarks>
+    /// Sorts in place because callers hold the list, and delegates the order itself to
+    /// <see cref="Ranking"/> so the two feeds cannot drift apart on what "most relevant" means.
+    /// </remarks>
+    private static void RankByInterest(UserProfile profile, List<ContentItem> items, UserLearningRecord? record = null)
+    {
+        var ranked = Ranking.ByRelevance(
+            items,
+            item => InterestPersonalization.ContentScore(item, profile, record));
+
+        items.Clear();
+        items.AddRange(ranked);
+    }
 
     /// <summary>
     /// Per-user decoration applied after the page is chosen: AI relevance ranking, then the saved

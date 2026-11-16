@@ -162,7 +162,7 @@ public class MongoOpportunityService : IOpportunityService
             valid = valid.Where(o => o.MatchTier.Equals(matchTier, StringComparison.OrdinalIgnoreCase)).ToList();
         }
 
-        valid.Sort((a, b) => b.MatchScorePercent.CompareTo(a.MatchScorePercent));
+        valid = Ranking.ByRelevance(valid);
 
         return valid
             .Skip((page - 1) * pageSize)
